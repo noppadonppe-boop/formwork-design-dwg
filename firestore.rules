@@ -1,0 +1,733 @@
+// NOTE: Firestore has ONE ruleset per Firebase project. rc-design-ecosystem is shared with other apps,
+// so this file is the full live ruleset (pulled 2026-10-27) plus the FormWork Studio block.
+// Always pull the live rules and merge before deploying, or the other apps' rules are overwritten.
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function verifiedEmail() {
+      return signedIn() && request.auth.token.email_verified == true;
+    }
+
+    function organizationDocument(organizationId) {
+      return get(/databases/$(database)/documents/organizations/$(organizationId));
+    }
+
+    function memberDocument(organizationId, uid) {
+      return get(/databases/$(database)/documents/organizations/$(organizationId)/members/$(uid));
+    }
+
+    // A still-active member may read only their own organization document even
+    // when its status is suspended. This lets the client show an explicit,
+    // fail-closed suspension screen; all tenant project data continues to use
+    // activeOrganizationMember and therefore remains denied.
+    function organizationStatusReader(organizationId) {
+      return verifiedEmail()
+        && memberDocument(organizationId, request.auth.uid).data.organizationId == organizationId
+        && memberDocument(organizationId, request.auth.uid).data.uid == request.auth.uid
+        && memberDocument(organizationId, request.auth.uid).data.status == 'active'
+        && memberDocument(organizationId, request.auth.uid).data.roles is list;
+    }
+
+    function activeOrganizationMember(organizationId) {
+      return verifiedEmail()
+        && organizationDocument(organizationId).data.status == 'active'
+        && memberDocument(organizationId, request.auth.uid).data.status == 'active'
+        && memberDocument(organizationId, request.auth.uid).data.organizationId == organizationId
+        && memberDocument(organizationId, request.auth.uid).data.roles is list;
+    }
+
+    function hasOrganizationRole(organizationId, acceptedRoles) {
+      return activeOrganizationMember(organizationId)
+        && memberDocument(organizationId, request.auth.uid).data.roles.hasAny(acceptedRoles);
+    }
+
+    function organizationAdmin(organizationId) {
+      return hasOrganizationRole(organizationId, ['MasterAdmin', 'Admin']);
+    }
+
+    function organizationMasterAdmin(organizationId) {
+      return hasOrganizationRole(organizationId, ['MasterAdmin']);
+    }
+
+    function projectDocument(organizationId, projectId) {
+      return get(/databases/$(database)/documents/organizations/$(organizationId)/projects/$(projectId));
+    }
+
+    function projectMember(organizationId, projectId) {
+      return activeOrganizationMember(organizationId)
+        && (
+          memberDocument(organizationId, request.auth.uid).data.roles.hasAny(['MasterAdmin', 'Admin'])
+          || (
+            projectDocument(organizationId, projectId).data.organizationId == organizationId
+            && projectDocument(organizationId, projectId).data.memberUids is list
+            && projectDocument(organizationId, projectId).data.memberUids.hasAny([request.auth.uid])
+          )
+        );
+    }
+
+    function activeProjectMember(organizationId, projectId) {
+      return projectMember(organizationId, projectId)
+        && projectDocument(organizationId, projectId).data.status == 'active';
+    }
+
+    function entitlementDocument(organizationId) {
+      return get(/databases/$(database)/documents/organizations/$(organizationId)/entitlements/current);
+    }
+
+    // Controlled engineering writes are licensed at the database boundary, not
+    // only hidden in the browser. Existing tenant data stays readable through
+    // the ordinary membership predicates when a trial/subscription expires.
+    function organizationWriteEntitled(organizationId) {
+      let entitlement = entitlementDocument(organizationId).data;
+      return entitlement.schemaVersion == 1
+        && entitlement.organizationId == organizationId
+        && entitlement.writeUntil is timestamp
+        && entitlement.writeUntil > request.time;
+    }
+
+    function calculationFeature(calculationType) {
+      let featureMap = {
+        'Beam': 'beam',
+        'Slab': 'slab',
+        'Column': 'column',
+        'Footing': 'foundation',
+        'Wall': 'wall',
+        'Moment Distribution': 'moment-dist',
+        'Corbel': 'corbel',
+        'Composite Beam': 'composite-beam',
+        'STM': 'stm',
+        'Special Slab': 'special-slabs',
+        'Anchor': 'anchor'
+      };
+      return featureMap[calculationType];
+    }
+
+    function calculationWriteEntitled(organizationId, calculationType) {
+      return calculationType in [
+          'Beam', 'Slab', 'Column', 'Footing', 'Wall', 'Moment Distribution',
+          'Corbel', 'Composite Beam', 'STM', 'Special Slab', 'Anchor'
+        ]
+        && organizationWriteEntitled(organizationId)
+        && entitlementDocument(organizationId).data.features is list
+        && entitlementDocument(organizationId).data.features.hasAny(['*', calculationFeature(calculationType)]);
+    }
+
+    function calculationHeadWriteEntitled(organizationId, projectId, calculationId) {
+      return existsAfter(/databases/$(database)/documents/organizations/$(organizationId)/projects/$(projectId)/calculations/$(calculationId))
+        && calculationWriteEntitled(
+          organizationId,
+          getAfter(/databases/$(database)/documents/organizations/$(organizationId)/projects/$(projectId)/calculations/$(calculationId)).data.calculationType
+        );
+    }
+
+    function membershipMatchesUserAfter(organizationId, memberUid, membership) {
+      return existsAfter(/databases/$(database)/documents/users/$(memberUid))
+        && getAfter(/databases/$(database)/documents/users/$(memberUid)).data.uid == memberUid
+        && getAfter(/databases/$(database)/documents/users/$(memberUid)).data.organizationId == organizationId
+        && getAfter(/databases/$(database)/documents/users/$(memberUid)).data.role == membership.roles
+        && (
+          (membership.status == 'active'
+            && getAfter(/databases/$(database)/documents/users/$(memberUid)).data.status == 'approved')
+          || (membership.status == 'inactive'
+            && getAfter(/databases/$(database)/documents/users/$(memberUid)).data.status in ['pending', 'rejected'])
+        );
+    }
+
+    // These capability helpers are always paired with an active organization
+    // or active project membership check in the enclosing allow rule. Keeping
+    // the role lookup here avoids repeating the full membership predicate and
+    // exceeding Firestore's rule-expression limit on atomic revision writes.
+    function canPrepare(organizationId) {
+      return memberDocument(organizationId, request.auth.uid).data.roles.hasAny([
+        'MasterAdmin', 'Admin', 'Engineer', 'Designer', 'Creator'
+      ]);
+    }
+
+    function canCheck(organizationId) {
+      return memberDocument(organizationId, request.auth.uid).data.roles.hasAny([
+        'MasterAdmin', 'Admin', 'Checker'
+      ]);
+    }
+
+    function canApprove(organizationId) {
+      return memberDocument(organizationId, request.auth.uid).data.roles.hasAny(['MasterAdmin', 'Admin']);
+    }
+
+    function canComment(organizationId) {
+      return memberDocument(organizationId, request.auth.uid).data.roles.hasAny([
+        'MasterAdmin', 'Admin', 'Engineer', 'Designer', 'Checker',
+        'Viewer', 'Creator', 'Staff'
+      ]);
+    }
+
+    function validHash(value) {
+      return value is string && value.matches('^[0-9a-f]{64}$');
+    }
+
+    function validVersionMetadata(metadata) {
+      return metadata is map
+        && metadata.schemaVersion == 1
+        && metadata.appVersion is string && metadata.appVersion.size() > 0
+        && metadata.engineName is string && metadata.engineName.size() > 0
+        && metadata.engineVersion is string && metadata.engineVersion.size() > 0
+        && metadata.engineBuildHash is string && metadata.engineBuildHash.size() > 0
+        && metadata.standard is string && metadata.standard.size() > 0
+        && metadata.unitSystem is string && metadata.unitSystem.size() > 0;
+    }
+
+    function headTargetsExistingRevision(organizationId, projectId, calculationId) {
+      return existsAfter(/databases/$(database)/documents/organizations/$(organizationId)/projects/$(projectId)/calculations/$(calculationId)/revisions/$(request.resource.data.latestRevisionId))
+        && getAfter(/databases/$(database)/documents/organizations/$(organizationId)/projects/$(projectId)/calculations/$(calculationId)/revisions/$(request.resource.data.latestRevisionId)).data.organizationId == organizationId
+        && getAfter(/databases/$(database)/documents/organizations/$(organizationId)/projects/$(projectId)/calculations/$(calculationId)/revisions/$(request.resource.data.latestRevisionId)).data.projectId == projectId
+        && getAfter(/databases/$(database)/documents/organizations/$(organizationId)/projects/$(projectId)/calculations/$(calculationId)/revisions/$(request.resource.data.latestRevisionId)).data.calculationId == calculationId
+        && getAfter(/databases/$(database)/documents/organizations/$(organizationId)/projects/$(projectId)/calculations/$(calculationId)/revisions/$(request.resource.data.latestRevisionId)).data.revisionNumber == request.resource.data.latestRevisionNumber
+        && getAfter(/databases/$(database)/documents/organizations/$(organizationId)/projects/$(projectId)/calculations/$(calculationId)/revisions/$(request.resource.data.latestRevisionId)).data.state == request.resource.data.latestState
+        && getAfter(/databases/$(database)/documents/organizations/$(organizationId)/projects/$(projectId)/calculations/$(calculationId)/revisions/$(request.resource.data.latestRevisionId)).data.contentHash == request.resource.data.latestContentHash;
+    }
+
+    function parentRevisionAllowsAppend(organizationId, projectId, calculationId) {
+      return request.resource.data.revisionNumber == 1
+        ? request.resource.data.parentRevisionId == null && request.resource.data.previousContentHash == null
+        : request.resource.data.parentRevisionId == get(/databases/$(database)/documents/organizations/$(organizationId)/projects/$(projectId)/calculations/$(calculationId)).data.latestRevisionId
+          && get(/databases/$(database)/documents/organizations/$(organizationId)/projects/$(projectId)/calculations/$(calculationId)/revisions/$(request.resource.data.parentRevisionId)).data.revisionNumber == request.resource.data.revisionNumber - 1
+          && get(/databases/$(database)/documents/organizations/$(organizationId)/projects/$(projectId)/calculations/$(calculationId)/revisions/$(request.resource.data.parentRevisionId)).data.state in ['approved', 'returned']
+          && get(/databases/$(database)/documents/organizations/$(organizationId)/projects/$(projectId)/calculations/$(calculationId)/revisions/$(request.resource.data.parentRevisionId)).data.contentHash == request.resource.data.previousContentHash;
+    }
+
+    function createdAuditExists(organizationId, projectId, calculationId, revisionId) {
+      return existsAfter(/databases/$(database)/documents/organizations/$(organizationId)/projects/$(projectId)/calculations/$(calculationId)/revisions/$(revisionId)/auditEvents/created)
+        && getAfter(/databases/$(database)/documents/organizations/$(organizationId)/projects/$(projectId)/calculations/$(calculationId)/revisions/$(revisionId)/auditEvents/created).data.eventId == 'created'
+        && getAfter(/databases/$(database)/documents/organizations/$(organizationId)/projects/$(projectId)/calculations/$(calculationId)/revisions/$(revisionId)/auditEvents/created).data.eventType == 'revision.created'
+        && getAfter(/databases/$(database)/documents/organizations/$(organizationId)/projects/$(projectId)/calculations/$(calculationId)/revisions/$(revisionId)/auditEvents/created).data.actorUid == request.auth.uid
+        && getAfter(/databases/$(database)/documents/organizations/$(organizationId)/projects/$(projectId)/calculations/$(calculationId)/revisions/$(revisionId)/auditEvents/created).data.toState == 'prepared'
+        && getAfter(/databases/$(database)/documents/organizations/$(organizationId)/projects/$(projectId)/calculations/$(calculationId)/revisions/$(revisionId)/auditEvents/created).data.statusVersion == 0
+        && getAfter(/databases/$(database)/documents/organizations/$(organizationId)/projects/$(projectId)/calculations/$(calculationId)/revisions/$(revisionId)/auditEvents/created).data.contentHash == request.resource.data.contentHash;
+    }
+
+    function transitionEventMatches(organizationId, projectId, calculationId, revisionId, eventId) {
+      return existsAfter(/databases/$(database)/documents/organizations/$(organizationId)/projects/$(projectId)/calculations/$(calculationId)/revisions/$(revisionId)/auditEvents/$(eventId))
+        && getAfter(/databases/$(database)/documents/organizations/$(organizationId)/projects/$(projectId)/calculations/$(calculationId)/revisions/$(revisionId)/auditEvents/$(eventId)).data.eventId == eventId
+        && getAfter(/databases/$(database)/documents/organizations/$(organizationId)/projects/$(projectId)/calculations/$(calculationId)/revisions/$(revisionId)/auditEvents/$(eventId)).data.actorUid == request.auth.uid
+        && getAfter(/databases/$(database)/documents/organizations/$(organizationId)/projects/$(projectId)/calculations/$(calculationId)/revisions/$(revisionId)/auditEvents/$(eventId)).data.fromState == resource.data.state
+        && getAfter(/databases/$(database)/documents/organizations/$(organizationId)/projects/$(projectId)/calculations/$(calculationId)/revisions/$(revisionId)/auditEvents/$(eventId)).data.toState == request.resource.data.state
+        && getAfter(/databases/$(database)/documents/organizations/$(organizationId)/projects/$(projectId)/calculations/$(calculationId)/revisions/$(revisionId)/auditEvents/$(eventId)).data.statusVersion == request.resource.data.statusVersion
+        && getAfter(/databases/$(database)/documents/organizations/$(organizationId)/projects/$(projectId)/calculations/$(calculationId)/revisions/$(revisionId)/auditEvents/$(eventId)).data.contentHash == resource.data.contentHash
+        && getAfter(/databases/$(database)/documents/organizations/$(organizationId)/projects/$(projectId)/calculations/$(calculationId)/revisions/$(revisionId)/auditEvents/$(eventId)).data.reason == request.resource.data.lastTransitionReason;
+    }
+
+    function transitionAuditExists(organizationId, projectId, calculationId, revisionId) {
+      return request.resource.data.state == 'checked'
+        ? transitionEventMatches(organizationId, projectId, calculationId, revisionId, 'checked')
+        : request.resource.data.state == 'approved'
+          ? transitionEventMatches(organizationId, projectId, calculationId, revisionId, 'approved')
+          : request.resource.data.state == 'returned'
+            && transitionEventMatches(organizationId, projectId, calculationId, revisionId, 'returned');
+    }
+
+    function immutableRevisionIdentityAndContent() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+        'state', 'statusVersion', 'lastTransitionReason', 'updatedAt',
+        'checkedByUid', 'checkedAt',
+        'approvedByUid', 'approvedAt', 'approvalHash',
+        'returnedByUid', 'returnedAt'
+      ]);
+    }
+
+    function validCheckTransition(organizationId) {
+      return resource.data.state == 'prepared'
+        && request.resource.data.state == 'checked'
+        && request.resource.data.statusVersion == resource.data.statusVersion + 1
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'state', 'statusVersion', 'lastTransitionReason', 'updatedAt', 'checkedByUid', 'checkedAt'
+        ])
+        && canCheck(organizationId)
+        && request.auth.uid != resource.data.preparedByUid
+        && request.resource.data.checkedByUid == request.auth.uid
+        && request.resource.data.checkedAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.lastTransitionReason is string
+        && request.resource.data.lastTransitionReason.size() <= 2000;
+    }
+
+    function validApproveTransition(organizationId) {
+      return resource.data.state == 'checked'
+        && request.resource.data.state == 'approved'
+        && request.resource.data.statusVersion == resource.data.statusVersion + 1
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'state', 'statusVersion', 'lastTransitionReason', 'updatedAt',
+          'approvedByUid', 'approvedAt', 'approvalHash'
+        ])
+        && canApprove(organizationId)
+        && request.auth.uid != resource.data.preparedByUid
+        && request.auth.uid != resource.data.checkedByUid
+        && request.resource.data.approvedByUid == request.auth.uid
+        && request.resource.data.approvedAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.lastTransitionReason is string
+        && request.resource.data.lastTransitionReason.size() <= 2000
+         && resource.data.resultData.passed == true
+         && resource.data.manualOverride == false
+         && (resource.data.versionMetadata.engineName != 'Beam'
+           || (resource.data.resultData.implemented_checks_ok == true
+             && resource.data.criteriaSnapshot.codePackProductionApproved == true
+             && resource.data.criteriaSnapshot.formulaVerificationStatus == 'APPROVED'))
+         && validHash(request.resource.data.approvalHash);
+    }
+
+    function validReturnTransition(organizationId) {
+      return request.resource.data.state == 'returned'
+        && resource.data.state in ['prepared', 'checked']
+        && request.resource.data.statusVersion == resource.data.statusVersion + 1
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'state', 'statusVersion', 'lastTransitionReason', 'updatedAt',
+          'returnedByUid', 'returnedAt'
+        ])
+        && request.resource.data.returnedByUid == request.auth.uid
+        && request.resource.data.returnedAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.lastTransitionReason is string
+        && request.resource.data.lastTransitionReason.size() > 0
+        && request.resource.data.lastTransitionReason.size() <= 2000
+        && (
+          (resource.data.state == 'prepared'
+            && canCheck(organizationId)
+            && request.auth.uid != resource.data.preparedByUid)
+          ||
+          (resource.data.state == 'checked'
+            && canApprove(organizationId)
+            && request.auth.uid != resource.data.preparedByUid
+            && request.auth.uid != resource.data.checkedByUid)
+        );
+    }
+
+    function auditEventTargetsRevision(organizationId, projectId, calculationId, revisionId, eventId) {
+      return existsAfter(/databases/$(database)/documents/organizations/$(organizationId)/projects/$(projectId)/calculations/$(calculationId)/revisions/$(revisionId))
+        && request.resource.data.eventId == eventId
+        && request.resource.data.organizationId == organizationId
+        && request.resource.data.projectId == projectId
+        && request.resource.data.calculationId == calculationId
+        && request.resource.data.revisionNumber == getAfter(/databases/$(database)/documents/organizations/$(organizationId)/projects/$(projectId)/calculations/$(calculationId)/revisions/$(revisionId)).data.revisionNumber
+        && request.resource.data.actorUid == request.auth.uid
+        && request.resource.data.actorRoles is list
+        && request.resource.data.actorRoles == memberDocument(organizationId, request.auth.uid).data.roles
+        && request.resource.data.statusVersion is int
+        && request.resource.data.reason is string
+        && request.resource.data.reason.size() <= 2000
+        && request.resource.data.createdAt == request.time
+        && validHash(request.resource.data.contentHash)
+        && request.resource.data.contentHash == getAfter(/databases/$(database)/documents/organizations/$(organizationId)/projects/$(projectId)/calculations/$(calculationId)/revisions/$(revisionId)).data.contentHash;
+    }
+
+    function validAuditEventSemantics(organizationId, projectId, calculationId, revisionId, eventId) {
+      return (
+          eventId == 'created'
+          && request.resource.data.eventId == 'created'
+          && request.resource.data.eventType == 'revision.created'
+          && request.resource.data.fromState == null
+          && request.resource.data.toState == 'prepared'
+          && request.resource.data.statusVersion == 0
+          && getAfter(/databases/$(database)/documents/organizations/$(organizationId)/projects/$(projectId)/calculations/$(calculationId)/revisions/$(revisionId)).data.state == 'prepared'
+          && getAfter(/databases/$(database)/documents/organizations/$(organizationId)/projects/$(projectId)/calculations/$(calculationId)/revisions/$(revisionId)).data.preparedByUid == request.auth.uid
+        ) || (
+          eventId == 'checked'
+          && request.resource.data.eventId == 'checked'
+          && request.resource.data.eventType == 'revision.checked'
+          && request.resource.data.fromState == 'prepared'
+          && request.resource.data.toState == 'checked'
+          && request.resource.data.statusVersion == getAfter(/databases/$(database)/documents/organizations/$(organizationId)/projects/$(projectId)/calculations/$(calculationId)/revisions/$(revisionId)).data.statusVersion
+          && getAfter(/databases/$(database)/documents/organizations/$(organizationId)/projects/$(projectId)/calculations/$(calculationId)/revisions/$(revisionId)).data.state == 'checked'
+          && getAfter(/databases/$(database)/documents/organizations/$(organizationId)/projects/$(projectId)/calculations/$(calculationId)/revisions/$(revisionId)).data.checkedByUid == request.auth.uid
+        ) || (
+          eventId == 'approved'
+          && request.resource.data.eventId == 'approved'
+          && request.resource.data.eventType == 'revision.approved'
+          && request.resource.data.fromState == 'checked'
+          && request.resource.data.toState == 'approved'
+          && request.resource.data.statusVersion == getAfter(/databases/$(database)/documents/organizations/$(organizationId)/projects/$(projectId)/calculations/$(calculationId)/revisions/$(revisionId)).data.statusVersion
+          && getAfter(/databases/$(database)/documents/organizations/$(organizationId)/projects/$(projectId)/calculations/$(calculationId)/revisions/$(revisionId)).data.state == 'approved'
+          && getAfter(/databases/$(database)/documents/organizations/$(organizationId)/projects/$(projectId)/calculations/$(calculationId)/revisions/$(revisionId)).data.approvedByUid == request.auth.uid
+        ) || (
+          eventId == 'returned'
+          && request.resource.data.eventId == 'returned'
+          && request.resource.data.eventType == 'revision.returned'
+          && request.resource.data.fromState in ['prepared', 'checked']
+          && request.resource.data.toState == 'returned'
+          && request.resource.data.reason.size() > 0
+          && request.resource.data.statusVersion == getAfter(/databases/$(database)/documents/organizations/$(organizationId)/projects/$(projectId)/calculations/$(calculationId)/revisions/$(revisionId)).data.statusVersion
+          && getAfter(/databases/$(database)/documents/organizations/$(organizationId)/projects/$(projectId)/calculations/$(calculationId)/revisions/$(revisionId)).data.state == 'returned'
+          && getAfter(/databases/$(database)/documents/organizations/$(organizationId)/projects/$(projectId)/calculations/$(calculationId)/revisions/$(revisionId)).data.returnedByUid == request.auth.uid
+        ) || (
+          request.resource.data.eventType == 'revision.comment'
+          && request.resource.data.commentId is string
+          && eventId == request.resource.data.commentId
+          && existsAfter(/databases/$(database)/documents/organizations/$(organizationId)/projects/$(projectId)/calculations/$(calculationId)/revisions/$(revisionId)/comments/$(request.resource.data.commentId))
+          && getAfter(/databases/$(database)/documents/organizations/$(organizationId)/projects/$(projectId)/calculations/$(calculationId)/revisions/$(revisionId)/comments/$(request.resource.data.commentId)).data.authorUid == request.auth.uid
+        );
+    }
+
+    function calculationIdentityUnchanged() {
+      return request.resource.data.organizationId == resource.data.organizationId
+        && request.resource.data.projectId == resource.data.projectId
+        && request.resource.data.calculationId == resource.data.calculationId
+        && request.resource.data.schemaVersion == resource.data.schemaVersion
+        && request.resource.data.calculationType == resource.data.calculationType
+        && request.resource.data.mark == resource.data.mark
+        && request.resource.data.createdByUid == resource.data.createdByUid
+        && request.resource.data.createdAt == resource.data.createdAt;
+    }
+
+    function validCalculationHeadAppend(organizationId) {
+      return canPrepare(organizationId)
+        && resource.data.latestState in ['approved', 'returned']
+        && request.resource.data.latestRevisionNumber == resource.data.latestRevisionNumber + 1
+        && request.resource.data.latestRevisionId != resource.data.latestRevisionId
+        && request.resource.data.latestState == 'prepared'
+        && validHash(request.resource.data.latestContentHash)
+        && request.resource.data.latestApprovedRevisionId == resource.data.latestApprovedRevisionId
+        && request.resource.data.latestApprovedRevisionNumber == resource.data.latestApprovedRevisionNumber
+        && request.resource.data.latestApprovalHash == resource.data.latestApprovalHash
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'latestRevisionId', 'latestRevisionNumber', 'latestState', 'latestContentHash', 'updatedAt'
+        ]);
+    }
+
+    function validCalculationHeadTransition(organizationId, projectId, calculationId) {
+      return request.resource.data.latestRevisionId == resource.data.latestRevisionId
+        && request.resource.data.latestRevisionNumber == resource.data.latestRevisionNumber
+        && request.resource.data.latestContentHash == resource.data.latestContentHash
+        && (
+          (resource.data.latestState == 'prepared'
+            && request.resource.data.latestState == 'checked'
+            && canCheck(organizationId)
+            && request.resource.data.latestApprovedRevisionId == resource.data.latestApprovedRevisionId
+            && request.resource.data.latestApprovedRevisionNumber == resource.data.latestApprovedRevisionNumber
+            && request.resource.data.latestApprovalHash == resource.data.latestApprovalHash
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['latestState', 'updatedAt']))
+          ||
+          (resource.data.latestState == 'checked'
+            && request.resource.data.latestState == 'approved'
+            && canApprove(organizationId)
+            && request.resource.data.latestApprovedRevisionId == request.resource.data.latestRevisionId
+            && request.resource.data.latestApprovedRevisionNumber == request.resource.data.latestRevisionNumber
+            && validHash(request.resource.data.latestApprovalHash)
+            && request.resource.data.latestApprovalHash == getAfter(/databases/$(database)/documents/organizations/$(organizationId)/projects/$(projectId)/calculations/$(calculationId)/revisions/$(request.resource.data.latestRevisionId)).data.approvalHash
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'latestState', 'latestApprovedRevisionId', 'latestApprovedRevisionNumber',
+              'latestApprovalHash', 'updatedAt'
+            ]))
+          ||
+          (resource.data.latestState == 'prepared'
+            && request.resource.data.latestState == 'returned'
+            && canCheck(organizationId)
+            && request.resource.data.latestApprovedRevisionId == resource.data.latestApprovedRevisionId
+            && request.resource.data.latestApprovedRevisionNumber == resource.data.latestApprovedRevisionNumber
+            && request.resource.data.latestApprovalHash == resource.data.latestApprovalHash
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['latestState', 'updatedAt']))
+          ||
+          (resource.data.latestState == 'checked'
+            && request.resource.data.latestState == 'returned'
+            && canApprove(organizationId)
+            && request.resource.data.latestApprovedRevisionId == resource.data.latestApprovedRevisionId
+            && request.resource.data.latestApprovedRevisionNumber == resource.data.latestApprovedRevisionNumber
+            && request.resource.data.latestApprovalHash == resource.data.latestApprovalHash
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['latestState', 'updatedAt']))
+        );
+    }
+
+    function userOwnProfileUpdate(uid) {
+      return request.auth.uid == uid
+        && request.resource.data.uid == resource.data.uid
+        && request.resource.data.organizationId == resource.data.organizationId
+        && request.resource.data.email == resource.data.email
+        && request.resource.data.role == resource.data.role
+        && request.resource.data.status == resource.data.status
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'firstName', 'lastName', 'position', 'photoURL', 'updatedAt'
+        ])
+        && request.resource.data.updatedAt == request.time;
+    }
+
+    function userOrganizationAdminUpdate(uid) {
+      return organizationAdmin(resource.data.organizationId)
+        && request.resource.data.uid == uid
+        && request.resource.data.uid == resource.data.uid
+        && request.resource.data.organizationId == resource.data.organizationId
+        && request.resource.data.email == resource.data.email
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.role is list
+        && request.resource.data.role.size() > 0
+        && request.resource.data.status in ['pending', 'approved', 'rejected']
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'role', 'status', 'updatedAt'
+        ])
+        && request.resource.data.updatedAt == request.time
+        && (request.resource.data.role == resource.data.role || organizationMasterAdmin(resource.data.organizationId))
+        && existsAfter(/databases/$(database)/documents/organizations/$(resource.data.organizationId)/members/$(uid))
+        && getAfter(/databases/$(database)/documents/organizations/$(resource.data.organizationId)/members/$(uid)).data.organizationId == resource.data.organizationId
+        && getAfter(/databases/$(database)/documents/organizations/$(resource.data.organizationId)/members/$(uid)).data.uid == uid
+        && getAfter(/databases/$(database)/documents/organizations/$(resource.data.organizationId)/members/$(uid)).data.roles == request.resource.data.role
+        && getAfter(/databases/$(database)/documents/organizations/$(resource.data.organizationId)/members/$(uid)).data.status == (request.resource.data.status == 'approved' ? 'active' : 'inactive')
+        && (
+          uid != get(/databases/$(database)/documents/organizations/$(resource.data.organizationId)).data.ownerUid
+          || (request.resource.data.status == 'approved' && request.resource.data.role.hasAny(['MasterAdmin']))
+        );
+    }
+
+    match /users/{uid} {
+      allow read: if signedIn()
+        && (request.auth.uid == uid || organizationAdmin(resource.data.organizationId));
+      // Organization bootstrap and role/status changes are server-owned so the
+      // browser cannot mint a tenant, bypass seats, or self-promote.
+      allow create: if false;
+      allow update: if verifiedEmail() && userOwnProfileUpdate(uid);
+      allow delete: if false;
+    }
+
+    match /organizations/{organizationId} {
+      allow get: if organizationStatusReader(organizationId);
+      allow list: if false;
+      allow create: if false;
+      // Organization lifecycle is server-owned. A browser admin may rename an
+      // active tenant, but cannot suspend/reactivate it or strand the tenant in
+      // an irreversible state through a direct SDK write.
+      allow update: if organizationAdmin(organizationId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'updatedAt'])
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.name.size() <= 160
+        && request.resource.data.updatedAt == request.time;
+      allow delete: if false;
+
+      // Entitlements are a server-owned projection. Verified tenant members may
+      // inspect the current snapshot (including while the organization is
+      // suspended so billing recovery remains explainable), but Admin SDK
+      // functions are the only writers.
+      match /entitlements/{entitlementId} {
+        allow get: if entitlementId == 'current'
+          && organizationStatusReader(organizationId);
+        allow list, create, update, delete: if false;
+      }
+
+      // Seat usage is mutated atomically by trusted invitation/member services.
+      // It is intentionally not a client-authoritative counter.
+      match /billingCounters/{counterId} {
+        allow read, write: if false;
+      }
+
+      // Invitation metadata contains a verifier hash and target email. All
+      // reads/writes therefore pass through App-Check-enforced Admin SDK
+      // callables; browsers never receive tokenHash or the concurrency claim.
+      match /invitations/{invitationId} {
+        allow read, write: if false;
+      }
+
+      match /invitationClaims/{emailHash} {
+        allow read, write: if false;
+      }
+
+      // Security and access audit records are append-only from the client
+      // perspective. Trusted functions create them in the same transaction as
+      // the authoritative state change; tenant admins may inspect the result.
+      match /invitationAudit/{eventId} {
+        allow read: if organizationAdmin(organizationId);
+        allow create, update, delete: if false;
+      }
+
+      match /accessAudit/{eventId} {
+        allow read: if organizationAdmin(organizationId);
+        allow create, update, delete: if false;
+      }
+
+      match /organizationAudit/{eventId} {
+        allow read: if organizationAdmin(organizationId);
+        allow create, update, delete: if false;
+      }
+
+      match /members/{memberUid} {
+        allow read: if activeOrganizationMember(organizationId);
+        allow create, update, delete: if false;
+      }
+
+      match /activityLogs/{eventId} {
+        allow read: if organizationAdmin(organizationId);
+        allow create: if activeOrganizationMember(organizationId)
+          && request.resource.data.type in ['LOGIN', 'REGISTER']
+          && request.resource.data.organizationId == organizationId
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.method in ['email', 'google']
+          && request.resource.data.createdAt == request.time
+          && request.resource.data.keys().hasOnly([
+            'organizationId', 'uid', 'type', 'method', 'createdAt'
+          ]);
+        allow update, delete: if false;
+      }
+
+      match /projects/{projectId} {
+        allow read: if projectMember(organizationId, projectId);
+        allow create: if activeOrganizationMember(organizationId)
+          && organizationWriteEntitled(organizationId)
+          && canPrepare(organizationId)
+          && request.resource.data.organizationId == organizationId
+          && request.resource.data.projectId == projectId
+          && request.resource.data.status == 'active'
+          && request.resource.data.memberUids is list
+          && request.resource.data.memberUids.hasAny([request.auth.uid])
+          && request.resource.data.createdByUid == request.auth.uid
+          && request.resource.data.createdAt == request.time;
+        allow update: if projectMember(organizationId, projectId)
+          && organizationWriteEntitled(organizationId)
+          && hasOrganizationRole(organizationId, ['MasterAdmin', 'Admin', 'Engineer'])
+          && request.resource.data.organizationId == resource.data.organizationId
+          && request.resource.data.projectId == resource.data.projectId
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'name', 'description', 'revision', 'memberUids', 'globalCriteria', 'status', 'updatedAt'
+          ])
+          && (request.resource.data.memberUids == resource.data.memberUids || organizationAdmin(organizationId))
+          && request.resource.data.status in ['active', 'archived']
+          && (request.resource.data.status == resource.data.status || organizationAdmin(organizationId))
+          && request.resource.data.updatedAt == request.time;
+        allow delete: if false;
+
+        match /calculations/{calculationId} {
+          allow read: if projectMember(organizationId, projectId);
+          allow create: if activeProjectMember(organizationId, projectId)
+            && canPrepare(organizationId)
+            && request.resource.data.organizationId == organizationId
+            && request.resource.data.projectId == projectId
+            && request.resource.data.calculationId == calculationId
+            && request.resource.data.schemaVersion == 1
+            && request.resource.data.calculationType is string
+            && request.resource.data.mark is string
+            && request.resource.data.createdByUid == request.auth.uid
+            && request.resource.data.latestRevisionNumber == 1
+            && request.resource.data.latestState == 'prepared'
+            && request.resource.data.latestApprovedRevisionId == null
+            && request.resource.data.latestApprovedRevisionNumber == null
+            && request.resource.data.latestApprovalHash == null
+            && request.resource.data.createdAt == request.time
+            && request.resource.data.updatedAt == request.time
+            && headTargetsExistingRevision(organizationId, projectId, calculationId);
+          allow update: if activeProjectMember(organizationId, projectId)
+            && calculationIdentityUnchanged()
+            && request.resource.data.updatedAt == request.time
+            && (validCalculationHeadAppend(organizationId)
+              || validCalculationHeadTransition(organizationId, projectId, calculationId))
+            && headTargetsExistingRevision(organizationId, projectId, calculationId);
+          allow delete: if false;
+
+          match /revisions/{revisionId} {
+            allow read: if projectMember(organizationId, projectId);
+            allow create: if activeProjectMember(organizationId, projectId)
+              && calculationHeadWriteEntitled(organizationId, projectId, calculationId)
+              && canPrepare(organizationId)
+              && request.resource.data.schemaVersion == 1
+              && request.resource.data.organizationId == organizationId
+              && request.resource.data.projectId == projectId
+              && request.resource.data.calculationId == calculationId
+              && request.resource.data.revisionNumber is int
+              && request.resource.data.revisionNumber > 0
+              && revisionId.matches('^r[0-9]{6}$')
+              && (request.resource.data.parentRevisionId == null || request.resource.data.parentRevisionId is string)
+              && request.resource.data.state == 'prepared'
+              && request.resource.data.statusVersion == 0
+              && request.resource.data.changeSummary is string
+              && request.resource.data.changeSummary.size() <= 2000
+              && request.resource.data.preparedByUid == request.auth.uid
+              && request.resource.data.createdByUid == request.auth.uid
+              && request.resource.data.preparedAt == request.time
+              && request.resource.data.createdAt == request.time
+              && request.resource.data.updatedAt == request.time
+              && request.resource.data.inputData is map
+              && request.resource.data.criteriaSnapshot is map
+              && request.resource.data.resultData is map
+              && request.resource.data.resultSnapshot is map
+              && (request.resource.data.reportData is list || request.resource.data.reportData is map)
+              && request.resource.data.unitSystem is string
+              && request.resource.data.manualOverride is bool
+              && request.resource.data.warnings is list
+              && validVersionMetadata(request.resource.data.versionMetadata)
+              && validHash(request.resource.data.contentHash)
+              && parentRevisionAllowsAppend(organizationId, projectId, calculationId)
+              && existsAfter(/databases/$(database)/documents/organizations/$(organizationId)/projects/$(projectId)/calculations/$(calculationId))
+              && getAfter(/databases/$(database)/documents/organizations/$(organizationId)/projects/$(projectId)/calculations/$(calculationId)).data.latestRevisionId == revisionId
+              && createdAuditExists(organizationId, projectId, calculationId, revisionId);
+            allow update: if activeProjectMember(organizationId, projectId)
+              && calculationHeadWriteEntitled(organizationId, projectId, calculationId)
+              && resource.data.state in ['prepared', 'checked']
+              && immutableRevisionIdentityAndContent()
+              && (validCheckTransition(organizationId)
+                || validApproveTransition(organizationId)
+                || validReturnTransition(organizationId))
+              && transitionAuditExists(organizationId, projectId, calculationId, revisionId)
+              && existsAfter(/databases/$(database)/documents/organizations/$(organizationId)/projects/$(projectId)/calculations/$(calculationId))
+              && getAfter(/databases/$(database)/documents/organizations/$(organizationId)/projects/$(projectId)/calculations/$(calculationId)).data.latestRevisionId == revisionId
+              && getAfter(/databases/$(database)/documents/organizations/$(organizationId)/projects/$(projectId)/calculations/$(calculationId)).data.latestState == request.resource.data.state;
+            allow delete: if false;
+
+            match /comments/{commentId} {
+              allow read: if projectMember(organizationId, projectId);
+              allow create: if activeProjectMember(organizationId, projectId)
+                && calculationHeadWriteEntitled(organizationId, projectId, calculationId)
+                && canComment(organizationId)
+                && request.resource.data.organizationId == organizationId
+                && request.resource.data.projectId == projectId
+                && request.resource.data.calculationId == calculationId
+                && request.resource.data.revisionNumber is int
+                && request.resource.data.kind is string
+                && request.resource.data.authorUid == request.auth.uid
+                && request.resource.data.body is string
+                && request.resource.data.body.size() > 0
+                && request.resource.data.body.size() <= 4000
+                && request.resource.data.createdAt == request.time
+                && existsAfter(/databases/$(database)/documents/organizations/$(organizationId)/projects/$(projectId)/calculations/$(calculationId)/revisions/$(revisionId))
+                && request.resource.data.revisionNumber == getAfter(/databases/$(database)/documents/organizations/$(organizationId)/projects/$(projectId)/calculations/$(calculationId)/revisions/$(revisionId)).data.revisionNumber
+                && existsAfter(/databases/$(database)/documents/organizations/$(organizationId)/projects/$(projectId)/calculations/$(calculationId)/revisions/$(revisionId)/auditEvents/$(commentId))
+                && getAfter(/databases/$(database)/documents/organizations/$(organizationId)/projects/$(projectId)/calculations/$(calculationId)/revisions/$(revisionId)/auditEvents/$(commentId)).data.eventType == 'revision.comment'
+                && getAfter(/databases/$(database)/documents/organizations/$(organizationId)/projects/$(projectId)/calculations/$(calculationId)/revisions/$(revisionId)/auditEvents/$(commentId)).data.actorUid == request.auth.uid
+                && getAfter(/databases/$(database)/documents/organizations/$(organizationId)/projects/$(projectId)/calculations/$(calculationId)/revisions/$(revisionId)/auditEvents/$(commentId)).data.commentId == commentId;
+              allow update, delete: if false;
+            }
+
+            match /auditEvents/{eventId} {
+              allow read: if projectMember(organizationId, projectId);
+              allow create: if activeProjectMember(organizationId, projectId)
+                && auditEventTargetsRevision(organizationId, projectId, calculationId, revisionId, eventId)
+                && validAuditEventSemantics(organizationId, projectId, calculationId, revisionId, eventId);
+              allow update, delete: if false;
+            }
+          }
+        }
+      }
+    }
+
+    // Stripe identifiers, webhook leases and processing outcomes are private
+    // backend state. Admin SDK access bypasses these client rules.
+    match /billingAccounts/{organizationId} {
+      allow read, write: if false;
+    }
+
+    match /billingWebhookEvents/{eventId} {
+      allow read, write: if false;
+    }
+
+    // ---- FormWork Studio (FormWork-Design-dwg repo, hosting:site-07) --------------------
+    // One shared tree for every signed-in user, anonymous included:
+    // RC-FormWork-Design-Web-App/root/{projects|elements|uploads|settings}/{id}
+    match /RC-FormWork-Design-Web-App/{document=**} {
+      allow read, write: if signedIn();
+    }
+
+    // The legacy shared rc-design-ecosystem/root hierarchy is intentionally
+    // denied. Migrate it into organizations/{org}/projects before deployment.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
+

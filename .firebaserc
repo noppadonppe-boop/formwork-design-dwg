@@ -1,0 +1,15 @@
+{
+  "projects": {
+    "default": "rc-design-ecosystem"
+  },
+  "targets": {
+    "rc-design-ecosystem": {
+      "hosting": {
+        "site-07": [
+          "formwork-design-dwg"
+        ]
+      }
+    }
+  },
+  "etags": {}
+}

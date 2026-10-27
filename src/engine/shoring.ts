@@ -1,0 +1,131 @@
+// Shoring (เสาค้ำยัน / นั่งร้าน) for slab and beam forms — book §5.4, §6.4 step 5, Tables 6.10/6.11, §4.9.
+// A shore is either a designed post (timber, round log or steel pipe; Fa from eq 5.15 / 5.17–5.18) or a
+// rated product (scaffold-frame leg, adjustable steel prop) whose working load comes from the manufacturer.
+import { component, type ComponentResult } from './design'
+import { getMaterial } from './materials'
+import { type CheckRow, columnCapacity } from './member'
+import { getSection } from './sections'
+import { Trace } from './trace'
+import { fmt } from './units'
+
+export interface ShoreParams {
+  kind: 'post' | 'rated'
+  /** post: timber / round-log / pipe section */
+  sectionId: string
+  materialId: string
+  /** rated product name and safe working load per leg, kg (manufacturer data) */
+  ratedName: string
+  swl: number
+  /** intermediate lateral bracing levels: 0 = unbraced, 1 = mid-height (l/2), 2 = third points */
+  braceLevels: number
+  /** shore length, m — overrides clear height − form depth */
+  lengthM?: number
+  /** base plate / sole plate side, cm (0 = none) */
+  baseCm: number
+  /** allowable bearing of the surface below, kg/m² (0 = not checked) */
+  bearing: number
+}
+
+export const DEFAULT_SHORE: ShoreParams = {
+  kind: 'post',
+  sectionId: 'pipe-6.03',
+  materialId: 'steel-a36',
+  ratedName: 'นั่งร้านเหล็ก / Steel prop',
+  swl: 1500,
+  braceLevels: 0,
+  baseCm: 15,
+  bearing: 0,
+}
+
+/** Typical rated shoring products — working loads vary by maker: always confirm with the supplier's data. */
+export const RATED_SHORES = [
+  { name: 'นั่งร้านเหล็กโครงสำเร็จ (ต่อขา)', swl: 1000 },
+  { name: 'ค้ำยันเหล็กปรับระดับ (Steel prop) ≤ 3.5 ม.', swl: 1500 },
+  { name: 'ค้ำยันเหล็กปรับระดับ (Steel prop) ≤ 4.5 ม.', swl: 1000 },
+  { name: 'นั่งร้านแบบ Ring-lock (ต่อขา)', swl: 2500 },
+] as const
+
+export function shoreLabel(s: ShoreParams): string {
+  return s.kind === 'rated' ? `${s.ratedName} SWL ${fmt(s.swl)} กก./ขา` : getSection(s.sectionId).label
+}
+
+/**
+ * Check one shore point carrying P (kg) on `legs` posts of length `lengthM`.
+ * `trace` usually already holds the load build-up; the capacity steps are appended to it.
+ */
+export function designShore(opts: { shore: ShoreParams; P: number; lengthM: number; legs?: number; trace: Trace; title?: string; layoutText?: string }): ComponentResult {
+  const { shore, P, trace } = opts
+  const legs = opts.legs ?? 1
+  const perLeg = legs > 1 ? trace.add({ label: `น้ำหนักต่อต้น (${legs} ต้น)`, expr: `${fmt(P)} / ${legs}`, value: P / legs, unit: 'กก.' }) : P
+  trace.add({ label: 'ความยาวเสาค้ำ', value: opts.lengthM, unit: 'ม.' })
+  const rows: CheckRow[] = []
+  let spec: string
+  if (shore.kind === 'rated') {
+    trace.add({ label: `กำลังรับน้ำหนักปลอดภัยต่อขา (${shore.ratedName})`, value: shore.swl, unit: 'กก.', ref: '§4.9 ข้อมูลผู้ผลิต' })
+    rows.push({ item: 'น้ำหนักต่อขา', demand: perLeg, capacity: shore.swl, ratio: perLeg / shore.swl, unit: 'กก.', ref: 'ข้อมูลผู้ผลิต' })
+    spec = shoreLabel(shore)
+  } else {
+    const s = getSection(shore.sectionId)
+    const m = getMaterial(s.shape === 'pipe' && getMaterial(shore.materialId).kind !== 'steel' ? 'steel-a36' : shore.materialId)
+    const lu = (opts.lengthM * 100) / (shore.braceLevels + 1)
+    trace.add({
+      label: 'ความยาวไม่ค้ำยัน',
+      expr: shore.braceLevels ? `${(opts.lengthM * 100).toFixed(0)} / ${shore.braceLevels + 1} (ค้ำยันทางข้าง ${shore.braceLevels} ระดับ)` : 'ไม่มีค้ำยันทางข้าง',
+      value: lu,
+      unit: 'ซม.',
+    })
+    const cap = columnCapacity(s, m, lu, trace)
+    rows.push({ item: 'แรงอัดในเสาค้ำ', demand: perLeg, capacity: cap.P, ratio: perLeg / cap.P, unit: 'กก.', ref: m.kind === 'timber' ? 'สมการ 5.15–5.16' : 'สมการ 5.17–5.19' })
+    spec = `${s.label} (${m.name})`
+  }
+  if (shore.baseCm > 0 && shore.bearing > 0) {
+    const area = (shore.baseCm / 100) ** 2
+    const q = trace.add({ label: `แรงกดใต้แป้นรองฐาน ${shore.baseCm}×${shore.baseCm} ซม.`, expr: `${fmt(perLeg)} / ${area.toFixed(4)}`, value: perLeg / area, unit: 'กก./ม.²' })
+    rows.push({ item: 'แรงแบกทานใต้แป้นรองฐาน', demand: q, capacity: shore.bearing, ratio: q / shore.bearing, unit: 'กก./ม.²' })
+  }
+  const legText = legs > 1 ? `${legs} ต้น/จุด ` : ''
+  return component('shore', opts.title ?? 'เสาค้ำยัน (Shores)', `${spec} ${legText}${opts.layoutText ?? ''}${shore.braceLevels ? ` ค้ำยันทางข้าง ${shore.braceLevels} ระดับ` : ''}`.trim(), rows, trace)
+}
+
+/** Number of shore bays a diagonal spans so that it is no steeper than 60° (narrow bays → longer diagonals). */
+export const braceBays = (bay: number, height: number) => Math.max(1, Math.ceil(height / (bay * Math.tan(Math.PI / 3)) - 1e-9))
+
+/**
+ * Lateral bracing of the shoring (ค้ำยันทางข้าง) — not computed in the book (Fig 6.1 only); design load taken from
+ * ACI 347: the larger of 2 % of the dead load and 150 kg/m (100 lb/ft) of slab edge, per shore row, carried by one
+ * diagonal per row in each direction. The diagonal is X-braced (unbraced length = half its length).
+ */
+export function designShoreBracing(opts: {
+  sectionId: string
+  materialId: string
+  /** dead load (concrete + forms), kg/m² */
+  dead: number
+  /** row length and tributary width for each direction, m; bay = shore spacing in that direction */
+  dirs: { name: string; rowLength: number; tributary: number; bay: number }[]
+  height: number
+}): ComponentResult {
+  const trace = new Trace()
+  const s = getSection(opts.sectionId)
+  const m = getMaterial(s.shape === 'pipe' && getMaterial(opts.materialId).kind !== 'steel' ? 'steel-a36' : opts.materialId)
+  const rows: CheckRow[] = []
+  for (const d of opts.dirs) {
+    const byDead = 0.02 * opts.dead * d.rowLength * d.tributary
+    const byEdge = 150 * d.tributary
+    const H = trace.add({
+      label: `${d.name}: แรงด้านข้างต่อแถว = max(2% DL, 150 กก./ม.)`,
+      expr: `max(0.02×${fmt(opts.dead)}×${d.rowLength.toFixed(2)}×${d.tributary.toFixed(2)}, 150×${d.tributary.toFixed(2)})`,
+      value: Math.max(byDead, byEdge),
+      unit: 'กก.',
+      ref: 'ACI 347',
+    })
+    const n = braceBays(d.bay, opts.height)
+    const run = n * d.bay
+    const L = Math.hypot(run, opts.height)
+    const cos = run / L
+    const F = trace.add({ label: `${d.name}: แรงในค้ำยันทแยง (คร่อม ${n} ช่วงเสา)`, expr: `${fmt(H)} / cos(${((Math.acos(cos) * 180) / Math.PI).toFixed(0)}°)`, value: H / cos, unit: 'กก.' })
+    trace.add({ label: `${d.name}: ความยาวค้ำยันทแยง (ไขว้ X → l/2)`, expr: `√(${run.toFixed(2)}² + ${opts.height.toFixed(2)}²)`, value: L * 100, unit: 'ซม.' })
+    const cap = columnCapacity(s, m, (L * 100) / 2, trace, `${d.name}: `)
+    rows.push({ item: `ค้ำยันทแยง ${d.name}`, demand: F, capacity: cap.P, ratio: F / cap.P, unit: 'กก.', ref: m.kind === 'timber' ? 'สมการ 5.15' : 'สมการ 5.17/5.18' })
+  }
+  return component('bracing', 'ค้ำยันทางข้างระบบเสาค้ำ', `${s.label} (${m.name}) ทแยงไขว้ 1 ชุด/แถว/ทิศทาง`, rows, trace)
+}
