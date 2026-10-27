@@ -8,10 +8,12 @@ import { z } from 'zod'
 import { useAuth } from '@/auth/AuthProvider'
 import { assignProject } from '@/auth/authService'
 import { isConflict } from '@/data/conflict'
+import { MethodCard } from '@/components/MethodCard'
 import { ProjectNav } from '@/components/ProjectNav'
 import { Button, Field, NumberInput, Select } from '@/components/ui'
 import { PLYWOOD, PLYWOOD_THICKNESS, STEEL, TIES, TIMBER } from '@/engine'
 import { useProject, useProjects } from '@/data/hooks'
+import { METHOD_INFO } from '@/data/references'
 import { repo, versionOf } from '@/data/repo'
 import { DEFAULT_CRITERIA, EMPTY_PROJECT, type Project, type ProjectData, REPORT_LANG_LABEL, STATUS_LABEL } from '@/data/types'
 import { DeleteProjectModal } from './ProjectsPage'
@@ -352,6 +354,12 @@ export function ProjectEditPage() {
                 {method === 'CEB' && <span className="num">P = min(γH, 2400kR + 500, 300R + 10000d + 1500) กก./ม.²</span>}
                 {method === 'CIRA' && <span className="num">P = min(ตาราง 2.3, 2.4, 2.5), γ = 2,500 กก./ม.³</span>}
                 {method === 'HYDROSTATIC' && <span className="num">P = γ·H</span>}
+              </div>
+              <div className="rounded-lg border border-line p-4 sm:col-span-2">
+                <MethodCard m={METHOD_INFO[method]} compact />
+                <Link to="/reference" className="mt-3 inline-block text-[13px] font-medium text-brand hover:underline">
+                  เปรียบเทียบทุกวิธี และตารางสมการอ้างอิงทั้งหมด →
+                </Link>
               </div>
             </div>
 

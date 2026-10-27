@@ -1,7 +1,7 @@
 import clsx from 'clsx'
-import { BookOpen, FolderOpen, LogOut, Ruler, UserCog, UserPen, Users } from 'lucide-react'
+import { BookOpen, FolderOpen, LogOut, Ruler, Sigma, UserCog, UserPen, Users } from 'lucide-react'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
-import { NavLink } from 'react-router-dom'
+import { Link, NavLink } from 'react-router-dom'
 import { useAuth } from '@/auth/AuthProvider'
 import { migrateLegacyData } from '@/data/repo'
 import { SidebarProjectNav } from './ProjectNav'
@@ -112,6 +112,10 @@ export function AppShell({ children }: { children: ReactNode }) {
           <BookOpen size={18} aria-hidden />
           คู่มือการใช้งาน
         </NavLink>
+        <NavLink to="/reference" className={navClass}>
+          <Sigma size={18} aria-hidden />
+          อ้างอิงการคำนวณ
+        </NavLink>
         <div className="mt-auto hidden flex-col gap-2 lg:flex">
           {isMaster && (
             <NavLink to="/admin" className={navClass} title={pending ? `มีผู้ขอเข้าใช้งานรออนุมัติ ${pending} คน` : undefined}>
@@ -127,13 +131,13 @@ export function AppShell({ children }: { children: ReactNode }) {
               )}
             </NavLink>
           )}
-          <div className="rounded-xl bg-navy-800/70 p-3 text-xs leading-relaxed text-navy-400">
+          <Link to="/reference" className="rounded-xl bg-navy-800/70 p-3 text-xs leading-relaxed text-navy-400 hover:bg-navy-800" title="มาตรฐานและตารางสมการอ้างอิง">
             อ้างอิงการคำนวณ
             <br />
             <span className="text-white">ACI 347 · CEB · CIRA</span>
             <br />
             หนังสือ Design Form Work (จุฬาฯ)
-          </div>
+          </Link>
         </div>
       </aside>
 

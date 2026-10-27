@@ -157,6 +157,7 @@ export function ShopPage() {
           ) : (
             <p key={x.el.id} className="shop-sheet text-fail">
               {x.el.code}: เขียนแบบไม่ได้ — {'error' in x ? x.error : ''}
+              {'error' in x && /^Unknown /.test(String(x.error)) && <span className="block text-sm text-muted">ข้อมูลนี้บันทึกจากโปรแกรมเวอร์ชันใหม่กว่า — โหลดหน้าใหม่ (Ctrl+F5) แล้วลองอีกครั้ง</span>}
             </p>
           ),
         )}
