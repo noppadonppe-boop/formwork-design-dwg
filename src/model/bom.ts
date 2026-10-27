@@ -2,7 +2,7 @@
 // cut length) and identical pieces are counted together. The shop drawing tags (marks) refer to these lines.
 import type { AnyDesign } from '@/data/elements'
 import type { ElementData } from '@/data/types'
-import { getMaterial, getSection, getTie, type Section } from '@/engine'
+import { beamBracing, beamCrossJoist, getMaterial, getSection, getTie, type Section } from '@/engine'
 import { elementModel } from './elementModel'
 import { type FormModel, GROUP_LABEL, type Part, type PartGroup } from './formModel'
 
@@ -72,6 +72,10 @@ function partSpec(el: ElementData, p: Part): Spec | undefined {
     return { category: 'board', description: `ไม้กระดานหนา ${t} ซม. ${shortName(i.sheathing.materialId)}`, unit: 'แผ่น' }
   }
   if (g === 'tie') {
+    if (p.id.startsWith('tieplate') && el.type === 'footing' && p.shape === 'box') {
+      const [a, b, c] = [...p.size].sort((x, y) => y - x).map((x) => x * 100)
+      return { category: 'accessory', description: `เหล็กประกับไทร์ ${Math.round(b)}×${Math.round(a)} ซม. หนา ${Math.round(c * 10)} มม.`, unit: 'แผ่น' }
+    }
     if (p.id.startsWith('tieplate')) return { category: 'accessory', description: 'แผ่นรองไทร์ / Washer plate 8×8 ซม.', unit: 'ตัว' }
     if (p.id.startsWith('bolt')) return { category: 'accessory', description: 'สลักเกลียวยึดคานรัด Ø12 มม. + น็อต', unit: 'ชุด' }
     return { category: 'tie', description: getTie(i.tie.tieId).name, unit: 'ชุด' }
@@ -98,12 +102,16 @@ function partSpec(el: ElementData, p: Part): Spec | undefined {
         return [i.yoke.sectionId, i.yoke.materialId]
       case 'brace':
         return [i.brace.sectionId, i.brace.materialId]
-      case 'joist':
-        return [i.joist.sectionId, i.joist.materialId]
+      case 'joist': {
+        const j = el.type === 'beam' ? beamCrossJoist(el.input) : i.joist
+        return [j.sectionId, j.materialId]
+      }
       case 'stringer':
         return [i.stringer.sectionId, i.stringer.materialId]
-      case 'bracing':
-        return [i.bracing.sectionId, i.bracing.materialId]
+      case 'bracing': {
+        const b = el.type === 'beam' ? beamBracing(el.input) : i.bracing
+        return [b.sectionId, b.materialId]
+      }
       case 'bottom':
         return [i.bottom.sectionId, i.bottom.materialId]
       case 'head':

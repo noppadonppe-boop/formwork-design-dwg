@@ -8,6 +8,7 @@ const base: BeamInput = {
   loads: { liveLoad: 150, formWeight: 50, gamma: 2400, beamFormWeight: 100 },
   stud: { sectionId: 'timber-1.5x3', materialId: 'timber-soft' },
   head: { sectionId: 'timber-2x4', materialId: 'timber-soft', count: 1 },
+  bottom: { ...DEFAULT_BEAM.bottom, auto: false }, // the book examples give the number of bottom stiffeners
   shore: { ...DEFAULT_SHORE, kind: 'post', sectionId: 'timber-1.5x3', materialId: 'timber-soft', braceLevels: 1, lengthM: 3, layout: 'single', postSpacingM: 0.6 },
   checkTimberShear: false,
 }
@@ -52,7 +53,9 @@ describe('Example 7.3 — spandrel beam 40 × 80 cm, 1" boards, double-post shor
     head: { sectionId: 'timber-2x4', materialId: 'timber-soft', count: 2 },
     shore: { ...base.shore, layout: 'double', postSpacingM: 0.6, braceLevels: 0, lengthM: 2 },
   }
-  const d = designBeam(inp)
+  // the book braces the posts at mid-height (unbraced they cannot carry the heads @60)
+  const d = designBeam({ ...inp, shore: { ...inp.shore, braceLevels: 1 } })
+  const unbraced = designBeam(inp)
   it('p = 1,920 kg/m²; studs @60 (deflection 61)', () => {
     expect(d.pressure.Pmax).toBe(1920)
     expect(d.layout.studSpacing).toBe(60)
@@ -65,9 +68,13 @@ describe('Example 7.3 — spandrel beam 40 × 80 cm, 1" boards, double-post shor
     expect(comp(d, 'head').rows[1].demand).toBeCloseTo(5.18, 1)
   })
   it('double 1½"×3" posts 2.00 m: unbraced ≈ 2×279 (book 530, d = 3.7) → braced ≈ 2×1,117 (book 2,140)', () => {
-    expect(2 * comp(d, 'shore').rows[0].capacity).toBeCloseTo(558, -1)
-    const braced = designBeam({ ...inp, shore: { ...inp.shore, braceLevels: 1 } })
-    expect(2 * comp(braced, 'shore').rows[0].capacity).toBeCloseTo(2233, -1)
+    expect(2 * comp(unbraced, 'shore').rows[0].capacity).toBeCloseTo(558, -1)
+    expect(2 * comp(d, 'shore').rows[0].capacity).toBeCloseTo(2233, -1)
+  })
+  it('unbraced posts: heads/shores come closer (60 → 50) until the posts carry them', () => {
+    expect(unbraced.layout.headSpacing).toBe(50)
+    expect(comp(unbraced, 'shore').rows[0].ratio).toBeLessThanOrEqual(1)
+    expect(unbraced.warnings.some((w) => w.startsWith('ระยะคานขวาง/เสาค้ำลดจาก 60 เหลือ 50'))).toBe(true)
   })
 })
 
@@ -117,5 +124,77 @@ describe('side studs without ties — simple span under the fluid (triangular) p
     const t = comp(d, 'stud').trace.steps
     expect(t.find((s) => s.label.startsWith('M ='))!.value).toBeCloseTo((2 * W * 70) / (9 * Math.sqrt(3)), 3)
     expect(comp(d, 'stud').rows[0].demand).toBeCloseTo((2 * W * 70) / (9 * Math.sqrt(3)) / 35.16, 1)
+  })
+})
+
+describe('shore-row bracing along the beam (ACI 347) and long-shore warning', () => {
+  // slab beam 30 × 60, slab 12 cm × 1.20 m: dead 432 + 345.6 + 100 + 60 = 937.6 kg/m over a 1.50 m width
+  const H = (d: ReturnType<typeof designBeam>) => comp(d, 'bracing').trace.steps[0].value
+  it('6 m beam: 2 % DL = 113 kg < 150 kg/m × 1.50 m = 225 kg governs', () => expect(H(designBeam(base))).toBeCloseTo(225, 6))
+  it('double posts: each row takes half the width', () => expect(H(designBeam({ ...base, shore: { ...base.shore, layout: 'double' } }))).toBeCloseTo(112.5, 6))
+  it('long beam: 2 % DL governs', () => expect(H(designBeam({ ...base, length: 20 }))).toBeCloseTo(0.02 * 937.6 * 20, 6))
+  it('counts two diagonals per X, an X at each end of every post row', () => {
+    const d = designBeam({ ...base, length: 12, shore: { ...base.shore, layout: 'double' } })
+    expect(d.quantities.bracing).toBe(2 * 2 * 2)
+  })
+  it('projects saved without the option: no bracing, warned', () => {
+    const { bracing: _b, ...old } = base
+    const d = designBeam(old)
+    expect(d.components.some((c) => c.key === 'bracing')).toBe(false)
+    expect(d.warnings.some((w) => w.startsWith('ไม่ได้ออกแบบค้ำยันทางข้าง'))).toBe(true)
+  })
+  it('warns when a post longer than 3 m has no intermediate bracing', () => {
+    const long = (braceLevels: number) => designBeam({ ...base, shore: { ...base.shore, lengthM: 3.5, braceLevels } }).warnings.some((w) => w.startsWith('เสาค้ำยาวเกิน 3 ม.'))
+    expect(long(0)).toBe(true)
+    expect(long(1)).toBe(false)
+  })
+})
+
+describe('beam bottom: runners along the beam or cross joists, automatic runner count', () => {
+  const auto: BeamInput = { ...base, bottom: { ...DEFAULT_BEAM.bottom, auto: true } }
+  it('narrow beam: two runners, each carrying b/2 (same as the book)', () => {
+    const d = designBeam(auto)
+    expect(d.layout.bottomZ).toHaveLength(2)
+    expect(comp(d, 'bottom').trace.steps[0].value).toBeCloseTo(auto.b / 2, 6)
+  })
+  it('wide beam: enough runners for the plywood span across, the middle one carrying 1.25 × span', () => {
+    const d = designBeam({ ...auto, b: 0.9, h: 0.9 })
+    const n = d.layout.bottomZ.length
+    expect(n).toBeGreaterThan(2)
+    expect(comp(d, 'bottomDeck').rows.every((r) => r.ratio <= 1)).toBe(true)
+    const span = d.layout.bottomZ[1] - d.layout.bottomZ[0]
+    expect(comp(d, 'bottom').trace.steps[0].value).toBeCloseTo(1.25 * span, 2)
+    // one runner fewer would overstress the plywood
+    const fewer = designBeam({ ...auto, b: 0.9, h: 0.9, bottom: { ...auto.bottom, auto: false, count: n - 1 } })
+    expect(comp(fewer, 'bottomDeck').rows.some((r) => r.ratio > 1)).toBe(true)
+  })
+  it('a fixed count is kept and the plywood between the runners is checked', () => {
+    const d = designBeam({ ...base, b: 0.9, h: 0.9 })
+    expect(d.layout.bottomZ).toHaveLength(2)
+    expect(comp(d, 'bottomDeck').rows.some((r) => r.ratio > 1)).toBe(true)
+  })
+  it('cross joists: sheathing → joist spacing, joists span across between the runners, runners → heads', () => {
+    const d = designBeam({ ...auto, b: 1.2, h: 0.8, bottomDir: 'across' })
+    expect(d.layout.crossJoistSpacing).toBe(comp(d, 'bottomDeck').spacing!.value)
+    expect(d.layout.crossJoistX.length).toBe(d.quantities.crossJoists)
+    expect(comp(d, 'crossJoist').rows.every((r) => r.ratio <= 1)).toBe(true)
+    expect(d.layout.bottomZ.length).toBeGreaterThanOrEqual(2)
+    expect(d.warnings.some((w) => w.startsWith('คานกว้างเกิน 80 ซม.'))).toBe(false)
+  })
+  it('wide beams: advice for double posts and cross joists', () => {
+    const d = designBeam({ ...auto, b: 1.0, h: 0.8 })
+    expect(d.warnings.some((w) => w.startsWith('คานกว้างเกิน 60 ซม. บนเสาตัวที'))).toBe(true)
+    expect(d.warnings.some((w) => w.startsWith('คานกว้างเกิน 80 ซม.'))).toBe(true)
+  })
+  it('long deep beam on light shores: spacing comes down until every head and shore passes', () => {
+    const d = designBeam({ ...auto, length: 12, h: 1.2, shore: { ...base.shore, braceLevels: 1, lengthM: 3 } })
+    expect(d.layout.headSpacing).toBeLessThan(comp(d, 'bottom').spacing!.max)
+    expect(['head', 'shore'].every((k) => comp(d, k).rows.every((r) => r.ratio <= 1))).toBe(true)
+    expect(d.layout.headX.every((x, i, xs) => i === 0 || x - xs[i - 1] <= d.layout.headSpacing / 100 + 1e-9)).toBe(true)
+  })
+  it('shores that fail even at 20 cm: told to use double / larger posts or bracing', () => {
+    const d = designBeam({ ...auto, length: 12, h: 1.2, shore: { ...base.shore, braceLevels: 0, lengthM: 3 } })
+    expect(d.layout.headSpacing).toBe(20)
+    expect(d.warnings.some((w) => w.startsWith('ลดระยะเสาค้ำถึง 20 ซม. แล้วยังรับไม่ได้'))).toBe(true)
   })
 })

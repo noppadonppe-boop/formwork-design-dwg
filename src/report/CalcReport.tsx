@@ -7,7 +7,7 @@ import { fmtVal } from '@/components/design/ResultsPanel'
 import type { AnyDesign } from '@/data/elements'
 import { elementHeight, elementSize, QUANTITY_LABEL, TYPE_LABEL } from '@/data/elements'
 import type { Criteria, ElementData, Project } from '@/data/types'
-import { type ComponentResult, FOOTING_BRACE_AT_LABEL, FOOTING_SUPPORT_LABEL, FOOTING_TIE_LAYOUT_LABEL, getMaterial, getSection, getTie, type ShoreParams, type Status, type Trace } from '@/engine'
+import { beamBracing, beamCrossJoist, beamHasRunners, type ComponentResult, FOOTING_BRACE_AT_LABEL, FOOTING_SUPPORT_LABEL, FOOTING_TIE_LAYOUT_LABEL, getMaterial, getSection, getTie, type ShoreParams, type Status, type Trace } from '@/engine'
 import { Drawing } from './Drawing'
 import { elementViews } from './views'
 
@@ -141,9 +141,11 @@ function members(el: ElementData): MemberRow[] {
       return [
         { role: 'แผ่นผิวแบบ', materialId: i.sheathing.materialId, note: deckNote(i.sheathing) },
         { role: 'เคร่าข้าง', sectionId: i.stud.sectionId, materialId: i.stud.materialId },
-        ...(i.bottom.count > 0 ? [{ role: 'ไม้เสริมท้องแบบ', sectionId: i.bottom.sectionId, materialId: i.bottom.materialId, note: `${i.bottom.count} ตัว ${i.bottom.flat ? 'วางนอน' : 'วางตั้ง'}` }] : []),
+        ...(i.bottomDir === 'across' ? [{ role: 'ตงขวางใต้ท้องแบบ', sectionId: beamCrossJoist(i).sectionId, materialId: beamCrossJoist(i).materialId }] : []),
+        ...(beamHasRunners(i) ? [{ role: i.bottomDir === 'across' ? 'คร่าวตามยาวรับตงขวาง' : 'ไม้เสริมท้องแบบ', sectionId: i.bottom.sectionId, materialId: i.bottom.materialId, note: `${i.bottom.auto ? 'จำนวนอัตโนมัติ' : `${i.bottom.count} ตัว`} ${i.bottom.flat ? 'วางนอน' : 'วางตั้ง'}` }] : []),
         { role: 'คานขวาง', sectionId: i.head.sectionId, materialId: i.head.materialId, note: i.head.count === 2 ? 'คู่' : 'เดี่ยว' },
         ...shoreRow(i.shore),
+        ...(beamBracing(i).enabled ? [{ role: 'ค้ำยันทางข้าง', sectionId: beamBracing(i).sectionId, materialId: beamBracing(i).materialId }] : []),
         ...(i.tie.enabled ? [{ role: 'คานรับเคร่า', sectionId: i.tie.waleSectionId, materialId: i.tie.waleMaterialId, note: 'คู่' }] : i.type !== 'slab' ? [{ role: 'ค้ำยันปากแบบ', sectionId: i.brace.sectionId, materialId: i.brace.materialId }] : []),
       ]
     }
@@ -167,6 +169,9 @@ function footingCriteria(el: Extract<ElementData, { type: 'footing' }>, run: Any
   if (i.support === 'braced') rows.push(['ตำแหน่งค้ำยัน', FOOTING_BRACE_AT_LABEL[i.brace.at ?? 'stud']])
   if (i.support === 'tied')
     rows.push(['การวางไทร์', `${FOOTING_TIE_LAYOUT_LABEL[lay?.tieLayout ?? 'short']}${(i.tie.layout ?? 'auto') === 'auto' ? ' (เลือกอัตโนมัติ)' : ''}`])
+  if (lay?.waleCorner)
+    rows.push(['มุมคานรับเคร่า', lay.waleCorner === 'butt' ? 'ตัดชน ระดับเดียวกัน' : `วางไขว้ ยาวเต็มท่อน · คานด้านสั้น${(lay.waleShift ?? 0) < 0 ? 'เลื่อนลง' : 'เลื่อนขึ้น'} ${(Math.abs(lay.waleShift ?? 0) * 100).toFixed(1)} ซม.`])
+  if (lay?.tiePlate) rows.push(['เหล็กประกับไทร์', `${lay.tiePlate.wCm}×${lay.tiePlate.hCm} ซม. หนา ${lay.tiePlate.tMm} มม. (A36) ปลายไทร์ทุกจุด`])
   if (i.support !== 'tied') rows.push(['ดินรับแรงแบกทาน', `${i.soilBearing.toLocaleString()} กก./ม.²`])
   return rows
 }
@@ -213,10 +218,13 @@ export function ElementReport({ project, criteria, el, run, opts, designer }: { 
   return (
     <article className="report-element">
       <header className="flex items-end justify-between gap-4 border-b-[3px] border-ink pb-2">
-        <div>
-          <p className="text-[11px] uppercase tracking-wider text-slate-500">รายการคำนวณออกแบบแบบหล่อคอนกรีต · Formwork Design Calculation</p>
+        {project.logo && <img src={project.logo} alt="logo" className="h-12 max-w-[45mm] self-center object-contain" />}
+        <div className="mr-auto">
+          <p className="text-[11px] uppercase tracking-wider text-slate-500">
+            <span className="th-only">รายการคำนวณออกแบบแบบหล่อคอนกรีต · </span>Formwork Design Calculation
+          </p>
           <h2 className="text-xl font-bold">
-            แบบหล่อ{TYPE_LABEL[el.type]} <span className="num">{el.code}</span>
+            {`แบบหล่อ${TYPE_LABEL[el.type]}`} <span className="num">{el.code}</span>
             {el.name && <span className="font-normal text-slate-600"> — {el.name}</span>}
           </h2>
         </div>

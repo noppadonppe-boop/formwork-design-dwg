@@ -10,9 +10,21 @@ import { Avatar, ProfileDialog, RoleChips, useUsers } from './UserBits'
 export function Logo({ small }: { small?: boolean }) {
   return (
     <div className="flex items-center gap-2.5">
-      <svg width={small ? 26 : 30} height={small ? 26 : 30} viewBox="0 0 30 30" aria-hidden="true">
-        <rect x="2" y="2" width="26" height="26" rx="6" fill="#E2621B" />
-        <path d="M8 21V9h14M8 15h10M13 9v12" stroke="#fff" strokeWidth="2.4" fill="none" strokeLinecap="round" />
+      {/* same mark as public/favicon.svg: a beam in its form, on a head over two braced shores */}
+      <svg width={small ? 26 : 30} height={small ? 26 : 30} viewBox="0 0 64 64" aria-hidden="true">
+        <defs>
+          <linearGradient id="logo-g" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stopColor="#E9722A" />
+            <stop offset="1" stopColor="#B9470B" />
+          </linearGradient>
+        </defs>
+        <rect x="2" y="2" width="60" height="60" rx="14" fill="url(#logo-g)" />
+        <rect x="21" y="11" width="22" height="19" rx="1.5" fill="#FFE6D3" />
+        <path d="M17 9v24h30V9" fill="none" stroke="#fff" strokeWidth="4.5" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M12 38.5h40" stroke="#fff" strokeWidth="4.5" strokeLinecap="round" />
+        <path d="M23 41v11.5M41 41v11.5" stroke="#fff" strokeWidth="4" strokeLinecap="round" />
+        <path d="M23.5 44.5l17 7" stroke="#fff" strokeOpacity=".75" strokeWidth="2.2" strokeLinecap="round" />
+        <path d="M18.5 54.5h9M36.5 54.5h9" stroke="#fff" strokeWidth="3" strokeLinecap="round" />
       </svg>
       <div className="flex flex-col leading-tight">
         <strong className="text-[15px] text-white">FormWork Studio</strong>

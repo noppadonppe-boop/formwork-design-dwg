@@ -67,6 +67,10 @@
 
 /* ---------------------------------------------------------------- A3 shop drawing */
 @layer components {
+  /* Thai-only text in the calculation report (e.g. the Thai half of a bilingual heading) */
+  .report:not(:lang(th)) .th-only {
+    display: none;
+  }
   .shop-sheet {
     @apply bg-white text-ink shadow-md;
     width: 420mm;

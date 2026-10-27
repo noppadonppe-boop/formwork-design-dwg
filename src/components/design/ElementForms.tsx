@@ -7,6 +7,9 @@ import { Field, Segmented, Select, Toggle } from '@/components/ui'
 import type { ElementData } from '@/data/types'
 import {
   BEAM_TYPE_LABEL,
+  beamBracing,
+  beamCrossJoist,
+  beamHasRunners,
   type BeamInput,
   type BraceParams,
   type ColumnInput,
@@ -14,6 +17,10 @@ import {
   FOOTING_BRACE_AT_LABEL,
   FOOTING_SUPPORT_LABEL,
   FOOTING_TIE_LAYOUT_LABEL,
+  FOOTING_WALE_CORNER_LABEL,
+  FOOTING_WALE_SHIFT_LABEL,
+  type FootingWaleCorner,
+  type FootingWaleShift,
   type FootingTieLayout,
   type FootingInput,
   PLYWOOD,
@@ -494,12 +501,38 @@ function BeamFields({ inp, set }: { inp: BeamInput; set: (fn: (i: BeamInput) => 
           </>
         )}
       </Group>
-      <Group title="ท้องแบบและไม้เสริมขอบ" part="bottom">
+      <Group title="ท้องแบบ: คร่าวรับท้องแบบ" part="bottom">
+        <Segmented
+          label="ทิศทางคร่าวใต้ไม้อัดท้อง"
+          value={inp.bottomDir ?? 'along'}
+          options={[
+            { value: 'along', label: 'ตามยาวคาน' },
+            { value: 'across', label: 'ขวางคาน (ตงขวาง)' },
+          ]}
+          onChange={(v) => set((i) => ({ ...i, bottomDir: v }))}
+        />
+        {inp.bottomDir === 'across' && (
+          <>
+            <MemberPicker label="ตงขวาง" sectionId={beamCrossJoist(inp).sectionId} materialId={beamCrossJoist(inp).materialId} kinds={['timber']} onChange={(v) => set((i) => ({ ...i, crossJoist: { ...beamCrossJoist(i), ...v } }))} />
+            <NumField label="ระยะตงขวาง" unit="ซม." optional placeholder="อัตโนมัติ" value={beamCrossJoist(inp).spacingCm} min={10} max={100} onChange={(v) => set((i) => ({ ...i, crossJoist: { ...beamCrossJoist(i), spacingCm: v } }))} />
+          </>
+        )}
+        <Toggle label="เลือกจำนวนคร่าวตามยาวอัตโนมัติ (ตามช่วงที่ไม้อัด/ตงขวางรับได้)" checked={!!inp.bottom.auto} onChange={(v) => set((i) => ({ ...i, bottom: { ...i.bottom, auto: v } }))} />
         <div className="grid grid-cols-2 gap-2">
-          <NumField label="จำนวนไม้เสริม" unit="ตัว" hint="0 = แผ่นท้องรับเอง" value={inp.bottom.count} min={0} max={6} onChange={(v) => v !== undefined && set((i) => ({ ...i, bottom: { ...i.bottom, count: Math.round(v) } }))} />
+          {!inp.bottom.auto && (
+            <NumField
+              label="จำนวนคร่าวตามยาว"
+              unit="ตัว"
+              hint={inp.bottomDir === 'across' ? 'อย่างน้อย 2' : '0 = แผ่นท้องรับเอง'}
+              value={inp.bottom.count}
+              min={inp.bottomDir === 'across' ? 2 : 0}
+              max={10}
+              onChange={(v) => v !== undefined && set((i) => ({ ...i, bottom: { ...i.bottom, count: Math.round(v) } }))}
+            />
+          )}
           <Segmented label="การวาง" value={inp.bottom.flat ? 'flat' : 'edge'} options={[{ value: 'flat', label: 'วางนอน' }, { value: 'edge', label: 'วางตั้ง' }]} onChange={(v) => set((i) => ({ ...i, bottom: { ...i.bottom, flat: v === 'flat' } }))} />
         </div>
-        {inp.bottom.count > 0 && <MemberPicker label="ไม้เสริมขอบ" sectionId={inp.bottom.sectionId} materialId={inp.bottom.materialId} kinds={['timber']} onChange={(v) => set((i) => ({ ...i, bottom: { ...i.bottom, ...v } }))} />}
+        {beamHasRunners(inp) && <MemberPicker label={inp.bottomDir === 'across' ? 'คร่าวตามยาว' : 'ไม้เสริมท้อง (คร่าวตามยาว)'} sectionId={inp.bottom.sectionId} materialId={inp.bottom.materialId} kinds={['timber']} onChange={(v) => set((i) => ({ ...i, bottom: { ...i.bottom, ...v } }))} />}
       </Group>
       <Group title="คานขวางรับท้องแบบ (Head)" part="head">
         <MemberPicker label="คานขวาง" sectionId={inp.head.sectionId} materialId={inp.head.materialId} onChange={(v) => set((i) => ({ ...i, head: { ...i.head, ...v } }))} />
@@ -514,6 +547,10 @@ function BeamFields({ inp, set }: { inp: BeamInput; set: (fn: (i: BeamInput) => 
           {inp.shore.layout === 'double' && <NumField label="ระยะเสาคู่" unit="ม." value={inp.shore.postSpacingM} min={0.2} max={2.5} onChange={(v) => v && set((i) => ({ ...i, shore: { ...i.shore, postSpacingM: v } }))} />}
         </div>
       </ShoreFields>
+      <Group title="ค้ำยันทางข้างแถวเสาค้ำ (ตามแนวคาน)" part="bracing">
+        <Toggle label="ออกแบบค้ำยันทแยง (ACI 347: 2% DL)" checked={beamBracing(inp).enabled} onChange={(v) => set((i) => ({ ...i, bracing: { ...beamBracing(i), enabled: v } }))} />
+        {beamBracing(inp).enabled && <MemberPicker label="ค้ำยันทแยง" sectionId={beamBracing(inp).sectionId} materialId={beamBracing(inp).materialId} pipes onChange={(v) => set((i) => ({ ...i, bracing: { ...beamBracing(i), ...v } }))} />}
+      </Group>
       {inp.type !== 'slab' && !inp.tie.enabled && (
         <Group title="ค้ำยันปากแบบ" part="brace">
           <MemberPicker label="ค้ำยันทแยง" sectionId={inp.brace.sectionId} materialId={inp.brace.materialId} onChange={(v) => set((i) => ({ ...i, brace: { ...i.brace, ...v } }))} />
@@ -580,6 +617,26 @@ function FootingFields({ inp, set }: { inp: FootingInput; set: (fn: (i: FootingI
           <MemberPicker label="คานรับเคร่า" sectionId={inp.wale.sectionId} materialId={inp.wale.materialId} onChange={(v) => set((i) => ({ ...i, wale: { ...i.wale, ...v } }))} />
           <div className="grid grid-cols-3 gap-2">
             <Segmented label="ต่อชุด" value={String(inp.wale.count) as '1' | '2'} options={[{ value: '1', label: 'เดี่ยว' }, { value: '2', label: 'คู่' }]} onChange={(v) => set((i) => ({ ...i, wale: { ...i.wale, count: Number(v) as 1 | 2 } }))} />
+            <Field label="มุมคาน" className="col-span-2">
+              <Select value={inp.wale.corner ?? 'cross'} onChange={(e) => set((i) => ({ ...i, wale: { ...i.wale, corner: e.target.value as FootingWaleCorner } }))}>
+                {Object.entries(FOOTING_WALE_CORNER_LABEL).map(([k, l]) => (
+                  <option key={k} value={k}>
+                    {l}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            {(inp.wale.corner ?? 'cross') === 'cross' && (
+              <Field label="คานด้านสั้น" hint="อัตโนมัติ: เลื่อนลงถ้าคานล่างยังห่างฐาน ≥ 3 ซม.">
+                <Select value={inp.wale.shift ?? 'auto'} onChange={(e) => set((i) => ({ ...i, wale: { ...i.wale, shift: e.target.value as FootingWaleShift } }))}>
+                  {Object.entries(FOOTING_WALE_SHIFT_LABEL).map(([k, l]) => (
+                    <option key={k} value={k}>
+                      {l}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            )}
             {inp.support === 'tied' && (
               <>
                 <NumField label="ระยะ c/c" unit="ซม." optional placeholder="อัตโนมัติ" value={inp.wale.spacingCm} min={20} max={300} onChange={(v) => set((i) => ({ ...i, wale: { ...i.wale, spacingCm: v } }))} />

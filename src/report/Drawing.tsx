@@ -134,8 +134,8 @@ function DimLine({ d, X, Y }: { d: Dim; X: (u: number) => number; Y: (v: number)
       <line x1={x} x2={x} y1={y1} y2={y2} />
       <line x1={x - 3} x2={x + 3} y1={y1 + 3} y2={y1 - 3} />
       <line x1={x - 3} x2={x + 3} y1={y2 + 3} y2={y2 - 3} />
-      {Math.abs(y2 - y1) > 12 && (
-        <text x={x - 4} y={(y1 + y2) / 2 + 3} fontSize={9} textAnchor="end" stroke="none" className="font-mono">
+      {Math.abs(y2 - y1) > text.length * 5.5 && (
+        <text x={x - 3} y={(y1 + y2) / 2} transform={`rotate(-90 ${x - 3} ${(y1 + y2) / 2})`} fontSize={9} textAnchor="middle" stroke="none" className="font-mono">
           {text}
         </text>
       )}

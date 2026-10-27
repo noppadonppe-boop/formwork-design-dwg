@@ -1,5 +1,6 @@
 // One entry point per element type: geometry, the part groups shown in the 3D layer list, and handle edits.
 import type { AnyDesign } from '@/data/elements'
+import { beamBracing, beamHasRunners } from '@/engine'
 import type { ElementData } from '@/data/types'
 import { applyColumnHandle, applyWallHandle, columnModel, type FormModel, type HandleKey, type PartGroup, wallModel } from './formModel'
 import { applyBeamHandle, applyFootingHandle, applySlabHandle, beamModel, footingModel, slabModel } from './slabBeamFootingModel'
@@ -23,7 +24,7 @@ export function elementGroups(el: ElementData): PartGroup[] {
       return ['concrete', 'sheathing', 'joist', 'stringer', 'shore', ...(el.input.bracing.enabled ? (['bracing'] as const) : [])]
     case 'beam': {
       const deep = el.input.tie.enabled
-      return ['concrete', 'sheathing', 'stud', ...(deep ? (['wale', 'tie'] as const) : []), ...(el.input.bottom.count > 0 ? (['bottom'] as const) : []), 'head', 'shore', ...(!deep && el.input.type !== 'slab' ? (['brace'] as const) : [])]
+      return ['concrete', 'sheathing', 'stud', ...(deep ? (['wale', 'tie'] as const) : []), ...(el.input.bottomDir === 'across' ? (['joist'] as const) : []), ...(beamHasRunners(el.input) ? (['bottom'] as const) : []), 'head', 'shore', ...(beamBracing(el.input).enabled || (el.input.shore.kind === 'post' && el.input.shore.braceLevels) ? (['bracing'] as const) : []), ...(!deep && el.input.type !== 'slab' ? (['brace'] as const) : [])]
     }
     case 'footing': {
       const s = el.input.support

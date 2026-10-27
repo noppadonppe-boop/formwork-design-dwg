@@ -102,7 +102,7 @@ export function describe(el: ElementData): string[] {
     case 'slab':
       return [sh, `ตง ${label(i.joist.sectionId)}`, `คานรองรับ ${i.stringer.count === 2 ? '2-' : ''}${label(i.stringer.sectionId)}`, shore(i.shore)]
     case 'beam':
-      return [sh, `เคร่าข้าง ${label(i.stud.sectionId)}`, i.bottom.count ? `ท้อง ${i.bottom.count}-${label(i.bottom.sectionId)}${i.bottom.flat ? ' นอน' : ''}` : 'ท้องแผ่นเดียว', `คานขวาง ${i.head.count === 2 ? '2-' : ''}${label(i.head.sectionId)}`, shore(i.shore)]
+      return [sh, `เคร่าข้าง ${label(i.stud.sectionId)}`, i.bottom.count || i.bottom.auto ? `ท้อง ${i.bottom.auto ? 'n' : i.bottom.count}-${label(i.bottom.sectionId)}${i.bottom.flat ? ' นอน' : ''}` : 'ท้องแผ่นเดียว', `คานขวาง ${i.head.count === 2 ? '2-' : ''}${label(i.head.sectionId)}`, shore(i.shore)]
     case 'footing':
       return [sh, `เคร่า ${label(i.stud.sectionId)}`, i.support === 'tied' ? `คานรับเคร่า ${i.wale.count === 2 ? '2-' : ''}${label(i.wale.sectionId)} + ไทร์` : i.support === 'braced' ? `ค้ำยัน ${label(i.brace.sectionId)}` : 'เคร่าปลายยื่น']
   }

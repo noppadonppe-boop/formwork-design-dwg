@@ -10,7 +10,7 @@ import { type BomLine, concreteVolume, elementBom } from '@/model/bom'
 import { type CutSheet, packSheets, plywoodPieces, SHEET_H, SHEET_W } from '@/model/cutting'
 import type { FormModel } from '@/model/formModel'
 import { SEQUENCE } from './sequence'
-import { ShopView } from './ShopView'
+import { SCALES, ShopView, viewExtent, viewSize } from './ShopView'
 import { elementViews } from './views'
 
 /** BOM rows on the drawing sheet; longer lists continue on extra sheets. */
@@ -113,10 +113,20 @@ function TitleBlock({ project, s, d, sheet, of, today }: { project: Project; s: 
   const row = 'border-t border-slate-500 px-1.5 py-[2px]'
   return (
     <div className="border-2 border-ink text-[7pt] leading-tight">
-      <div className="flex items-center justify-between gap-2 bg-ink px-1.5 py-1 text-white">
-        <b className="truncate text-[9pt]">{s.company || 'FormWork Studio'}</b>
-        <span className="shrink-0">SHOP DRAWING · แบบหล่อคอนกรีต</span>
-      </div>
+      {project.logo ? (
+        <div className="flex items-center justify-between gap-2 border-b-2 border-ink px-1.5 py-1">
+          <div className="flex min-w-0 items-center gap-2">
+            <img src={project.logo} alt={s.company || 'logo'} className="h-[10mm] max-w-[45mm] object-contain" />
+            {s.company && <b className="truncate text-[9pt]">{s.company}</b>}
+          </div>
+          <span className="shrink-0 font-semibold">SHOP DRAWING · แบบหล่อคอนกรีต</span>
+        </div>
+      ) : (
+        <div className="flex items-center justify-between gap-2 bg-ink px-1.5 py-1 text-white">
+          <b className="truncate text-[9pt]">{s.company || 'FormWork Studio'}</b>
+          <span className="shrink-0">SHOP DRAWING · แบบหล่อคอนกรีต</span>
+        </div>
+      )}
       <div className="grid grid-cols-[22mm_1fr]">
         <span className={clsx(row, 'border-t-0 text-slate-500')}>Project</span>
         <span className={clsx(row, 'border-t-0 font-semibold')}>
@@ -263,23 +273,61 @@ function Sequence({ d }: { d: ShopData }) {
   )
 }
 
+const VIEW_W = 262 // mm, drawing area of the left column
+const VIEW_H = 270 // mm, drawing area height (views + captions)
+const CAPTION = 5 // mm under each view
+const ISO_MIN = 95 // mm
+
+/**
+ * Plan and elevation at one standard scale, side by side or stacked — whichever allows the larger scale
+ * (stacked keeps the two views aligned like a projection) — and the isometric in the height left over.
+ */
+export function sheetLayout(d: ShopData) {
+  const { a, b } = d.views
+  const ea = viewExtent(a.model, a.view, a.dims)
+  const eb = viewExtent(b.model, b.view, b.dims)
+  const room = VIEW_H - ISO_MIN - CAPTION - 4
+  const fits = (denom: number, stack: boolean) => {
+    const sa = viewSize(ea, denom)
+    const sb = viewSize(eb, denom)
+    const w = stack ? Math.max(sa.w, sb.w) : sa.w + sb.w + 8
+    const h = stack ? sa.h + sb.h + 2 * CAPTION + 3 : Math.max(sa.h, sb.h) + CAPTION
+    return w <= VIEW_W && h <= room ? { denom, stack, a: sa, b: sb, h } : undefined
+  }
+  let best: NonNullable<ReturnType<typeof fits>> | undefined
+  for (const denom of SCALES) {
+    const side = fits(denom, false)
+    const stack = fits(denom, true)
+    const pick = side && stack ? (side.h <= stack.h ? side : stack) : (side ?? stack)
+    if (pick) {
+      best = pick
+      break
+    }
+  }
+  best ??= { denom: SCALES[SCALES.length - 1], stack: false, a: viewSize(ea, 500), b: viewSize(eb, 500), h: room }
+  const isoH = Math.min(150, VIEW_H - best.h - CAPTION - 4)
+  return { ...best, isoH }
+}
+
 export function ShopSheets({ project, settings, d, today }: { project: Project; settings: ShopSettings; d: ShopData; today: string }) {
   const of = sheetCount(d)
   const first = d.lines.slice(0, ROWS_ON_SHEET)
   const rest = d.lines.slice(ROWS_ON_SHEET)
-  const tags = d.lines.filter((l) => l.category !== 'accessory').map((l) => ({ mark: l.mark, partIds: l.partIds }))
+  // every BOM line drawn in the model gets a tag (tie plates included); loose items such as nails have no parts
+  const tags = d.lines.filter((l) => l.partIds.length).map((l) => ({ mark: l.mark, partIds: l.partIds }))
   const { a, b } = d.views
+  const lay = sheetLayout(d)
   const tb = (sheet: number) => <TitleBlock project={project} s={settings} d={d} sheet={sheet} of={of} today={today} />
   return (
     <>
       <div className="shop-sheet">
         <div className="grid h-full grid-cols-[268mm_1fr] gap-[4mm] border border-ink p-[3mm]">
-          <div className="grid grid-rows-[150mm_1fr]">
-            <div className="flex items-start justify-between">
-              <ShopView model={a.model} view={a.view} dims={a.dims} w={163} h={142} title={a.title.split(' — ')[0]} />
-              <ShopView model={b.model} view={b.view} dims={b.dims} w={100} h={142} title={b.title.split(' — ')[0]} />
+          <div className="flex flex-col items-center gap-[4mm]">
+            <div className={clsx('flex items-start justify-center gap-[8mm]', lay.stack && 'flex-col items-center gap-[3mm]')}>
+              <ShopView model={a.model} view={a.view} dims={a.dims} w={lay.a.w} h={lay.a.h} denom={lay.denom} title={a.title.split(' — ')[0]} />
+              <ShopView model={b.model} view={b.view} dims={b.dims} w={lay.b.w} h={lay.b.h} denom={lay.denom} title={b.title.split(' — ')[0]} />
             </div>
-            <ShopView model={d.model} view="iso" w={262} h={110} tags={tags} title="ภาพสามมิติ — หมายเลขชิ้นส่วนตามตารางวัสดุ" />
+            <ShopView model={d.model} view="iso" w={262} h={lay.isoH} tags={tags} title="ภาพสามมิติ — หมายเลขชิ้นส่วนตามตารางวัสดุ" />
           </div>
           <div className="flex min-h-0 flex-col gap-[3mm]">
             <div>

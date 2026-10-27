@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_BEAM, DEFAULT_FOOTING, DEFAULT_SLAB, designBeam, designFooting, designSlab } from '@/engine'
+import { DEFAULT_BEAM, DEFAULT_FOOTING, DEFAULT_SLAB, deckThicknessM, designBeam, designFooting, designSlab } from '@/engine'
 import { applyBeamHandle, applyFootingHandle, applySlabHandle, beamModel, footingModel, slabModel } from './slabBeamFootingModel'
 
 const count = (parts: { group: string }[], g: string) => parts.filter((p) => p.group === g).length
@@ -39,6 +39,26 @@ describe('beam model', () => {
     const inp = { ...DEFAULT_BEAM, type: 'isolated' as const }
     expect(count(beamModel(inp, designBeam(inp)).parts, 'brace')).toBe(2 * d.layout.headX.length)
   })
+  it('X-bracing along every post row as designed, runners at the shore brace levels', () => {
+    const inp = { ...DEFAULT_BEAM, length: 12, shore: { ...DEFAULT_BEAM.shore, layout: 'double' as const, kind: 'post' as const, braceLevels: 1 } }
+    const bd = designBeam(inp)
+    const parts = beamModel(inp, bd).parts
+    expect(parts.filter((p) => p.id.startsWith('brx-')).length).toBe(bd.quantities.bracing)
+    expect(parts.filter((p) => p.id.startsWith('run-')).length).toBe(2)
+  })
+  it('cross joists under the bottom, on the runners as designed; shores below them', () => {
+    const inp = { ...DEFAULT_BEAM, b: 1.0, h: 0.8, bottomDir: 'across' as const, shore: { ...DEFAULT_BEAM.shore, layout: 'double' as const, postSpacingM: 1.2 } }
+    const bd = designBeam(inp)
+    const parts = beamModel(inp, bd).parts
+    expect(parts.filter((p) => p.id.startsWith('cjoist-')).length).toBe(bd.layout.crossJoistX.length)
+    expect(parts.filter((p) => p.id.startsWith('stiff-')).length).toBe(bd.layout.bottomZ.length)
+    const top = (id: string) => {
+      const p = parts.find((q) => q.id === id)!
+      return p.shape === 'box' ? p.center[1] + p.size[1] / 2 : Math.max(p.from[1], p.to[1])
+    }
+    expect(top('cjoist-0')).toBeCloseTo(inp.clearHeight - deckThicknessM(inp.sheathing), 6)
+    expect(top('stiff-0')).toBeLessThan(top('cjoist-0') - 0.01)
+  })
   it('width handle drags one face (half width)', () => expect(applyBeamHandle(DEFAULT_BEAM, 'b', 0.2).b).toBe(0.4))
 })
 
@@ -76,8 +96,28 @@ describe('footing model', () => {
     for (const layout of ['none', 'short', 'both'] as const) {
       const inp = { ...DEFAULT_FOOTING, support: 'tied' as const, tie: { ...DEFAULT_FOOTING.tie, layout } }
       const d = designFooting(inp)
-      expect(count(footingModel(inp, d).parts, 'tie')).toBe(d.quantities.ties)
+      const parts = footingModel(inp, d).parts.filter((p) => p.group === 'tie')
+      expect(parts.filter((p) => p.shape === 'bar')).toHaveLength(d.quantities.ties)
+      // a steel bearing plate at both ends of every tie
+      expect(parts.filter((p) => p.id.startsWith('tieplate'))).toHaveLength(2 * d.quantities.ties)
     }
+  })
+  it('crossed corners: short-side wales run full length, one wale set lower; butt keeps one level', () => {
+    // first wale 0.15 m up: one set lower would dig below the base → auto goes up
+    const low = { ...DEFAULT_FOOTING, lengthX: 5, lengthY: 2, height: 2, support: 'tied' as const }
+    expect(designFooting(low).layout.waleShift).toBeCloseTo(0.115, 6)
+    const base = { ...low, wale: { ...low.wale, bottomOffsetM: 0.3 } }
+    const cross = designFooting(base)
+    expect(cross.layout.waleCorner).toBe('cross')
+    expect(cross.layout.waleShift).toBeCloseTo(-(2 * 5 + 1.5) / 100, 6) // 2–2"×4": 2 × 5 cm + 1.5 cm gap, down
+    const wales = footingModel(base, cross).parts.filter((p) => p.group === 'wale' && p.shape === 'box')
+    const lens = new Set(wales.map((p) => (p.shape === 'box' ? Math.round(Math.max(p.size[0], p.size[2]) * 1000) : 0)))
+    expect(lens.size).toBe(2) // long and short sides, both run past the corners
+    const up = designFooting({ ...base, wale: { ...base.wale, shift: 'up' } })
+    expect(up.layout.waleShift).toBeGreaterThan(0)
+    const butt = designFooting({ ...base, wale: { ...base.wale, corner: 'butt' } })
+    expect(butt.layout.waleShift).toBe(0)
+    expect(butt.quantities.waleLength).toBeLessThan(cross.quantities.waleLength)
   })
   it('braced through wales: wales at every brace level, braces and stakes as designed', () => {
     const inp = { ...DEFAULT_FOOTING, brace: { ...DEFAULT_FOOTING.brace, at: 'wale' as const } }

@@ -1,6 +1,6 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import clsx from 'clsx'
-import { ChevronLeft, Loader2 } from 'lucide-react'
+import { ChevronLeft, ImagePlus, Loader2, Trash2 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { Link, useNavigate, useParams } from 'react-router-dom'
@@ -13,7 +13,7 @@ import { Button, Field, NumberInput, Select } from '@/components/ui'
 import { PLYWOOD, PLYWOOD_THICKNESS, STEEL, TIES, TIMBER } from '@/engine'
 import { useProject, useProjects } from '@/data/hooks'
 import { repo, versionOf } from '@/data/repo'
-import { DEFAULT_CRITERIA, EMPTY_PROJECT, type Project, type ProjectData, STATUS_LABEL } from '@/data/types'
+import { DEFAULT_CRITERIA, EMPTY_PROJECT, type Project, type ProjectData, REPORT_LANG_LABEL, STATUS_LABEL } from '@/data/types'
 import { DeleteProjectModal } from './ProjectsPage'
 
 const num = (min: number, max: number, msg = `ค่า ${min}–${max}`) => z.number({ error: 'กรอกตัวเลข' }).min(min, msg).max(max, msg)
@@ -28,6 +28,8 @@ const schema = z.object({
   note: z.string().max(4000),
   revision: z.string().trim().max(10),
   status: z.enum(['design', 'review', 'issued']),
+  reportLang: z.enum(['th', 'en', 'zh']),
+  logo: z.string().max(400_000, 'ไฟล์โลโก้ใหญ่เกินไป'),
   criteria: z.object({
     pressureMethod: z.enum(['ACI347', 'CEB', 'CIRA', 'HYDROSTATIC']),
     verticalMethod: z.enum(['ACI347', 'CEB', 'CIRA']),
@@ -60,6 +62,24 @@ function toValues(p: Project): FormValues {
   return Object.fromEntries(Object.keys(schema.shape).map((k) => [k, v[k as keyof typeof v]])) as FormValues
 }
 
+/** Read an image file and shrink it to fit 600 × 240 px, as a PNG data URL (keeps transparency). */
+async function logoDataUrl(file: File): Promise<string> {
+  const url = URL.createObjectURL(file)
+  try {
+    const img = new Image()
+    img.src = url
+    await img.decode()
+    const k = Math.min(1, 600 / (img.naturalWidth || 600), 240 / (img.naturalHeight || 240))
+    const c = document.createElement('canvas')
+    c.width = Math.max(1, Math.round((img.naturalWidth || 600) * k))
+    c.height = Math.max(1, Math.round((img.naturalHeight || 240) * k))
+    c.getContext('2d')!.drawImage(img, 0, 0, c.width, c.height)
+    return c.toDataURL('image/png')
+  } finally {
+    URL.revokeObjectURL(url)
+  }
+}
+
 const TABS = [
   { id: 'code', label: 'Design Code' },
   { id: 'load', label: 'Loads & Concrete' },
@@ -81,12 +101,14 @@ export function ProjectEditPage() {
   const [tab, setTab] = useState<(typeof TABS)[number]['id']>('code')
   const [saveError, setSaveError] = useState<string>()
   const [deleting, setDeleting] = useState(false)
+  const [logoError, setLogoError] = useState<string>()
 
   const {
     register,
     handleSubmit,
     reset,
     watch,
+    setValue,
     setError,
     formState: { errors, isSubmitting, isDirty },
   } = useForm<FormValues>({ resolver: zodResolver(schema), defaultValues: EMPTY_PROJECT })
@@ -146,6 +168,17 @@ export function ProjectEditPage() {
     }
   }
 
+  const logo = watch('logo')
+  const pickLogo = async (file: File | undefined) => {
+    setLogoError(undefined)
+    if (!file) return
+    if (!file.type.startsWith('image/')) return setLogoError('เลือกไฟล์รูปภาพ (PNG, JPG, SVG)')
+    try {
+      setValue('logo', await logoDataUrl(file), { shouldDirty: true, shouldValidate: true })
+    } catch {
+      setLogoError('อ่านไฟล์รูปไม่ได้')
+    }
+  }
   const absMm = watch('criteria.deflectionAbsMm')
   const method = watch('criteria.pressureMethod')
   const crit = errors.criteria
@@ -225,6 +258,41 @@ export function ProjectEditPage() {
           <Field label="Project note">
             <textarea rows={4} className="input h-auto py-2" {...register('note')} />
           </Field>
+
+          <h2 id="pdocs" className="mt-2 border-t border-line pt-4 text-lg font-semibold">
+            เอกสาร · รายการคำนวณ & Shop drawing
+          </h2>
+          <Field label="ภาษารายการคำนวณ" hint="เปลี่ยนชั่วคราวได้ที่หน้ารายการคำนวณ">
+            <Select {...register('reportLang')}>
+              {Object.entries(REPORT_LANG_LABEL).map(([k, v]) => (
+                <option key={k} value={k}>
+                  {v}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <div className="flex flex-col gap-1.5">
+            <span className="text-[13px] font-medium text-slate-700">โลโก้บริษัท</span>
+            <div className="flex items-center gap-3">
+              <div className="flex h-16 w-40 shrink-0 items-center justify-center rounded-lg border border-dashed border-slate-300 bg-slate-50 p-1.5">
+                {logo ? <img src={logo} alt="โลโก้บริษัท" className="max-h-full max-w-full object-contain" /> : <span className="text-xs text-muted">ยังไม่มีโลโก้</span>}
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-lg border border-slate-300 px-3 text-sm hover:bg-slate-50 focus-within:ring-2 focus-within:ring-sel">
+                  <ImagePlus size={16} aria-hidden /> {logo ? 'เปลี่ยนโลโก้' : 'อัปโหลดโลโก้'}
+                  <input type="file" accept="image/png,image/jpeg,image/svg+xml,image/webp" className="sr-only" onChange={(e) => (pickLogo(e.target.files?.[0]), (e.target.value = ''))} />
+                </label>
+                {logo && (
+                  <button type="button" onClick={() => setValue('logo', '', { shouldDirty: true })} className="inline-flex h-8 items-center gap-1.5 text-xs text-fail hover:underline">
+                    <Trash2 size={14} aria-hidden /> ลบโลโก้
+                  </button>
+                )}
+              </div>
+            </div>
+            <span className={clsx('text-xs', logoError || errors.logo ? 'text-fail' : 'text-muted')}>
+              {logoError ?? errors.logo?.message ?? 'แสดงที่กรอบชื่อแบบของ Shop drawing และหัวรายการคำนวณ · ย่อให้อัตโนมัติ (สูงสุด 600×240 px)'}
+            </span>
+          </div>
         </section>
 
         <section aria-labelledby="crit" className="card min-w-0 flex-[999_1_560px]">

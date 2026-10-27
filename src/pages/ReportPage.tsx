@@ -5,10 +5,11 @@ import { ChevronLeft, Loader2, Printer } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useAuth } from '@/auth/AuthProvider'
-import { Toggle } from '@/components/ui'
+import { Select, Toggle } from '@/components/ui'
 import { elementSize, runDesign, TYPE_LABEL } from '@/data/elements'
 import { useElements, useProject } from '@/data/hooks'
-import { type Criteria, DEFAULT_CRITERIA } from '@/data/types'
+import { type Criteria, DEFAULT_CRITERIA, REPORT_LANG_LABEL, type ReportLang } from '@/data/types'
+import { HTML_LANG, LOCALE, translate, useTranslatedDom } from '@/i18n/report'
 import { ElementReport, InfoGrid, type ReportOptions, Section, Signatures } from '@/report/CalcReport'
 
 const cssString = (s: string) => `"${s.replace(/["\\]/g, '\\$&').replace(/\n/g, ' ')}"`
@@ -19,6 +20,11 @@ export function ReportPage() {
   const elements = useElements(projectId)
   const { user } = useAuth()
   const [opts, setOpts] = useState<ReportOptions>({ trace: true, drawings: true })
+  /** report language: the project's setting, overridable here for this print */
+  const [langPick, setLang] = useState<ReportLang>()
+  const lang: ReportLang = langPick ?? project?.reportLang ?? 'th'
+  const reportRef = useTranslatedDom(lang)
+  const tr = (s: string) => translate(s, lang)
 
   const criteria: Criteria = { ...DEFAULT_CRITERIA, ...project?.criteria }
   const list = useMemo(() => {
@@ -33,7 +39,7 @@ export function ReportPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [elements, elementId, project?.criteria])
 
-  const today = new Date().toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' })
+  const today = new Date().toLocaleDateString(LOCALE[lang], { year: 'numeric', month: 'short', day: 'numeric' })
   const single = elementId ? list[0]?.el : undefined
 
   useEffect(() => {
@@ -59,9 +65,9 @@ export function ReportPage() {
   size: A4;
   margin: 16mm 13mm 15mm;
   @top-left { content: ${cssString(`${project.projectNo} · ${project.name}`)}; font: 8pt 'IBM Plex Sans Thai', sans-serif; color: #5b6576; }
-  @top-right { content: ${cssString(single ? `รายการคำนวณแบบหล่อ ${single.code} · Rev ${project.revision}` : `รายการคำนวณแบบหล่อ · Rev ${project.revision}`)}; font: 8pt 'IBM Plex Sans Thai', sans-serif; color: #5b6576; }
-  @bottom-left { content: ${cssString(`FormWork Studio · พิมพ์ ${today}`)}; font: 8pt 'IBM Plex Sans Thai', sans-serif; color: #5b6576; }
-  @bottom-right { content: "หน้า " counter(page) " / " counter(pages); font: 8pt 'IBM Plex Sans Thai', sans-serif; color: #5b6576; }
+  @top-right { content: ${cssString(tr(single ? `รายการคำนวณแบบหล่อ ${single.code} · Rev ${project.revision}` : `รายการคำนวณแบบหล่อ · Rev ${project.revision}`))}; font: 8pt 'IBM Plex Sans Thai', sans-serif; color: #5b6576; }
+  @bottom-left { content: ${cssString(tr(`FormWork Studio · พิมพ์ ${today}`))}; font: 8pt 'IBM Plex Sans Thai', sans-serif; color: #5b6576; }
+  @bottom-right { content: ${cssString(tr('หน้า') + ' ')} counter(page) " / " counter(pages); font: 8pt 'IBM Plex Sans Thai', sans-serif; color: #5b6576; }
 }`
 
   const back = single ? `/projects/${project.id}/elements/${single.id}` : `/projects/${project.id}`
@@ -78,6 +84,16 @@ export function ReportPage() {
         <div className="flex items-center gap-4">
           <Toggle label="ขั้นตอนคำนวณละเอียด" checked={opts.trace} onChange={(v) => setOpts({ ...opts, trace: v })} />
           <Toggle label="แบบร่างการจัดวาง" checked={opts.drawings} onChange={(v) => setOpts({ ...opts, drawings: v })} />
+          <label className="flex items-center gap-2 text-sm">
+            ภาษา
+            <Select value={lang} onChange={(e) => setLang(e.target.value as ReportLang)} className="h-9 w-32" aria-label="ภาษารายการคำนวณ">
+              {Object.entries(REPORT_LANG_LABEL).map(([k, v]) => (
+                <option key={k} value={k}>
+                  {v}
+                </option>
+              ))}
+            </Select>
+          </label>
         </div>
         <div className="ml-auto flex items-center gap-3">
           <span className="hidden text-xs text-muted md:inline">เลือกปลายทาง “บันทึกเป็น PDF” ในหน้าต่างพิมพ์</span>
@@ -87,10 +103,11 @@ export function ReportPage() {
         </div>
       </div>
 
-      <main className="report mx-auto flex w-full max-w-[210mm] flex-col gap-6 py-6 print:block print:max-w-none print:py-0">
+      <main key={lang} ref={reportRef} lang={HTML_LANG[lang]} className="report mx-auto flex w-full max-w-[210mm] flex-col gap-6 py-6 print:block print:max-w-none print:py-0">
         {!single && (
           <div className="sheet">
             <header className="border-b-[3px] border-ink pb-3">
+              {project.logo && <img src={project.logo} alt="logo" className="mb-3 h-16 max-w-[70mm] object-contain" />}
               <p className="text-[11px] uppercase tracking-wider text-slate-500">Formwork Design Calculation</p>
               <h2 className="text-2xl font-bold">รายการคำนวณออกแบบแบบหล่อคอนกรีต</h2>
               <p className="text-lg">{project.name}</p>

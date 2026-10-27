@@ -44,7 +44,14 @@ export interface ProjectData {
   criteria: Criteria
   /** shop drawing / BOM settings (optional for projects created before Phase 4) */
   shop?: ShopSettings
+  /** language of the calculation report (default Thai) */
+  reportLang?: ReportLang
+  /** company logo for the title block and report header — a small PNG data URL (resized on upload) */
+  logo?: string
 }
+
+export type ReportLang = 'th' | 'en' | 'zh'
+export const REPORT_LANG_LABEL: Record<ReportLang, string> = { th: 'ภาษาไทย', en: 'English', zh: '中文' }
 
 export interface ShopSettings {
   /** company shown in the title block */
@@ -144,6 +151,8 @@ export const EMPTY_PROJECT: ProjectData = {
   revision: 'R0',
   status: 'design',
   criteria: DEFAULT_CRITERIA,
+  reportLang: 'th',
+  logo: '',
 }
 
 export const STATUS_LABEL: Record<ProjectStatus, string> = {

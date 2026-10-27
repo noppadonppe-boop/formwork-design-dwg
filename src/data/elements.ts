@@ -84,6 +84,8 @@ export function newElement(type: ElementType, c: Criteria, existing: FormElement
         head: { ...DEFAULT_BEAM.head, materialId: timber },
         tie: { ...DEFAULT_BEAM.tie, tieId: c.defaults.tieId, waleMaterialId: timber },
         brace: { ...DEFAULT_BEAM.brace, materialId: timber },
+        bracing: { ...DEFAULT_BEAM.bracing!, materialId: timber },
+        crossJoist: { ...DEFAULT_BEAM.crossJoist!, materialId: timber },
       }
       return { ...base, type, name: 'คาน', input }
     }
@@ -179,6 +181,7 @@ export const QUANTITY_LABEL: Record<string, [string, string]> = {
   shores: ['เสาค้ำ / ขานั่งร้าน', 'ต้น'],
   bracing: ['ค้ำยันทแยงระบบเสาค้ำ', 'ตัว'],
   bottomLength: ['ไม้เสริมท้องแบบรวม', 'ม.'],
+  crossJoists: ['ตงขวางใต้ท้องแบบ', 'ตัว'],
   heads: ['คานขวาง', 'ตัว'],
   stakes: ['หลักยึด', 'ต้น'],
 }
@@ -207,6 +210,8 @@ export function layoutSummary(r: AnyDesign): { label: string; value: string }[] 
     case 'beam':
       return [
         { label: 'เคร่าข้าง @', value: `${r.design.layout.studSpacing}` },
+        ...(r.design.layout.crossJoistSpacing ? [{ label: 'ตงขวาง @', value: `${r.design.layout.crossJoistSpacing}` }] : []),
+        ...(r.design.layout.bottomZ.length ? [{ label: 'คร่าวตามยาว', value: `${r.design.layout.bottomZ.length} ตัว` }] : []),
         { label: 'คานขวาง/เสาค้ำ @', value: `${r.design.layout.headSpacing} ซม.` },
       ]
     case 'footing':

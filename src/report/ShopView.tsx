@@ -36,15 +36,156 @@ export function pickScale(extentU: number, extentV: number, roomU: number, roomV
   return SCALES.find((d) => (extentU * 1000) / d <= roomU && (extentV * 1000) / d <= roomV)
 }
 
-export function ShopView({ model, view, w, h, dims = [], tags = [], title }: { model: FormModel; view: ShopViewKind; w: number; h: number; dims?: Dim[]; tags?: Tag[]; title: string }) {
+/** Margin round every view, mm (dimension text sits inside it). */
+export const VIEW_PAD = 7
+
+/** World-space bounding box of a part, m. */
+function aabb(p: Part): [Vec3, Vec3] {
+  if (p.shape === 'box') return [p.center.map((c, k) => c - p.size[k] / 2) as Vec3, p.center.map((c, k) => c + p.size[k] / 2) as Vec3]
+  const r = Math.max(p.b, p.d) / 2
+  return [[0, 1, 2].map((k) => Math.min(p.from[k], p.to[k]) - r) as Vec3, [0, 1, 2].map((k) => Math.max(p.from[k], p.to[k]) + r) as Vec3]
+}
+
+type Item = { p: Part; pts: [number, number, number][]; depth: number }
+type Pt = [number, number]
+
+/** Convex hull (monotone chain), counter-clockwise. */
+function hull(points: Pt[]): Pt[] {
+  const p = [...points].sort((a, b) => a[0] - b[0] || a[1] - b[1])
+  const cross = (o: Pt, a: Pt, b: Pt) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+  const lower: Pt[] = []
+  for (const q of p) {
+    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], q) <= 0) lower.pop()
+    lower.push(q)
+  }
+  const upper: Pt[] = []
+  for (const q of [...p].reverse()) {
+    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], q) <= 0) upper.pop()
+    upper.push(q)
+  }
+  return [...lower.slice(0, -1), ...upper.slice(0, -1)]
+}
+
+const polyArea = (q: Pt[]) => Math.abs(q.reduce((s, a, i) => s + a[0] * q[(i + 1) % q.length][1] - q[(i + 1) % q.length][0] * a[1], 0)) / 2
+
+/** Area common to two convex polygons (Sutherland–Hodgman). */
+function overlapArea(subject: Pt[], clip: Pt[]): number {
+  let out = subject
+  for (let i = 0; i < clip.length && out.length; i++) {
+    const [a, b] = [clip[i], clip[(i + 1) % clip.length]]
+    const side = (q: Pt) => (b[0] - a[0]) * (q[1] - a[1]) - (b[1] - a[1]) * (q[0] - a[0])
+    const inp = out
+    out = []
+    for (let j = 0; j < inp.length; j++) {
+      const [c, d] = [inp[j], inp[(j + 1) % inp.length]]
+      const [sc, sd] = [side(c), side(d)]
+      if (sc >= 0) out.push(c)
+      if (sc >= 0 !== sd >= 0) {
+        const t = sc / (sc - sd)
+        out.push([c[0] + t * (d[0] - c[0]), c[1] + t * (d[1] - c[1])])
+      }
+    }
+  }
+  return out.length >= 3 ? polyArea(out) : 0
+}
+
+/**
+ * Painter's order for the isometric (viewer at +x, +y, +z). Sorting by centre depth fails for large panels —
+ * a long plywood face would cover the studs and wales in front of it — so parts whose drawings overlap are
+ * ordered by a separating axis: a box entirely on the low side of another along x, y or z is farther away.
+ * Parts that interpenetrate (ties through the wales) fall back to centre depth.
+ */
+function isoOrder(items: Item[]): Item[] {
+  const n = items.length
+  const box = items.map((it) => aabb(it.p))
+  // outline of each part on paper: hull of its bounding box's eight corners
+  const shape = box.map(([lo, hi]) => {
+    const pts: Pt[] = []
+    for (const x of [lo[0], hi[0]]) for (const y of [lo[1], hi[1]]) for (const z of [lo[2], hi[2]]) pts.push(iso([x, y, z]).slice(0, 2) as Pt)
+    return hull(pts)
+  })
+  const scr = shape.map((q) => [Math.min(...q.map((r) => r[0])), Math.max(...q.map((r) => r[0])), Math.min(...q.map((r) => r[1])), Math.max(...q.map((r) => r[1]))])
+  const eps = 1e-6
+  const after: number[][] = Array.from({ length: n }, () => [])
+  const before: number[][] = Array.from({ length: n }, () => [])
+  const overlap = new Map<string, number>() // area two ordered parts share on paper
+  const indeg = new Array<number>(n).fill(0)
+  for (let i = 0; i < n; i++)
+    for (let j = i + 1; j < n; j++) {
+      const a = scr[i]
+      const b = scr[j]
+      if (a[1] <= b[0] + eps || b[1] <= a[0] + eps || a[3] <= b[2] + eps || b[3] <= a[2] + eps) continue
+      const [ai, aj] = [box[i], box[j]]
+      let ij = false
+      let ji = false
+      for (let k = 0; k < 3; k++) {
+        if (ai[1][k] <= aj[0][k] + eps) ij = true
+        else if (aj[1][k] <= ai[0][k] + eps) ji = true
+      }
+      if (ij === ji) {
+        // interpenetrating: a tie runs through the panels and wales — draw it first so only its plates and
+        // the ends show; anything else is left to centre depth
+        const ti = items[i].p.kind === 'tie' && items[i].p.shape === 'bar'
+        const tj = items[j].p.kind === 'tie' && items[j].p.shape === 'bar'
+        if (ti === tj || ij) continue
+        ;[ij, ji] = [ti, tj]
+      }
+      const area = overlapArea(shape[i], shape[j])
+      if (area < 1e-9) continue // outlines only touch
+      const [from, to] = ij ? [i, j] : [j, i]
+      after[from].push(to)
+      before[to].push(from)
+      overlap.set(`${from}-${to}`, area)
+      indeg[to]++
+    }
+  // Kahn's algorithm, farthest centre first among the free parts; a cycle falls back to centre depth
+  const out: Item[] = []
+  const done = new Array<boolean>(n).fill(false)
+  const ready = items.map((_, i) => i).filter((i) => indeg[i] === 0)
+  while (out.length < n) {
+    if (!ready.length) {
+      // a cycle (e.g. wales crossing at a corner over a panel): walk back through the parts still waiting
+      // until one repeats, then drop the loop's constraint with the smallest overlap on paper (a corner lap)
+      let k = done.indexOf(false)
+      const seen = new Map<number, number>()
+      while (!seen.has(k)) {
+        seen.set(k, seen.size)
+        k = before[k].find((j) => !done[j])!
+      }
+      // loop[x + 1] is a predecessor of loop[x]
+      const loop = [...seen.keys()].slice(seen.get(k))
+      const ov = (x: number) => overlap.get(`${loop[(x + 1) % loop.length]}-${loop[x]}`) ?? 0
+      const m = loop.reduce((b, _, x) => (ov(x) < ov(b) ? x : b), 0)
+      const [to, pred] = [loop[m], loop[(m + 1) % loop.length]]
+      after[pred].splice(after[pred].indexOf(to), 1)
+      before[to].splice(before[to].indexOf(pred), 1)
+      if (--indeg[to] === 0) ready.push(to)
+      continue
+    }
+    let best = 0
+    for (let r = 1; r < ready.length; r++) if (items[ready[r]].depth < items[ready[best]].depth) best = r
+    const i = ready.splice(best, 1)[0]
+    if (done[i]) continue
+    done[i] = true
+    out.push(items[i])
+    for (const j of after[i]) if (!done[j] && --indeg[j] === 0) ready.push(j)
+  }
+  return out
+}
+
+export function project(model: FormModel, view: ShopViewKind) {
   const P = view === 'iso' ? iso : PROJ[view]
-  const items = model.parts.map((p) => {
+  const items: Item[] = model.parts.map((p) => {
     const pts = (p.shape === 'box' && view === 'iso' ? boxCorners(p) : corners(p)).map(P)
     const depth = view === 'iso' ? P(p.shape === 'box' ? p.center : ([(p.from[0] + p.to[0]) / 2, (p.from[1] + p.to[1]) / 2, (p.from[2] + p.to[2]) / 2] as Vec3))[2] : Math.max(...pts.map((q) => q[2]))
     return { p, pts, depth }
   })
+  if (view === 'iso') return isoOrder(items)
   items.sort((a, b) => a.depth - b.depth)
+  return items
+}
 
+function extent(items: ReturnType<typeof project>, dims: Dim[]) {
   let u0 = Infinity
   let u1 = -Infinity
   let v0 = Infinity
@@ -65,11 +206,26 @@ export function ShopView({ model, view, w, h, dims = [], tags = [], title }: { m
       u1 = Math.max(u1, d.at)
     }
   }
-  const pad = 7
+  return { u0, u1, v0, v1 }
+}
+
+/** Extent of a view (with its dimension lines), m — for laying views out on the sheet at one scale. */
+export function viewExtent(model: FormModel, view: ShopViewKind, dims: Dim[] = []) {
+  const e = extent(project(model, view), dims)
+  return { du: e.u1 - e.u0, dv: e.v1 - e.v0 }
+}
+
+/** Paper size of an orthographic view at scale 1:denom, mm. */
+export const viewSize = (e: { du: number; dv: number }, denom: number) => ({ w: (e.du * 1000) / denom + 2 * VIEW_PAD, h: (e.dv * 1000) / denom + 2 * VIEW_PAD })
+
+export function ShopView({ model, view, w, h, dims = [], tags = [], title, denom: fixed }: { model: FormModel; view: ShopViewKind; w: number; h: number; dims?: Dim[]; tags?: Tag[]; title: string; denom?: number }) {
+  const items = project(model, view)
+  const { u0, u1, v0, v1 } = extent(items, dims)
+  const pad = VIEW_PAD
   const tagW = tags.length ? 16 : 0
   const roomU = w - 2 * pad - tagW
   const roomV = h - 2 * pad
-  const denom = view === 'iso' ? undefined : pickScale(u1 - u0, v1 - v0, roomU, roomV)
+  const denom = view === 'iso' ? undefined : (fixed ?? pickScale(u1 - u0, v1 - v0, roomU, roomV))
   const s = denom ? 1000 / denom : Math.min(roomU / (u1 - u0 || 1), roomV / (v1 - v0 || 1))
   const ox = pad + (roomU - s * (u1 - u0)) / 2
   // orthographic views hang from the top of their frame so captions line up; the isometric is centred
@@ -133,9 +289,13 @@ export function ShopView({ model, view, w, h, dims = [], tags = [], title }: { m
     })
     .filter((a): a is { mark: number; x: number; y: number } => !!a)
     .sort((a, b) => a.y - b.y)
-  const step = anchors.length > 1 ? Math.min(8, (h - 2 * pad) / (anchors.length - 1)) : 0
-  const top = h / 2 - (step * (anchors.length - 1)) / 2
-  const tx = w - tagW / 2 - 1
+  // tags in a column just right of the drawing, each as level with its part as the spacing allows
+  const tx = Math.min(w - 3.5, X(u1) + 16)
+  const gapY = Math.min(6.6, (h - 6) / Math.max(anchors.length - 1, 1))
+  const tys = anchors.map((a) => Math.min(Math.max(a.y, 3), h - 3))
+  for (let i = 1; i < tys.length; i++) tys[i] = Math.max(tys[i], tys[i - 1] + gapY)
+  const over = tys.length ? tys[tys.length - 1] - (h - 3) : 0
+  if (over > 0) for (let i = tys.length - 1; i >= 0; i--) tys[i] = Math.min(tys[i] - over, i < tys.length - 1 ? tys[i + 1] - gapY : Infinity)
 
   return (
     <figure className="m-0 flex flex-col items-center">
@@ -152,7 +312,7 @@ export function ShopView({ model, view, w, h, dims = [], tags = [], title }: { m
           <ShopDim key={i} d={d} X={X} Y={Y} />
         ))}
         {anchors.map((a, i) => {
-          const ty = top + i * step
+          const ty = tys[i]
           return (
             <g key={a.mark}>
               <polyline points={`${a.x},${a.y} ${tx - 7},${ty} ${tx - 2.8},${ty}`} fill="none" stroke="#0f172a" strokeWidth={0.15} />
@@ -202,8 +362,8 @@ function ShopDim({ d, X, Y }: { d: Dim; X: (u: number) => number; Y: (v: number)
       <line x1={x} x2={x} y1={y1} y2={y2} />
       <line x1={x - t} x2={x + t} y1={y1 + t} y2={y1 - t} />
       <line x1={x - t} x2={x + t} y1={y2 + t} y2={y2 - t} />
-      {Math.abs(y2 - y1) > 3 && (
-        <text x={x - 0.8} y={(y1 + y2) / 2 + 0.8} fontSize={2.3} textAnchor="end" stroke="none" className="font-mono">
+      {Math.abs(y2 - y1) > text.length * 1.3 && (
+        <text x={x - 0.8} y={(y1 + y2) / 2} transform={`rotate(-90 ${x - 0.8} ${(y1 + y2) / 2})`} fontSize={2.3} textAnchor="middle" stroke="none" className="font-mono">
           {text}
         </text>
       )}

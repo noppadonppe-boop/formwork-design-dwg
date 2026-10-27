@@ -2,9 +2,11 @@
 // Same part/handle conventions as `formModel.ts`; used by the 3D designer and the report drawings.
 import {
   type BeamDesign,
+  beamBracing,
+  beamCrossJoist,
+  beamRunnerSection,
   braceBays,
   type BeamInput,
-  beamBottomSection,
   deckThicknessM,
   type FootingDesign,
   type FootingInput,
@@ -207,14 +209,16 @@ export function beamModel(inp: BeamInput, d: BeamDesign): FormModel {
   const stud = getSection(inp.stud.sectionId)
   const sb = cm(stud.B)
   const sd = cm(stud.H)
-  const bot = beamBottomSection(inp)
-  const one = inp.bottom.count > 0 ? getSection(inp.bottom.sectionId) : undefined
-  const bw = one ? cm(inp.bottom.flat ? one.H : one.B) : 0
-  const bd = one ? cm(bot.section.H) : 0
+  const { bottomZ, crossJoistX } = d.layout
+  const runner = beamRunnerSection(inp)
+  const bw = bottomZ.length ? cm(runner.B) : 0
+  const bd = bottomZ.length ? cm(runner.H) : 0
+  const cj = getSection(beamCrossJoist(inp).sectionId)
+  const jd = crossJoistX.length ? cm(cj.H) : 0
   const he = getSection(inp.head.sectionId)
   const hb = cm(he.B)
   const hd = cm(he.H)
-  const yHeadTop = Y - tSh - bd
+  const yHeadTop = Y - tSh - jd - bd
   const yHeadBot = yHeadTop - hd
   const double = inp.shore.layout === 'double'
   const zFace = b / 2 + tSh + sd
@@ -239,15 +243,17 @@ export function beamModel(inp: BeamInput, d: BeamDesign): FormModel {
       parts.push({ id: `stud${s}-${i}`, group: 'stud', kind: kindOf(inp.stud.materialId), shape: 'box', center: [xc, (yHeadTop + top) / 2, s * (b / 2 + tSh + sd / 2)], size: [sb, top - yHeadTop, sd] })
     })
   }
-  if (one) {
-    const zs = inp.bottom.count === 1 ? [0] : Array.from({ length: inp.bottom.count }, (_, k) => -b / 2 + bw / 2 + (k * (b - bw)) / (inp.bottom.count - 1))
-    zs.forEach((z, k) => parts.push({ id: `stiff-${k}`, group: 'bottom', kind: kindOf(inp.bottom.materialId), shape: 'box', center: [L / 2, Y - tSh - bd / 2, z], size: [L, bd, bw] }))
-  }
+  // runners along the beam (as designed), and the cross joists between them and the bottom sheathing ('across')
+  bottomZ.forEach((z, k) => parts.push({ id: `stiff-${k}`, group: 'bottom', kind: kindOf(inp.bottom.materialId), shape: 'box', center: [L / 2, yHeadTop + bd / 2, z], size: [L, bd, bw] }))
+  crossJoistX.forEach((x, k) => {
+    const xc = Math.min(Math.max(x, cm(cj.B) / 2), L - cm(cj.B) / 2)
+    parts.push({ id: `cjoist-${k}`, group: 'joist', kind: kindOf(beamCrossJoist(inp).materialId), shape: 'box', center: [xc, Y - tSh - jd / 2, 0], size: [cm(cj.B), jd, b + 2 * tSh] })
+  })
+  const posts = double ? [-inp.shore.postSpacingM / 2, inp.shore.postSpacingM / 2] : [0]
   headX.forEach((x, i) => {
     pairOffsets(inp.head.count, hb).forEach((o, k) =>
       parts.push({ id: `head-${i}-${k}`, group: 'head', kind: kindOf(inp.head.materialId), shape: 'box', center: [x + o, yHeadTop - hd / 2, 0], size: [hb, hd, headLen] }),
     )
-    const posts = double ? [-inp.shore.postSpacingM / 2, inp.shore.postSpacingM / 2] : [0]
     posts.forEach((z, k) => shorePart(parts, inp.shore, `shore-${i}-${k}`, x, z, yHeadBot, { axis: 'x', width: pairWidth(inp.head.count, hb), depth: hd }))
     if (!double && inp.shore.kind === 'post') {
       // knee braces of the T-head (ตุ๊กตา)
@@ -257,6 +263,34 @@ export function beamModel(inp: BeamInput, d: BeamDesign): FormModel {
       parts.push({ id: `xbr-${i}`, group: 'shore', kind: 'timber', shape: 'bar', from: [x + 0.04, 0.3, -inp.shore.postSpacingM / 2], to: [x + 0.04, yHeadBot - 0.1, inp.shore.postSpacingM / 2], b: 0.025, d: 0.075 })
     }
   })
+
+  // lateral bracing of every post row along the beam: an X in the end bays (as designed), on the outer face of the
+  // posts; horizontal runners at the shore brace levels on the inner face
+  const bracing = beamBracing(inp)
+  const levels = inp.shore.kind === 'post' ? inp.shore.braceLevels : 0
+  if ((bracing.enabled || levels) && headX.length > 1) {
+    const br = getSection(bracing.sectionId)
+    const bk = br.shape === 'pipe' ? 'steel' : kindOf(bracing.materialId)
+    const bw = cm(br.B)
+    const off = shoreWidth(inp.shore) / 2 + bw / 2
+    const bar = (id: string, from: Vec3, to: Vec3) => parts.push({ id, group: 'bracing', kind: bk, shape: 'bar', from, to, b: bw, d: cm(br.H), round: br.shape === 'pipe' })
+    const y0 = 0.15
+    const y1 = yHeadBot - 0.1
+    const k = Math.min(braceBays(d.layout.headSpacing / 100, d.layout.shoreLength), headX.length - 1)
+    const sets = headX.length - 1 > 2 * k ? [0, headX.length - 1 - k] : [0]
+    posts.forEach((z, r) => {
+      const out = z < 0 ? -1 : 1
+      if (bracing.enabled)
+        sets.forEach((j) => {
+          bar(`brx-${r}-${j}a`, [headX[j], y0, z + out * off], [headX[j + k], y1, z + out * off])
+          bar(`brx-${r}-${j}b`, [headX[j], y1, z + out * off], [headX[j + k], y0, z + out * off])
+        })
+      for (let n = 1; n <= levels; n++) {
+        const y = (yHeadBot * n) / (levels + 1)
+        bar(`run-${r}-${n}`, [headX[0] - 0.05, y, z - out * off], [headX[headX.length - 1] + 0.05, y, z - out * off])
+      }
+    })
+  }
 
   if (tieLevels.length) {
     const wsec = getSection(inp.tie.waleSectionId)
@@ -361,14 +395,16 @@ export function footingModel(inp: FootingInput, d: FootingDesign): FormModel {
       parts.push({ id: `stud-${fi}-${i}`, group: 'stud', kind: sKind, shape: 'box', ...box(f, u, rStud, (yStud0 + H) / 2, sb, H - yStud0, sd) })
       if (inp.support === 'braced') parts.push({ id: `kick-${fi}-${i}`, group: 'stake', kind: 'timber', shape: 'box', ...box(f, u, r0 + cm(stake.H) / 2, (0.15 - embed) / 2, cm(stake.B), 0.15 + embed, cm(stake.H)) })
     })
-    // wales round the footing at the same levels: the long-side wales run through past the corners,
-    // the short-side wales butt against their inner face (corner detail, Fig 8.11) — no clash
+    // wales round the footing: the long-side wales run past the corners; the short-side wales either
+    // run full length one set higher/lower (cross) or are cut to butt against them (butt, Fig 8.11)
     const span = fi < 2 ? Lx : Ly
     const through = fi < 2 ? Lx >= Ly : Ly > Lx
-    const waleLen = through ? span + 2 * (tSh + sd + wd + 0.1) : span + 2 * (tSh + sd)
+    const cross = d.layout.waleCorner !== 'butt'
+    const waleLen = through || cross ? span + 2 * (tSh + sd + wd + 0.1) : span + 2 * (tSh + sd)
+    const dy = through ? 0 : (d.layout.waleShift ?? 0)
     waleLevels.forEach((y, i) =>
       pairOffsets(inp.wale.count, wb).forEach((o, k) =>
-        parts.push({ id: `wale-${fi}-${i}-${k}`, group: 'wale', kind: kindOf(inp.wale.materialId), shape: 'box', ...box(f, 0, r0 + wd / 2, y + o, waleLen, wb, wd) }),
+        parts.push({ id: `wale-${fi}-${i}-${k}`, group: 'wale', kind: kindOf(inp.wale.materialId), shape: 'box', ...box(f, 0, r0 + wd / 2, y + dy + o, waleLen, wb, wd) }),
       ),
     )
     if (inp.support === 'braced') {
@@ -377,7 +413,8 @@ export function footingModel(inp: FootingInput, d: FootingDesign): FormModel {
       const ub = viaWale && along ? spread(2 * f.half - sb, along / 100).map((u) => u - f.half + sb / 2) : us
       const rb = viaWale ? r0 + wd : r0
       ub.forEach((u, i) => {
-        levels.forEach((y, k) => {
+        levels.forEach((y0, k) => {
+          const y = viaWale ? y0 + dy : y0
           const run = y / Math.tan(th)
           parts.push({ id: `brace-${fi}-${i}-${k}`, group: 'brace', kind: kindOf(inp.brace.materialId), shape: 'bar', from: at(f, u, rb, y), to: at(f, u, rb + run, 0), b: cm(br.B), d: cm(br.H) })
         })
@@ -395,12 +432,22 @@ export function footingModel(inp: FootingInput, d: FootingDesign): FormModel {
     const reach = (half: number) => half + tSh + sd + wd + 0.06
     const evenly = (L: number, n: number) => Array.from({ length: n }, (_, j) => -L / 2 + ((j + 1) * L) / (n + 1))
     const runs: { u: number[]; alongX: boolean; r: number; dy: number }[] = [{ u: evenly(long, d.layout.tiesLong ?? 0), alongX: longIsX, r: reach(short / 2), dy: 0 }]
-    if (d.layout.tieLayout === 'both') runs.push({ u: evenly(short, d.layout.tiesShort ?? 0), alongX: !longIsX, r: reach(long / 2), dy: 0.03 })
+    // ties through the short faces pass between the short-side wales: at their offset when crossed
+    const shortDy = d.layout.waleCorner !== 'butt' && d.layout.waleShift ? d.layout.waleShift : 0.03
+    if (d.layout.tieLayout === 'both') runs.push({ u: evenly(short, d.layout.tiesShort ?? 0), alongX: !longIsX, r: reach(long / 2), dy: shortDy })
+    const tp = d.layout.tiePlate
+    const plate = tp && { w: tp.wCm / 100, h: tp.hCm / 100, t: tp.tMm / 1000 }
     d.layout.waleLevels.forEach((y, i) =>
       runs.forEach((g, gi) =>
-        g.u.forEach((u, j) =>
-          parts.push({ id: `tie-${i}-${gi}-${j}`, group: 'tie', kind: 'tie', shape: 'bar', from: g.alongX ? [u, y + g.dy, -g.r] : [-g.r, y + g.dy, u], to: g.alongX ? [u, y + g.dy, g.r] : [g.r, y + g.dy, u], b: 0.014, d: 0.014, round: true }),
-        ),
+        g.u.forEach((u, j) => {
+          parts.push({ id: `tie-${i}-${gi}-${j}`, group: 'tie', kind: 'tie', shape: 'bar', from: g.alongX ? [u, y + g.dy, -g.r] : [-g.r, y + g.dy, u], to: g.alongX ? [u, y + g.dy, g.r] : [g.r, y + g.dy, u], b: 0.014, d: 0.014, round: true })
+          // steel bearing plate (เหล็กประกับ) across the wale set at both ends
+          if (plate)
+            for (const sgn of [-1, 1]) {
+              const r = sgn * (g.r - 0.06 + plate.t / 2)
+              parts.push({ id: `tieplate-${i}-${gi}-${j}-${sgn > 0 ? 'b' : 'a'}`, group: 'tie', kind: 'steel', shape: 'box', center: g.alongX ? [u, y + g.dy, r] : [r, y + g.dy, u], size: g.alongX ? [plate.w, plate.h, plate.t] : [plate.t, plate.h, plate.w] })
+            }
+        }),
       ),
     )
   }
