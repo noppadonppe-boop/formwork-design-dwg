@@ -293,7 +293,9 @@ export function beamModel(inp: BeamInput, d: BeamDesign): FormModel {
     const x1 = shoreX[shoreX.length - 1]
     const zLo = rowZ[0]
     const zHi = rowZ[rowZ.length - 1]
-    ledgerY.forEach((y, n) => {
+    // ledgers at the designed lifts over the posts as drawn (floor → U-head), also when a shore length is entered
+    ledgerY.forEach((_, n) => {
+      const y = ((n + 1) * top) / (ledgerY.length + 1)
       rowZ.forEach((z, r) => bar(`ledger-${r}-${n}`, [x0 - 0.05, y, z - (z < 0 ? -1 : 1) * off], [x1 + 0.05, y, z - (z < 0 ? -1 : 1) * off]))
       shoreX.forEach((x, j) => bar(`ledgerx-${j}-${n}`, [x + off, y + bw, zLo - 0.05], [x + off, y + bw, zHi + 0.05]))
     })

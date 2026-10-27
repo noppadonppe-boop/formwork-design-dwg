@@ -651,4 +651,7 @@ export const REPORT_DICT: [th: string, en: string, zh: string][] = [
   ['ต้องยึดทแยงทั้งตามแนวคานและขวางคาน', 'the shores must be X-braced both along and across the beam', '立杆须沿梁长及横向设交叉斜撑'],
   ['บนก้ามปู', 'on U-heads', '置于U形顶托'],
   ['ท่อ', 'tube', '钢管'],
+  ['ความยาวเสาที่กำหนด', 'Shore length entered', '输入的立杆长度'],
+  ['ไม่ตรงกับความสูงใต้ท้องคาน', 'does not match the height under the beam', '与梁底净高不符'],
+  ['ตรวจสอบความยาวเสา หรือเว้นว่างให้คำนวณ', 'check the shore length, or leave it blank to compute it', '请核对立杆长度，或留空自动计算'],
 ]

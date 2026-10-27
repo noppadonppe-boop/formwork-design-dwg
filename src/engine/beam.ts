@@ -621,6 +621,8 @@ export function designBeam(inp: BeamInput): BeamDesign {
   if (inp.h > 0.9 && !rows) warnings.push('คานลึกเกิน 0.90 ม. — พิจารณาใช้ Form tie ยึดแบบข้าง (รูป 7.8)')
   if (inp.type !== 'slab' && rows === 0 && braceSides === 0) warnings.push('ปากแบบไม่มีการยึด')
   if (inp.type === 'slab') warnings.push('ปากแบบยึดด้วยตงพื้นที่ตอกยึดกับเคร่าข้าง (ตัวอย่าง 7.2) — ไม่คำนวณค้ำยันปากแบบ')
+  if (onStringers && inp.shore.lengthM !== undefined && Math.abs(inp.shore.lengthM - (inp.clearHeight - formDepth)) > 0.3)
+    warnings.push(`ความยาวเสาที่กำหนด ${inp.shore.lengthM.toFixed(2)} ม. ไม่ตรงกับความสูงใต้ท้องคาน − ความลึกแบบ (${(inp.clearHeight - formDepth).toFixed(2)} ม.) — ตรวจสอบความยาวเสา หรือเว้นว่างให้คำนวณ`)
   if (onStringers) {
     if (inp.shore.kind === 'rated' && shoreLength > 3) warnings.push('เสาค้ำยาวเกิน 3 ม. — ยึดท่อแนวราบตามคำแนะนำผู้ผลิต')
     if (!bracing.enabled && sgLayout && sgLayout.shoreX.length > 1) warnings.push('ไม่ได้ออกแบบค้ำยันทางข้าง — ต้องยึดทแยงทั้งตามแนวคานและขวางคาน (ACI 347)')

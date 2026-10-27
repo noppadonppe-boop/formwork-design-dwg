@@ -39,6 +39,7 @@ const VARIANTS: [Types.ElementType, Patch][] = [
   ['beam', (i) => ({ ...i, clearHeight: 4.5, stringer: { ...Engine.DEFAULT_BEAM.stringer, enabled: true }, shore: { ...i.shore, sectionId: Engine.BS_TUBE, postSpacingM: 0.9 } })],
   ['beam', (i) => ({ ...i, b: 1.2, h: 1.0, stringer: { ...Engine.DEFAULT_BEAM.stringer, enabled: true, rows: 3, count: 2 }, shore: { ...i.shore, postSpacingM: 1.5 } })],
   ['beam', (i) => ({ ...i, b: 1.1, clearHeight: 5, stringer: { ...Engine.DEFAULT_BEAM.stringer, enabled: true }, shore: { ...i.shore, kind: 'rated', postSpacingM: 0.5 }, bracing: { ...i.bracing, enabled: false } })],
+  ['beam', (i) => ({ ...i, clearHeight: 3, stringer: { ...Engine.DEFAULT_BEAM.stringer, enabled: true }, shore: { ...i.shore, lengthM: 8, postSpacingM: 1 } })],
   ['beam', (i) => ({ ...i, h: 1.5, stringer: { ...Engine.DEFAULT_BEAM.stringer, enabled: true, spacingCm: 300 }, head: { ...i.head, sectionId: 'timber-1.5x3' }, shore: { ...i.shore, postSpacingM: 1.2 } })],
   ...(['cantilever', 'braced', 'tied'] as const).flatMap((s): [Types.ElementType, Patch][] => [
     ['footing', (i) => ({ ...i, support: s })],

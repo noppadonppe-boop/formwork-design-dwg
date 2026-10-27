@@ -152,6 +152,17 @@ describe('beam model on stringers', () => {
     expect(ids.filter((id) => /^ledgerx-/.test(id)).length).toBe(sg.ledgerY.length * sg.shoreX.length)
     expect(ids.filter((id) => /^br[xy]-/.test(id)).length).toBe(d.quantities.bracing)
   })
+  it('ledgers stay on the posts as drawn when a longer shore length is entered', () => {
+    const tall = { ...inp, clearHeight: 3, shore: { ...inp.shore, lengthM: 8 } }
+    const dt = designBeam(tall)
+    const mt = beamModel(tall, dt)
+    const uh = mt.parts.find((p) => p.id === 'shore-0-0-head')!
+    const top = uh.shape === 'box' ? uh.center[1] : 0
+    const ledgers = mt.parts.filter((p) => p.id.startsWith('ledger'))
+    expect(ledgers.length).toBeGreaterThan(0)
+    ledgers.forEach((p) => p.shape === 'bar' && expect(Math.max(p.from[1], p.to[1])).toBeLessThan(top))
+    expect(dt.warnings.some((w) => w.startsWith('ความยาวเสาที่กำหนด 8.00 ม.'))).toBe(true)
+  })
   it('the shore spacing handle sets the stringer spacing', () => {
     expect(applyBeamHandle(inp, 'shoreSpacing', 1.2).stringer!.spacingCm).toBe(120)
   })
