@@ -5,6 +5,7 @@ import {
   beamBracing,
   beamCrossJoist,
   beamRunnerSection,
+  beamStringer,
   braceBays,
   type BeamInput,
   deckThicknessM,
@@ -220,9 +221,10 @@ export function beamModel(inp: BeamInput, d: BeamDesign): FormModel {
   const hd = cm(he.H)
   const yHeadTop = Y - tSh - jd - bd
   const yHeadBot = yHeadTop - hd
-  const double = inp.shore.layout === 'double'
+  const sgL = d.layout.stringer
+  const double = !sgL && inp.shore.layout === 'double'
   const zFace = b / 2 + tSh + sd
-  const headLen = Math.max(2 * zFace + 0.5, double ? inp.shore.postSpacingM + 0.3 : 0)
+  const headLen = Math.max(2 * zFace + 0.5, double || sgL ? inp.shore.postSpacingM + 0.3 : 0)
   const { studX, headX, sideOuter, sideInner, tieLevels } = d.layout
 
   parts.push({ id: 'concrete', group: 'concrete', kind: 'concrete', shape: 'box', center: [L / 2, Y + h / 2, 0], size: [L, h, b] })
@@ -254,6 +256,7 @@ export function beamModel(inp: BeamInput, d: BeamDesign): FormModel {
     pairOffsets(inp.head.count, hb).forEach((o, k) =>
       parts.push({ id: `head-${i}-${k}`, group: 'head', kind: kindOf(inp.head.materialId), shape: 'box', center: [x + o, yHeadTop - hd / 2, 0], size: [hb, hd, headLen] }),
     )
+    if (sgL) return
     posts.forEach((z, k) => shorePart(parts, inp.shore, `shore-${i}-${k}`, x, z, yHeadBot, { axis: 'x', width: pairWidth(inp.head.count, hb), depth: hd }))
     if (!double && inp.shore.kind === 'post') {
       // knee braces of the T-head (ตุ๊กตา)
@@ -268,7 +271,49 @@ export function beamModel(inp: BeamInput, d: BeamDesign): FormModel {
   // posts; horizontal runners at the shore brace levels on the inner face
   const bracing = beamBracing(inp)
   const levels = inp.shore.kind === 'post' ? inp.shore.braceLevels : 0
-  if ((bracing.enabled || levels) && headX.length > 1) {
+  if (sgL) {
+    // stringer system: stringer rows under the heads on U-heads and shores at their own spacing; ledgers both ways at
+    // the designed levels (inner faces), X-bracing along every row (outer faces) and across at the braced post lines
+    const sg = beamStringer(inp)
+    const ss = getSection(sg.sectionId)
+    const gb = cm(ss.B)
+    const gd = cm(ss.H)
+    const top = yHeadBot - gd
+    const { z: rowZ, shoreX, ledgerY, braceSets: sets, braceBays: k, acrossLines } = sgL
+    rowZ.forEach((z, r) =>
+      pairOffsets(sg.count, gb).forEach((o, c) => parts.push({ id: `stringer-${r}-${c}`, group: 'stringer', kind: kindOf(sg.materialId), shape: 'box', center: [L / 2, yHeadBot - gd / 2, z + o], size: [L, gd, gb] })),
+    )
+    rowZ.forEach((z, r) => shoreX.forEach((x, j) => shorePart(parts, inp.shore, `shore-${r}-${j}`, x, z, top, { axis: 'z', width: pairWidth(sg.count, gb), depth: gd })))
+    const br = getSection(bracing.sectionId)
+    const bk = br.shape === 'pipe' ? 'steel' : kindOf(bracing.materialId)
+    const bw = cm(br.B)
+    const off = shoreWidth(inp.shore) / 2 + bw / 2
+    const bar = (id: string, from: Vec3, to: Vec3) => parts.push({ id, group: 'bracing', kind: bk, shape: 'bar', from, to, b: bw, d: cm(br.H), round: br.shape === 'pipe' })
+    const x0 = shoreX[0]
+    const x1 = shoreX[shoreX.length - 1]
+    const zLo = rowZ[0]
+    const zHi = rowZ[rowZ.length - 1]
+    ledgerY.forEach((y, n) => {
+      rowZ.forEach((z, r) => bar(`ledger-${r}-${n}`, [x0 - 0.05, y, z - (z < 0 ? -1 : 1) * off], [x1 + 0.05, y, z - (z < 0 ? -1 : 1) * off]))
+      shoreX.forEach((x, j) => bar(`ledgerx-${j}-${n}`, [x + off, y + bw, zLo - 0.05], [x + off, y + bw, zHi + 0.05]))
+    })
+    if (bracing.enabled && shoreX.length > 1) {
+      const y0 = 0.15
+      const y1 = top - 0.1
+      rowZ.forEach((z, r) => {
+        const zz = z + (z < 0 ? -1 : 1) * off
+        sets.forEach((j) => {
+          bar(`brx-${r}-${j}a`, [shoreX[j], y0, zz], [shoreX[j + k], y1, zz])
+          bar(`brx-${r}-${j}b`, [shoreX[j], y1, zz], [shoreX[j + k], y0, zz])
+        })
+      })
+      acrossLines.forEach((j) => {
+        const x = shoreX[j] + (j === shoreX.length - 1 ? off : -off)
+        bar(`bry-${j}a`, [x, y0, zLo], [x, y1, zHi])
+        bar(`bry-${j}b`, [x, y1, zLo], [x, y0, zHi])
+      })
+    }
+  } else if ((bracing.enabled || levels) && headX.length > 1) {
     const br = getSection(bracing.sectionId)
     const bk = br.shape === 'pipe' ? 'steel' : kindOf(bracing.materialId)
     const bw = cm(br.B)
@@ -322,6 +367,8 @@ export function beamModel(inp: BeamInput, d: BeamDesign): FormModel {
   ]
   if (studX.length > 1) handles.push({ key: 'studSpacing', label: 'ระยะเคร่าข้าง', position: [studX[1], Y + sideOuter + 0.1, zFace], axis: [1, 0, 0], value: studX[1] - studX[0], min: 0.1, max: 1.2, step: 0.05 })
   if (headX.length > 1) handles.push({ key: 'headSpacing', label: 'ระยะคานขวาง', position: [headX[1], yHeadBot - 0.15, headLen / 2], axis: [1, 0, 0], value: headX[1] - headX[0], min: 0.2, max: 2.4, step: 0.05 })
+  if (sgL && sgL.shoreX.length > 1)
+    handles.push({ key: 'shoreSpacing', label: 'ระยะเสาค้ำ', position: [sgL.shoreX[1], yHeadBot * 0.6, sgL.z[sgL.z.length - 1] + 0.3], axis: [1, 0, 0], value: sgL.shoreX[1] - sgL.shoreX[0], min: 0.3, max: 3, step: 0.05 })
   return { parts, handles, bounds: bounds(parts) }
 }
 
@@ -340,6 +387,8 @@ export function applyBeamHandle(inp: BeamInput, key: HandleKey, value: number): 
       return { ...inp, stud: { ...inp.stud, spacingCm: cmv } }
     case 'headSpacing':
       return { ...inp, head: { ...inp.head, spacingCm: cmv } }
+    case 'shoreSpacing':
+      return { ...inp, stringer: { ...beamStringer(inp), spacingCm: cmv } }
     default:
       return inp
   }

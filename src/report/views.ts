@@ -67,16 +67,17 @@ export function elementViews(el: ElementData, run: AnyDesign): { a: DrawingSpec;
   }
   if (el.type === 'beam' && run.type === 'beam') {
     const i = el.input
-    const { headX, studX, bottomZ, crossJoistX } = run.design.layout
+    const { headX, studX, bottomZ, crossJoistX, stringer: sgL } = run.design.layout
     const Y = i.clearHeight
     const zMax = m.bounds.max[2]
     const sec: Dim[] = [
-      ...chain('v', [0, Y, Y + i.h], -zMax - 0.25),
+      ...chain('v', [0, ...(sgL?.ledgerY ?? []), Y, Y + i.h], -zMax - 0.25),
       { dir: 'h', a: -i.b / 2, b: i.b / 2, at: Y + i.h + 0.2, text: `${Math.round(i.b * 100)}` },
       ...(bottomZ.length > 1 ? chain('h', bottomZ, Y + i.h + 0.4) : []),
+      ...(sgL ? chain('h', sgL.z, -0.25) : []),
     ]
     const elev: Dim[] = [
-      ...chain('h', [0, ...headX, i.length], -0.25),
+      ...(sgL ? [...chain('h', [0, ...sgL.shoreX, i.length], -0.25), ...chain('h', headX.slice(0, 5), Y + i.h + 0.6)] : chain('h', [0, ...headX, i.length], -0.25)),
       ...chain('h', studX.slice(0, 4), Y + i.h + 0.2),
       ...(crossJoistX.length > 1 ? chain('h', crossJoistX.slice(0, 5), Y + i.h + 0.4) : []),
       { dir: 'h', a: 0, b: i.length, at: -0.55, text: `L = ${i.length.toFixed(2)} ม.` },

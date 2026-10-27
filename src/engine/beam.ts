@@ -7,7 +7,7 @@ import { type CheckRow, checkBeam, columnCapacity, type DeflectionCriteria, maxS
 import type { PressureResult } from './pressure'
 import { flat, getSection, multiple, rect, type Section } from './sections'
 import { type DeckSheathing, deckSection, deckThicknessM, spread, type VerticalLoads } from './slab'
-import { braceBays, DEFAULT_SHORE, designShore, designShoreBracing, type ShoreParams } from './shoring'
+import { braceBays, braceSets, DEFAULT_SHORE, designShore, designShoreBracing, type ShoreParams } from './shoring'
 import { Trace } from './trace'
 import { floorTo, fmt, pressureToLineLoad } from './units'
 
@@ -45,6 +45,13 @@ export interface BeamInput {
   /** cross-beam / T-head (คานขวางรับท้องแบบ); spacingCm = head spacing = shore spacing */
   head: { sectionId: string; materialId: string; count: 1 | 2; spacingCm?: number }
   shore: ShoreParams & { layout: 'single' | 'double'; postSpacingM: number }
+  /**
+   * heads carried on longitudinal stringers (คานแนวยาว): 2 rows (3 for wide beams) postSpacingM apart (outer rows),
+   * each on U-heads (ก้ามปู) and shores at their own spacing along the beam; spacingCm = shore spacing along the beam.
+   * Posts get horizontal ledgers (ท่อแนวรอง) both ways at lifts of at most liftM. Off or missing = a shore under
+   * every head (as before).
+   */
+  stringer?: { enabled: boolean; rows: 2 | 3; sectionId: string; materialId: string; count: 1 | 2; spacingCm?: number; liftM?: number }
   /** through-ties with horizontal wales for deep beams (Fig 7.8) */
   tie: { enabled: boolean; tieId: string; rows: number; waleSectionId: string; waleMaterialId: string }
   /** top-of-form diagonal braces (ค้ำยันปากแบบ) for isolated / spandrel beams */
@@ -70,6 +77,9 @@ export interface BeamLayout {
   /** cross-joist positions along the beam, m (bottomDir 'across') */
   crossJoistX: number[]
   crossJoistSpacing?: number // cm
+  /** stringer system: row centres across the beam (z), shore positions along it, ledger levels above the base (m),
+   *  first bay of each X-braced set along the rows (k bays each) and the post lines braced across the beam */
+  stringer?: { z: number[]; shoreX: number[]; shoreSpacing: number; ledgerY: number[]; braceSets: number[]; braceBays: number; acrossLines: number[] }
 }
 
 export interface BeamQuantities {
@@ -79,7 +89,9 @@ export interface BeamQuantities {
   bottomLength: number
   crossJoists: number
   heads: number
+  stringerLength: number
   shores: number
+  ledgerLength: number
   braces: number
   bracing: number
   ties: number
@@ -106,6 +118,7 @@ export const DEFAULT_BEAM: BeamInput = {
   crossJoist: { sectionId: 'timber-1.5x3', materialId: 'timber-yang' },
   head: { sectionId: 'timber-2x4', materialId: 'timber-yang', count: 1 },
   shore: { ...DEFAULT_SHORE, layout: 'single', postSpacingM: 0.6 },
+  stringer: { enabled: false, rows: 2, sectionId: 'rhs-100×50×2.3', materialId: 'steel-a36', count: 1 },
   tie: { enabled: false, tieId: 'tie-3/8', rows: 1, waleSectionId: 'timber-2x4', waleMaterialId: 'timber-yang' },
   brace: { sectionId: 'timber-1.5x3', materialId: 'timber-yang', angleDeg: 45 },
   bracing: { enabled: true, sectionId: 'timber-1.5x3', materialId: 'timber-yang' },
@@ -118,6 +131,30 @@ export const BEAM_TYPE_LABEL: Record<BeamType, string> = { isolated: 'คาน�
 
 /** Cross joists of a beam input (defaults for projects saved before the option existed). */
 export const beamCrossJoist = (inp: BeamInput) => inp.crossJoist ?? DEFAULT_BEAM.crossJoist!
+
+/** Longitudinal stringers under the heads (off for projects saved before the option existed). */
+export const beamStringer = (inp: BeamInput) => inp.stringer ?? { ...DEFAULT_BEAM.stringer!, enabled: false }
+
+/** Default lift between ledgers of tube-and-fitting falsework, m. */
+export const LEDGER_LIFT = 2
+
+/**
+ * Share of the load per metre of beam taken by the middle of three stringer rows: the heads are continuous over two
+ * equal spans, outer rows rowSpan apart. A band of width c centred on the middle row sends c·(1 − c²/2L² + c³/8L³)
+ * of its load per unit width to it (L = rowSpan; 1 for a point load, 0.625 for a full uniform load). Load beyond the
+ * outer rows goes to the outer rows.
+ */
+export function middleRowShare(inp: BeamInput, rowSpan: number): number {
+  const slabOut = inp.type === 'isolated' ? 0 : inp.slabTribM
+  const F = (c: number) => {
+    const C = Math.min(c, rowSpan)
+    return C * (1 - (C * C) / (2 * rowSpan * rowSpan) + C ** 3 / (8 * rowSpan ** 3))
+  }
+  const qBeam = (inp.loads.gamma * inp.b * inp.h + inp.loads.beamFormWeight + inp.loads.liveLoad * inp.b) / inp.b
+  const qSlab = inp.loads.gamma * inp.slabT + inp.loads.formWeight + inp.loads.liveLoad
+  const total = qBeam * inp.b + qSlab * slabOut
+  return (qBeam * F(inp.b) + (slabOut ? qSlab * (F(inp.b + slabOut) - F(inp.b)) : 0)) / total
+}
 
 /** Whether there are runners along the beam under the bottom (always with cross joists or an automatic count). */
 export const beamHasRunners = (inp: BeamInput) => inp.bottomDir === 'across' || !!inp.bottom.auto || inp.bottom.count > 0
@@ -322,16 +359,32 @@ export function designBeam(inp: BeamInput): BeamDesign {
   //    heads and shores carry their load, so the shores always sit at a spacing they can take
   const heMat = getMaterial(inp.head.materialId)
   const he = multiple(getSection(inp.head.sectionId), inp.head.count)
-  const double = inp.shore.layout === 'double'
+  // with stringers the heads span between the stringer rows and the shores stand under the stringers (5b)
+  const sg = beamStringer(inp)
+  const onStringers = sg.enabled
+  const sgRows = Math.max(2, Math.min(3, Math.round(sg.rows)))
+  const rowSpan = inp.shore.postSpacingM
+  const sgSec = multiple(getSection(sg.sectionId), sg.count)
+  const double = !onStringers && inp.shore.layout === 'double'
   const legs = double ? 2 : 1
   const slabOut = inp.type === 'isolated' ? 0 : inp.slabTribM
-  const formDepth = deckThicknessM(inp.sheathing) + crossJoistH + (n > 0 ? runnerSec.H / 100 : 0) + he.H / 100
+  const formDepth = deckThicknessM(inp.sheathing) + crossJoistH + (n > 0 ? runnerSec.H / 100 : 0) + he.H / 100 + (onStringers ? sgSec.H / 100 : 0)
   const shoreLength = inp.shore.lengthM ?? inp.clearHeight - formDepth
   const atSpacing = (s: number) => {
     const tHe = new Trace()
     let M: number
     let V: number
-    if (double) {
+    if (onStringers) {
+      const qh = tHe.add({ label: 'น้ำหนักแผ่บนคานขวาง', expr: `${fmt(gamma)} × ${inp.h} × ${(s / 100).toFixed(2)}`, value: gamma * inp.h * (s / 100), unit: 'กก./ม.', ref: 'ตัวอย่าง 7.3' })
+      const l = rowSpan / (sgRows - 1)
+      M = tHe.add({
+        label: sgRows === 3 ? 'M = ql²/8 (ต่อเนื่อง 2 ช่วงบนคานแนวยาว 3 แถว)' : 'M = ql²/8 (ช่วงระหว่างคานแนวยาว)',
+        expr: `${fmt(qh)} × ${l.toFixed(2)}² / 8 × 100`,
+        value: ((qh * l * l) / 8) * 100,
+        unit: 'กก.-ซม.',
+      })
+      V = tHe.add({ label: sgRows === 3 ? 'V = 0.625ql' : 'V = ql/2', expr: `${sgRows === 3 ? '0.625' : '0.5'} × ${fmt(qh)} × ${l.toFixed(2)}`, value: (sgRows === 3 ? 0.625 : 0.5) * qh * l, unit: 'กก.' })
+    } else if (double) {
       const qh = tHe.add({ label: 'น้ำหนักแผ่บนคานขวาง (สองเสา)', expr: `${fmt(gamma)} × ${inp.h} × ${(s / 100).toFixed(2)}`, value: gamma * inp.h * (s / 100), unit: 'กก./ม.', ref: 'ตัวอย่าง 7.3' })
       const e = inp.shore.postSpacingM
       M = tHe.add({ label: 'M = ql²/8 (ช่วงระหว่างเสาคู่)', expr: `${fmt(qh)} × ${e}² / 8 × 100`, value: ((qh * e * e) / 8) * 100, unit: 'กก.-ซม.' })
@@ -347,7 +400,9 @@ export function designBeam(inp: BeamInput): BeamDesign {
       const fv = tHe.add({ label: 'fv', expr: he.Aweb ? `${fmt(V)} / ${he.Aweb.toFixed(2)}` : `3×${fmt(V)} / (2×${he.B.toFixed(1)}×${he.H.toFixed(1)})`, value: he.Aweb ? V / he.Aweb : (3 * V) / (2 * he.B * he.H), unit: 'กก./ซม.²' })
       heRows.push({ item: 'หน่วยแรงเฉือน fv', demand: fv, capacity: heMat.Fv!, ratio: fv / heMat.Fv!, unit: 'กก./ซม.²', ref: 'สมการ 5.11' })
     }
-    const cHead = component('head', 'คานขวางรับท้องแบบ (Head)', `${he.label} @${s} ซม. ${double ? `บนเสาคู่ห่าง ${inp.shore.postSpacingM.toFixed(2)} ม.` : 'บนเสาตัวที'} (${heMat.name})`, heRows, tHe)
+    const on = onStringers ? `บนคานแนวยาว ${sgRows} แถว ห่าง ${rowSpan.toFixed(2)} ม.` : double ? `บนเสาคู่ห่าง ${inp.shore.postSpacingM.toFixed(2)} ม.` : 'บนเสาตัวที'
+    const cHead = component('head', 'คานขวางรับท้องแบบ (Head)', `${he.label} @${s} ซม. ${on} (${heMat.name})`, heRows, tHe)
+    if (onStringers) return { cHead, cShore: undefined, ok: heRows.every((r) => r.ratio <= 1) }
 
     const tSo = new Trace()
     const sM = s / 100
@@ -370,10 +425,10 @@ export function designBeam(inp: BeamInput): BeamDesign {
       s = s >= 2 * a && s % a === 0 ? s - a : Math.max(20, floorTo(s - 5, 5))
       fit0 = atSpacing(s)
     }
-  const { cHead, cShore } = fit0
+  const { cHead } = fit0
   tBo.add({
     label: 'ระยะคานขวางที่ใช้',
-    expr: s < s0 ? `ลดจาก ${s0} ซม. ให้คานขวางและเสาค้ำรับได้` : inp.head.spacingCm === undefined && boLim.max >= a ? `ทวีคูณของระยะเคร่า ${a} ซม.` : undefined,
+    expr: s < s0 ? `ลดจาก ${s0} ซม. ${onStringers ? 'ให้คานขวางรับได้' : 'ให้คานขวางและเสาค้ำรับได้'}` : inp.head.spacingCm === undefined && boLim.max >= a ? `ทวีคูณของระยะเคร่า ${a} ซม.` : undefined,
     value: s,
     unit: 'ซม.',
   })
@@ -384,6 +439,88 @@ export function designBeam(inp: BeamInput): BeamDesign {
     governing: governingLabel(boLim.governing),
     fixed: inp.head.spacingCm !== undefined,
   })
+
+  // 4b) stringer system: the heads load the stringer rows (taken as uniform, the heads being close); each stringer is
+  //     continuous over the shores, whose spacing is what the stringer and the post (with its ledgers) can take.
+  //     Posts get ledgers both ways at lifts ≤ liftM, and more levels while the post still governs the spacing.
+  let cStringer: ComponentResult | undefined
+  let cShore = fit0.cShore
+  let sgLayout: BeamLayout['stringer']
+  let sgShareMax = 0.5
+  let ledgerLevels = 0
+  if (onStringers) {
+    const tSg = new Trace()
+    const sgMat = getMaterial(sg.materialId)
+    const perM = tSg.add({
+      label: 'น้ำหนักลงระบบค้ำยันต่อเมตรตามแนวคาน',
+      expr: `${fmt(gamma)}×${inp.b}×${inp.h} + ${inp.loads.beamFormWeight} + ${inp.loads.liveLoad}×${inp.b}${slabOut ? ` + (${fmt(gamma)}×${inp.slabT} + ${inp.loads.formWeight} + ${inp.loads.liveLoad})×${slabOut}` : ''}`,
+      value: gamma * inp.b * inp.h + inp.loads.beamFormWeight + inp.loads.liveLoad * inp.b + (gamma * inp.slabT + inp.loads.formWeight + inp.loads.liveLoad) * slabOut,
+      unit: 'กก./ม.',
+    })
+    if (sgRows === 3) {
+      const mid = tSg.add({ label: 'สัดส่วนน้ำหนักลงแถวกลาง (คานขวางต่อเนื่อง 2 ช่วง)', value: middleRowShare(inp, rowSpan), unit: '' })
+      sgShareMax = tSg.add({ label: 'สัดส่วนที่แถวรับมากที่สุด', expr: `max(${mid.toFixed(3)}, (1 − ${mid.toFixed(3)}) / 2)`, value: Math.max(mid, (1 - mid) / 2), unit: '' })
+    } else sgShareMax = tSg.add({ label: 'สัดส่วนน้ำหนักต่อแถว (2 แถว)', value: 0.5, unit: '' })
+    const w = tSg.add({ label: 'น้ำหนักแผ่บนคานแนวยาว (แถวที่รับมากที่สุด)', expr: `${fmt(perM)} × ${sgShareMax.toFixed(3)} / 100`, value: (perM * sgShareMax) / 100, unit: 'กก./ซม.' })
+    const stm: MemberInput = { section: sgSec, material: sgMat, support: 'continuous', deflection: defl, checkShear: true }
+    const stLim = maxSpan(stm, w, tSg)
+    const stMax = floorTo(stLim.max, 5)
+
+    // post capacity with k ledger levels (or the rated SWL), limited by the bearing under the base plate
+    const post = inp.shore.kind === 'post'
+    const capAt = (k: number) => {
+      let c = inp.shore.swl
+      if (post) {
+        const ps = getSection(inp.shore.sectionId)
+        const pm = getMaterial(ps.shape === 'pipe' && getMaterial(inp.shore.materialId).kind !== 'steel' ? 'steel-a36' : inp.shore.materialId)
+        c = columnCapacity(ps, pm, (shoreLength * 100) / (k + 1), new Trace()).P
+      }
+      return inp.shore.baseCm > 0 && inp.shore.bearing > 0 ? Math.min(c, inp.shore.bearing * (inp.shore.baseCm / 100) ** 2) : c
+    }
+    const lift = sg.liftM ?? LEDGER_LIFT
+    const nMin = post ? Math.max(inp.shore.braceLevels, Math.ceil(shoreLength / lift - 1e-9) - 1) : 0
+    ledgerLevels = nMin
+    if (post && sg.spacingCm === undefined) while (ledgerLevels < nMin + 3 && capAt(ledgerLevels) / w < stMax) ledgerLevels++
+    const byShore = floorTo(capAt(ledgerLevels) / w, 5)
+    const L = sg.spacingCm ?? Math.max(20, Math.min(stMax, byShore))
+    tSg.add({ label: 'ระยะเสาค้ำที่ใช้ (ตามแนวคาน)', expr: sg.spacingCm === undefined && byShore < stMax ? `เสาค้ำรับได้ที่ ${byShore} ซม.` : undefined, value: L, unit: 'ซม.' })
+    cStringer = component('stringer', 'คานแนวยาวรับคานขวาง (Stringers)', `${sgSec.label} ${sgRows} แถว ห่าง ${rowSpan.toFixed(2)} ม. (${sgMat.name})`, checkBeam(stm, w, L, tSg).rows, tSg, {
+      label: 'ระยะเสาค้ำ',
+      value: L,
+      max: stLim.max,
+      governing: governingLabel(stLim.governing),
+      fixed: sg.spacingCm !== undefined,
+    })
+
+    const tSo = new Trace()
+    tSo.add({ label: 'น้ำหนักแผ่บนคานแนวยาว', value: w * 100, unit: 'กก./ม.' })
+    const P = tSo.add({ label: 'น้ำหนักลงเสาค้ำ P = w × L', expr: `${fmt(w * 100)} × ${(L / 100).toFixed(2)}`, value: w * L, unit: 'กก.' })
+    if (inp.shore.lengthM === undefined)
+      tSo.add({ label: 'ความยาวเสา = ความสูงใต้ท้องคาน − ความลึกแบบ', expr: `${inp.clearHeight.toFixed(2)} − ${formDepth.toFixed(3)}`, value: shoreLength, unit: 'ม.' })
+    const ledgerY = Array.from({ length: ledgerLevels }, (_, k) => Math.round(((k + 1) * shoreLength * 1000) / (ledgerLevels + 1)) / 1000)
+    if (post)
+      tSo.add({
+        label: `ท่อยึดแนวราบ (ท่อแนวรอง) ยึดเสาทั้งตามแนวคานและขวางคาน — ช่วงไม่เกิน ${lift} ม.${ledgerLevels > nMin ? ' และเพิ่มจนเสาไม่เป็นตัวกำหนดระยะ' : ''}`,
+        expr: ledgerY.length ? `สูงจากฐาน ${ledgerY.map((y) => y.toFixed(2)).join(', ')} ม.` : 'ไม่ต้องใช้',
+        value: ledgerLevels,
+        unit: 'ระดับ',
+      })
+    cShore = designShore({ shore: { ...inp.shore, braceLevels: ledgerLevels }, P, lengthM: shoreLength, trace: tSo, layoutText: `@${L} ซม. × ${sgRows} แถว` })
+
+    const shoreX = spread(inp.length, L / 100, Math.min(0.2, L / 200))
+    const bays = shoreX.length - 1
+    const k = Math.max(1, Math.min(braceBays(L / 100, shoreLength), bays))
+    const sets = braceSets(bays, k)
+    sgLayout = {
+      z: Array.from({ length: sgRows }, (_, r) => Math.round((-rowSpan / 2 + (r * rowSpan) / (sgRows - 1)) * 1000) / 1000),
+      shoreX,
+      shoreSpacing: L,
+      ledgerY,
+      braceSets: sets,
+      braceBays: k,
+      acrossLines: [...new Set([...sets, bays])].sort((p, q) => p - q),
+    }
+  }
 
   // 5) deep beams: wales over the ties at each head, and the ties
   const tieComps: ComponentResult[] = []
@@ -405,7 +542,40 @@ export function designBeam(inp: BeamInput): BeamDesign {
   const bracing = beamBracing(inp)
   const headX = spread(inp.length, s / 100, Math.min(0.1, s / 200))
   const bracingComps: ComponentResult[] = []
-  if (bracing.enabled && headX.length > 1) {
+  if (sgLayout) {
+    // stringer system: X-bracing along every stringer row and across the beam at the braced post lines
+    const bays = sgLayout.shoreX.length - 1
+    if (bracing.enabled && bays > 0) {
+      const width = inp.b + slabOut
+      const deadPerM = gamma * inp.b * inp.h + gamma * inp.slabT * slabOut + inp.loads.beamFormWeight + inp.loads.formWeight * slabOut
+      const L = sgLayout.shoreSpacing / 100
+      const c = designShoreBracing({
+        sectionId: bracing.sectionId,
+        materialId: bracing.materialId,
+        dead: deadPerM / width,
+        height: shoreLength,
+        ledgers: sgLayout.ledgerY.length,
+        dirs: [
+          { name: 'ตามแนวคาน (ต่อแถวคานแนวยาว)', rowLength: inp.length, tributary: width * sgShareMax, bay: L },
+          { name: 'ขวางคาน (ต่อแนวเสา)', rowLength: rowSpan, tributary: L, bay: rowSpan / (sgRows - 1), maxBays: sgRows - 1 },
+        ],
+      })
+      const { braceSets: sets, braceBays: k, acrossLines, shoreX } = sgLayout
+      c.trace.add({
+        label: `ตำแหน่งค้ำยันทแยงตามแนวคาน ทุกแถว — ช่วงปลายทั้งสองข้าง และเว้นไม่เกิน 3 ช่วงเสา (ทแยงคร่อม ${k} ช่วง)`,
+        expr: `ช่วงเสาที่ ${sets.map((j) => (k > 1 ? `${j + 1}–${j + k}` : `${j + 1}`)).join(', ')} จาก ${bays} ช่วง`,
+        value: sets.length,
+        unit: 'ชุด/แถว',
+      })
+      c.trace.add({
+        label: 'ตำแหน่งค้ำยันทแยงขวางคาน (ยึดทุกแถวคานแนวยาว)',
+        expr: `ที่แนวเสา x = ${acrossLines.map((j) => shoreX[j].toFixed(2)).join(', ')} ม.`,
+        value: acrossLines.length,
+        unit: 'แนว',
+      })
+      bracingComps.push(c)
+    }
+  } else if (bracing.enabled && headX.length > 1) {
     const width = inp.b + slabOut
     const deadPerM = gamma * inp.b * inp.h + gamma * inp.slabT * slabOut + inp.loads.beamFormWeight + inp.loads.formWeight * slabOut
     bracingComps.push(
@@ -436,22 +606,34 @@ export function designBeam(inp: BeamInput): BeamDesign {
   }
 
   const warnings: string[] = [...bottomWarnings]
-  if (inp.head.spacingCm === undefined && !fit0.ok) warnings.push('ลดระยะเสาค้ำถึง 20 ซม. แล้วยังรับไม่ได้ — ใช้เสาคู่ หน้าตัดเสา/คานขวางใหญ่ขึ้น หรือเพิ่มค้ำยันกลางความสูง')
-  else if (s < s0) warnings.push(`ระยะคานขวาง/เสาค้ำลดจาก ${s0} เหลือ ${s} ซม. เพื่อให้คานขวางและเสาค้ำรับน้ำหนักได้${s < 50 ? ' — เสาถี่ ควรใช้เสาคู่หรือเสาหน้าตัดใหญ่ขึ้น' : ''}`)
-  if (!double && inp.b > 0.6) warnings.push('คานกว้างเกิน 60 ซม. บนเสาตัวที — ควรใช้เสาคู่คร่อมท้องคาน')
+  if (onStringers) {
+    if (inp.head.spacingCm === undefined && !fit0.ok) warnings.push('ลดระยะคานขวางถึง 20 ซม. แล้วยังรับไม่ได้ — ใช้คานขวางใหญ่ขึ้น หรือเพิ่มคานแนวยาวเป็น 3 แถว')
+    else if (s < s0) warnings.push(`ระยะคานขวางลดจาก ${s0} เหลือ ${s} ซม. เพื่อให้คานขวางรับน้ำหนักได้`)
+    if (sgRows === 2 && inp.b > 1) warnings.push('คานกว้างเกิน 1.00 ม. — พิจารณาคานแนวยาว 3 แถว')
+  } else {
+    if (inp.head.spacingCm === undefined && !fit0.ok) warnings.push('ลดระยะเสาค้ำถึง 20 ซม. แล้วยังรับไม่ได้ — ใช้เสาคู่ หน้าตัดเสา/คานขวางใหญ่ขึ้น หรือเพิ่มค้ำยันกลางความสูง')
+    else if (s < s0) warnings.push(`ระยะคานขวาง/เสาค้ำลดจาก ${s0} เหลือ ${s} ซม. เพื่อให้คานขวางและเสาค้ำรับน้ำหนักได้${s < 50 ? ' — เสาถี่ ควรใช้เสาคู่หรือเสาหน้าตัดใหญ่ขึ้น' : ''}`)
+    if (!double && inp.b > 0.6) warnings.push('คานกว้างเกิน 60 ซม. บนเสาตัวที — ควรใช้เสาคู่คร่อมท้องคาน')
+  }
   if (!across && inp.b > 0.8) warnings.push('คานกว้างเกิน 80 ซม. — พิจารณาใช้คร่าวขวาง (ตงขวาง → คร่าวตามยาว)')
   if (double && inp.shore.postSpacingM < inp.b) warnings.push('ระยะเสาคู่แคบกว่าความกว้างคาน — ควรวางเสาให้คร่อมท้องคาน')
+  if (onStringers && rowSpan < inp.b) warnings.push('ระยะแถวคานแนวยาวแคบกว่าความกว้างคาน — ควรวางคร่อมท้องคาน')
   if (inp.h > 0.9 && !rows) warnings.push('คานลึกเกิน 0.90 ม. — พิจารณาใช้ Form tie ยึดแบบข้าง (รูป 7.8)')
   if (inp.type !== 'slab' && rows === 0 && braceSides === 0) warnings.push('ปากแบบไม่มีการยึด')
   if (inp.type === 'slab') warnings.push('ปากแบบยึดด้วยตงพื้นที่ตอกยึดกับเคร่าข้าง (ตัวอย่าง 7.2) — ไม่คำนวณค้ำยันปากแบบ')
-  if (inp.shore.kind === 'post' && inp.shore.braceLevels === 0 && shoreLength > 3) warnings.push('เสาค้ำยาวเกิน 3 ม. โดยไม่มีค้ำยันทางข้าง — ควรเพิ่มค้ำยันกลางความสูง')
-  if (!bracing.enabled && headX.length > 1) warnings.push('ไม่ได้ออกแบบค้ำยันทางข้าง — แถวเสาค้ำใต้คานต้องยึดทแยงตามแนวคาน (ACI 347)')
+  if (onStringers) {
+    if (inp.shore.kind === 'rated' && shoreLength > 3) warnings.push('เสาค้ำยาวเกิน 3 ม. — ยึดท่อแนวราบตามคำแนะนำผู้ผลิต')
+    if (!bracing.enabled && sgLayout && sgLayout.shoreX.length > 1) warnings.push('ไม่ได้ออกแบบค้ำยันทางข้าง — ต้องยึดทแยงทั้งตามแนวคานและขวางคาน (ACI 347)')
+  } else {
+    if (inp.shore.kind === 'post' && inp.shore.braceLevels === 0 && shoreLength > 3) warnings.push('เสาค้ำยาวเกิน 3 ม. โดยไม่มีค้ำยันทางข้าง — ควรเพิ่มค้ำยันกลางความสูง')
+    if (!bracing.enabled && headX.length > 1) warnings.push('ไม่ได้ออกแบบค้ำยันทางข้าง — แถวเสาค้ำใต้คานต้องยึดทแยงตามแนวคาน (ACI 347)')
+  }
 
   const studX = spread(inp.length, a / 100)
   const crossJoistX = across ? spread(inp.length, joistSpacing / 100, 0.05) : []
   const tieLevels = Array.from({ length: rows }, (_, k) => Math.round(((k + 1) * hs * 1000) / spans) / 1000)
   return {
-    ...summarize(pressure, [cSheathing, cStud, ...tieComps, ...bottomComps, cBottom, cHead, cShore, ...bracingComps, ...braceComps], warnings),
+    ...summarize(pressure, [cSheathing, cStud, ...tieComps, ...bottomComps, cBottom, cHead, ...(cStringer ? [cStringer] : []), cShore!, ...bracingComps, ...braceComps], warnings),
     layout: {
       studSpacing: a,
       headSpacing: s,
@@ -464,6 +646,7 @@ export function designBeam(inp: BeamInput): BeamDesign {
       bottomZ: n === 0 ? [] : n === 1 ? [0] : Array.from({ length: n }, (_, k) => Math.round((-inp.b / 2 + bw / 2 + (k * runnerSpan(n)) / 100) * 1000) / 1000),
       crossJoistX,
       crossJoistSpacing: across ? joistSpacing : undefined,
+      stringer: sgLayout,
     },
     quantities: {
       plywoodArea: (sides.outer + sides.inner + inp.b) * inp.length,
@@ -472,9 +655,15 @@ export function designBeam(inp: BeamInput): BeamDesign {
       bottomLength: n * inp.length,
       crossJoists: crossJoistX.length,
       heads: headX.length * inp.head.count,
-      shores: headX.length * legs,
+      stringerLength: sgLayout ? sgRows * sg.count * inp.length : 0,
+      shores: sgLayout ? sgRows * sgLayout.shoreX.length : headX.length * legs,
+      ledgerLength: sgLayout ? ledgerLevels * (sgRows * inp.length + sgLayout.shoreX.length * rowSpan) : 0,
       braces: rows ? 0 : headX.length * braceSides,
-      bracing: bracingComps.length ? legs * 2 * (headX.length - 1 > 2 * Math.min(braceBays(s / 100, shoreLength), headX.length - 1) ? 2 : 1) : 0,
+      bracing: !bracingComps.length
+        ? 0
+        : sgLayout
+          ? 2 * (sgRows * sgLayout.braceSets.length + sgLayout.acrossLines.length)
+          : legs * 2 * (headX.length - 1 > 2 * Math.min(braceBays(s / 100, shoreLength), headX.length - 1) ? 2 : 1),
       ties: rows * headX.length,
     },
   }

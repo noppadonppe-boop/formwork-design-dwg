@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_BEAM, DEFAULT_FOOTING, DEFAULT_SLAB, deckThicknessM, designBeam, designFooting, designSlab } from '@/engine'
+import { BS_TUBE, DEFAULT_BEAM, DEFAULT_FOOTING, DEFAULT_SLAB, deckThicknessM, designBeam, designFooting, designSlab } from '@/engine'
 import { applyBeamHandle, applyFootingHandle, applySlabHandle, beamModel, footingModel, slabModel } from './slabBeamFootingModel'
 
 const count = (parts: { group: string }[], g: string) => parts.filter((p) => p.group === g).length
@@ -128,4 +128,31 @@ describe('footing model', () => {
     expect(count(m.parts, 'stake')).toBe(d.quantities.stakes)
   })
   it('plan handles double the dragged half size', () => expect(applyFootingHandle(DEFAULT_FOOTING, 'lengthX', 1.5).lengthX).toBe(3))
+})
+
+describe('beam model on stringers', () => {
+  const inp = { ...DEFAULT_BEAM, b: 0.4, h: 0.8, length: 8, clearHeight: 4.5, shore: { ...DEFAULT_BEAM.shore, sectionId: BS_TUBE, postSpacingM: 0.9 }, stringer: { ...DEFAULT_BEAM.stringer!, enabled: true } }
+  const d = designBeam(inp)
+  const m = beamModel(inp, d)
+  const sg = d.layout.stringer!
+  it('stringer rows under the heads, a shore with a U-head under every stringer at the designed spacing', () => {
+    expect(count(m.parts, 'stringer')).toBe(sg.z.length)
+    expect(m.parts.filter((p) => /^shore-\d+-\d+$/.test(p.id)).length).toBe(d.quantities.shores)
+    const head = m.parts.find((p) => p.id === 'head-0-0')!
+    const str = m.parts.find((p) => p.id === 'stringer-0-0')!
+    const uh = m.parts.find((p) => p.id === 'shore-0-0-head')!
+    const top = (p: typeof head) => (p.shape === 'box' ? p.center[1] + p.size[1] / 2 : 0)
+    const bot = (p: typeof head) => (p.shape === 'box' ? p.center[1] - p.size[1] / 2 : 0)
+    expect(top(str)).toBeCloseTo(bot(head), 6)
+    expect(top(uh)).toBeCloseTo(bot(str), 6)
+  })
+  it('ledgers both ways at every designed level, X-bracing along the rows and across', () => {
+    const ids = m.parts.map((p) => p.id)
+    expect(ids.filter((id) => /^ledger-/.test(id)).length).toBe(sg.ledgerY.length * sg.z.length)
+    expect(ids.filter((id) => /^ledgerx-/.test(id)).length).toBe(sg.ledgerY.length * sg.shoreX.length)
+    expect(ids.filter((id) => /^br[xy]-/.test(id)).length).toBe(d.quantities.bracing)
+  })
+  it('the shore spacing handle sets the stringer spacing', () => {
+    expect(applyBeamHandle(inp, 'shoreSpacing', 1.2).stringer!.spacingCm).toBe(120)
+  })
 })

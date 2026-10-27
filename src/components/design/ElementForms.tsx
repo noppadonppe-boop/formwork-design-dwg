@@ -11,6 +11,10 @@ import {
   beamCrossJoist,
   beamHasRunners,
   type BeamInput,
+  beamStringer,
+  BS_TUBE,
+  getSection,
+  LEDGER_LIFT,
   type BraceParams,
   type ColumnInput,
   type DeckSheathing,
@@ -544,15 +548,53 @@ function BeamFields({ inp, set }: { inp: BeamInput; set: (fn: (i: BeamInput) => 
           <NumField label="ระยะคานขวาง" unit="ซม." optional placeholder="อัตโนมัติ" value={inp.head.spacingCm} min={20} max={240} onChange={(v) => set((i) => ({ ...i, head: { ...i.head, spacingCm: v } }))} />
         </div>
       </Group>
+      <Group title="คานแนวยาวใต้คานขวาง (Stringer)" part="stringer">
+        <Toggle
+          label="วางคานขวางบนคานแนวยาว + ก้ามปู (ระยะเสาค้ำไม่ต้องตรงคานขวาง)"
+          checked={beamStringer(inp).enabled}
+          onChange={(v) =>
+            set((i) => {
+              const pipe = (id: string) => getSection(id).shape === 'pipe'
+              return {
+                ...i,
+                stringer: { ...beamStringer(i), enabled: v },
+                // the system is usually built of BS tubes: start the posts and the bracing as tubes
+                ...(v && i.shore.kind === 'post' && !pipe(i.shore.sectionId) ? { shore: { ...i.shore, sectionId: BS_TUBE, materialId: 'steel-a36' } } : {}),
+                ...(v && !pipe(beamBracing(i).sectionId) ? { bracing: { ...beamBracing(i), sectionId: BS_TUBE, materialId: 'steel-a36' } } : {}),
+              }
+            })
+          }
+        />
+        {beamStringer(inp).enabled && (
+          <>
+            <div className="grid grid-cols-2 gap-2">
+              <Segmented label="จำนวนแถว" value={String(beamStringer(inp).rows) as '2' | '3'} options={[{ value: '2', label: '2 แถว' }, { value: '3', label: '3 แถว' }]} onChange={(v) => set((i) => ({ ...i, stringer: { ...beamStringer(i), rows: Number(v) as 2 | 3 } }))} />
+              <NumField label="ระยะแถวริม–ริม" unit="ม." value={inp.shore.postSpacingM} min={0.2} max={3} onChange={(v) => v && set((i) => ({ ...i, shore: { ...i.shore, postSpacingM: v } }))} />
+            </div>
+            <MemberPicker label="คานแนวยาว" sectionId={beamStringer(inp).sectionId} materialId={beamStringer(inp).materialId} onChange={(v) => set((i) => ({ ...i, stringer: { ...beamStringer(i), ...v } }))} />
+            <div className="grid grid-cols-2 gap-2">
+              <Segmented label="ต่อแถว" value={String(beamStringer(inp).count) as '1' | '2'} options={[{ value: '1', label: 'เดี่ยว' }, { value: '2', label: 'คู่' }]} onChange={(v) => set((i) => ({ ...i, stringer: { ...beamStringer(i), count: Number(v) as 1 | 2 } }))} />
+              <NumField label="ระยะเสาค้ำตามแนวคาน" unit="ซม." optional placeholder="อัตโนมัติ" value={beamStringer(inp).spacingCm} min={20} max={300} onChange={(v) => set((i) => ({ ...i, stringer: { ...beamStringer(i), spacingCm: v } }))} />
+            </div>
+            {inp.shore.kind === 'post' && (
+              <NumField label="ท่อยึดแนวราบ (ท่อแนวรอง) ห่างไม่เกิน" unit="ม." hint="ยึดเสาทั้งสองทิศทาง — ระบบเพิ่มระดับให้เองถ้าเสายังเป็นตัวกำหนด" value={beamStringer(inp).liftM ?? LEDGER_LIFT} min={0.5} max={3} onChange={(v) => v && set((i) => ({ ...i, stringer: { ...beamStringer(i), liftM: v } }))} />
+            )}
+          </>
+        )}
+      </Group>
       <ShoreFields s={inp.shore} onChange={(s) => set((i) => ({ ...i, shore: s }))}>
-        <div className="grid grid-cols-2 gap-2">
-          <Segmented label="รูปแบบ" value={inp.shore.layout} options={[{ value: 'single', label: 'ตุ๊กตาตัวที' }, { value: 'double', label: 'เสาคู่' }]} onChange={(v) => set((i) => ({ ...i, shore: { ...i.shore, layout: v } }))} />
-          {inp.shore.layout === 'double' && <NumField label="ระยะเสาคู่" unit="ม." value={inp.shore.postSpacingM} min={0.2} max={2.5} onChange={(v) => v && set((i) => ({ ...i, shore: { ...i.shore, postSpacingM: v } }))} />}
-        </div>
+        {!beamStringer(inp).enabled && (
+          <div className="grid grid-cols-2 gap-2">
+            <Segmented label="รูปแบบ" value={inp.shore.layout} options={[{ value: 'single', label: 'ตุ๊กตาตัวที' }, { value: 'double', label: 'เสาคู่' }]} onChange={(v) => set((i) => ({ ...i, shore: { ...i.shore, layout: v } }))} />
+            {inp.shore.layout === 'double' && <NumField label="ระยะเสาคู่" unit="ม." value={inp.shore.postSpacingM} min={0.2} max={2.5} onChange={(v) => v && set((i) => ({ ...i, shore: { ...i.shore, postSpacingM: v } }))} />}
+          </div>
+        )}
       </ShoreFields>
-      <Group title="ค้ำยันทางข้างแถวเสาค้ำ (ตามแนวคาน)" part="bracing">
+      <Group title={beamStringer(inp).enabled ? 'ค้ำยันทแยงและท่อยึดแนวราบ (ตามแนวคานและขวางคาน)' : 'ค้ำยันทางข้างแถวเสาค้ำ (ตามแนวคาน)'} part="bracing">
         <Toggle label="ออกแบบค้ำยันทแยง (ACI 347: 2% DL)" checked={beamBracing(inp).enabled} onChange={(v) => set((i) => ({ ...i, bracing: { ...beamBracing(i), enabled: v } }))} />
-        {beamBracing(inp).enabled && <MemberPicker label="ค้ำยันทแยง" sectionId={beamBracing(inp).sectionId} materialId={beamBracing(inp).materialId} pipes onChange={(v) => set((i) => ({ ...i, bracing: { ...beamBracing(i), ...v } }))} />}
+        {(beamBracing(inp).enabled || beamStringer(inp).enabled) && (
+          <MemberPicker label={beamStringer(inp).enabled ? 'ค้ำยันทแยง / ท่อยึดแนวราบ' : 'ค้ำยันทแยง'} sectionId={beamBracing(inp).sectionId} materialId={beamBracing(inp).materialId} pipes onChange={(v) => set((i) => ({ ...i, bracing: { ...beamBracing(i), ...v } }))} />
+        )}
       </Group>
       {inp.type !== 'slab' && !inp.tie.enabled && (
         <Group title="ค้ำยันปากแบบ" part="brace">

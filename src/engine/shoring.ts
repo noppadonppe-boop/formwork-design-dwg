@@ -91,6 +91,18 @@ export function designShore(opts: { shore: ShoreParams; P: number; lengthM: numb
 export const braceBays = (bay: number, height: number) => Math.max(1, Math.ceil(height / (bay * Math.tan(Math.PI / 3)) - 1e-9))
 
 /**
+ * First bay of each X-braced set along a row of `bays` bays, each set spanning `k` bays: both end bays, and sets
+ * spread evenly so that no more than `gap` bays between sets are left unbraced.
+ */
+export function braceSets(bays: number, k: number, gap = 3): number[] {
+  if (bays <= 0) return []
+  const kk = Math.min(k, bays)
+  if (bays <= kk) return [0]
+  const n = Math.ceil((bays - kk) / (kk + gap) - 1e-9) + 1
+  return [...new Set(Array.from({ length: n }, (_, i) => Math.round((i * (bays - kk)) / (n - 1))))]
+}
+
+/**
  * Lateral bracing of the shoring (ค้ำยันทางข้าง) — not computed in the book (Fig 6.1 only); design load taken from
  * ACI 347: the larger of 2 % of the dead load and 150 kg/m (100 lb/ft) of slab edge, per shore row, carried by one
  * diagonal per row in each direction. The diagonal is X-braced (unbraced length = half its length).
@@ -100,9 +112,11 @@ export function designShoreBracing(opts: {
   materialId: string
   /** dead load (concrete + forms), kg/m² */
   dead: number
-  /** row length and tributary width for each direction, m; bay = shore spacing in that direction */
-  dirs: { name: string; rowLength: number; tributary: number; bay: number }[]
+  /** row length and tributary width for each direction, m; bay = shore spacing in that direction; maxBays = bays in the row */
+  dirs: { name: string; rowLength: number; tributary: number; bay: number; maxBays?: number }[]
   height: number
+  /** ledger levels the diagonal is clamped to on its way up (tube-and-fitting): unbraced length l/(levels+1) */
+  ledgers?: number
 }): ComponentResult {
   const trace = new Trace()
   const s = getSection(opts.sectionId)
@@ -118,13 +132,19 @@ export function designShoreBracing(opts: {
       unit: 'กก.',
       ref: 'ACI 347',
     })
-    const n = braceBays(d.bay, opts.height)
+    const n = Math.min(braceBays(d.bay, opts.height), d.maxBays ?? Infinity)
     const run = n * d.bay
     const L = Math.hypot(run, opts.height)
     const cos = run / L
     const F = trace.add({ label: `${d.name}: แรงในค้ำยันทแยง (คร่อม ${n} ช่วงเสา)`, expr: `${fmt(H)} / cos(${((Math.acos(cos) * 180) / Math.PI).toFixed(0)}°)`, value: H / cos, unit: 'กก.' })
-    trace.add({ label: `${d.name}: ความยาวค้ำยันทแยง (ไขว้ X → l/2)`, expr: `√(${run.toFixed(2)}² + ${opts.height.toFixed(2)}²)`, value: L * 100, unit: 'ซม.' })
-    const cap = columnCapacity(s, m, (L * 100) / 2, trace, `${d.name}: `)
+    const parts = Math.max(2, (opts.ledgers ?? 0) + 1)
+    trace.add({
+      label: `${d.name}: ความยาวค้ำยันทแยง (${parts > 2 ? `ยึดกับท่อแนวราบ ${parts - 1} ระดับ → l/${parts}` : 'ไขว้ X → l/2'})`,
+      expr: `√(${run.toFixed(2)}² + ${opts.height.toFixed(2)}²)`,
+      value: L * 100,
+      unit: 'ซม.',
+    })
+    const cap = columnCapacity(s, m, (L * 100) / parts, trace, `${d.name}: `)
     rows.push({ item: `ค้ำยันทแยง ${d.name}`, demand: F, capacity: cap.P, ratio: F / cap.P, unit: 'กก.', ref: m.kind === 'timber' ? 'สมการ 5.15' : 'สมการ 5.17/5.18' })
   }
   return component('bracing', 'ค้ำยันทางข้างระบบเสาค้ำ', `${s.label} (${m.name}) ทแยงไขว้ 1 ชุด/แถว/ทิศทาง`, rows, trace)

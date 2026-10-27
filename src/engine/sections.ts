@@ -192,9 +192,13 @@ export const STEEL_SECTIONS: Section[] = [
   angle(75, 6),
 ]
 
+/** Scaffold tube BS 1139 / EN 39 Ø48.3×4.0 — posts, ledgers and bracing of tube-and-fitting falsework. */
+export const BS_TUBE = 'pipe-4.83'
+
 export const PIPES: Section[] = [
   pipe(4.27, 3.81, 'ท่อเหล็ก Ø1¼" (42.7×2.3 มม.)'),
   pipe(4.86, 4.22, 'ท่อเหล็ก Ø1½" (48.6 มม.)'),
+  pipe(4.83, 4.03, 'ท่อ BS 1139 Ø48.3×4.0 มม.'),
   pipe(6.03, 5.45, 'ท่อเหล็ก Ø2" (60.3 มม.)'),
   pipe(7.63, 6.99, 'ท่อเหล็ก Ø2½" (76.3×3.2 มม.)'),
   pipe(8.91, 8.27, 'ท่อเหล็ก Ø3" (89.1×3.2 มม.)'),

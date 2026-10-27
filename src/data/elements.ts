@@ -179,6 +179,7 @@ export const QUANTITY_LABEL: Record<string, [string, string]> = {
   joistLength: ['ความยาวตงรวม', 'ม.'],
   stringerLength: ['ความยาวคานรองรับรวม', 'ม.'],
   shores: ['เสาค้ำ / ขานั่งร้าน', 'ต้น'],
+  ledgerLength: ['ท่อยึดแนวราบรวม', 'ม.'],
   bracing: ['ค้ำยันทแยงระบบเสาค้ำ', 'ตัว'],
   bottomLength: ['ไม้เสริมท้องแบบรวม', 'ม.'],
   crossJoists: ['ตงขวางใต้ท้องแบบ', 'ตัว'],
@@ -212,7 +213,13 @@ export function layoutSummary(r: AnyDesign): { label: string; value: string }[] 
         { label: 'เคร่าข้าง @', value: `${r.design.layout.studSpacing}` },
         ...(r.design.layout.crossJoistSpacing ? [{ label: 'ตงขวาง @', value: `${r.design.layout.crossJoistSpacing}` }] : []),
         ...(r.design.layout.bottomZ.length ? [{ label: 'คร่าวตามยาว', value: `${r.design.layout.bottomZ.length} ตัว` }] : []),
-        { label: 'คานขวาง/เสาค้ำ @', value: `${r.design.layout.headSpacing} ซม.` },
+        ...(r.design.layout.stringer
+          ? [
+              { label: 'คานขวาง @', value: `${r.design.layout.headSpacing}` },
+              { label: 'เสาค้ำ @', value: `${r.design.layout.stringer.shoreSpacing} ซม. × ${r.design.layout.stringer.z.length} แถว` },
+              ...(r.design.layout.stringer.ledgerY.length ? [{ label: 'ท่อยึดแนวราบ', value: `${r.design.layout.stringer.ledgerY.length} ระดับ` }] : []),
+            ]
+          : [{ label: 'คานขวาง/เสาค้ำ @', value: `${r.design.layout.headSpacing} ซม.` }]),
       ]
     case 'footing':
       return [

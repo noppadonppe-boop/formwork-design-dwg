@@ -1,7 +1,8 @@
 // Book Chapter 7 worked examples 7.1–7.4 (method I — direct calculation).
 import { describe, expect, it } from 'vitest'
-import { type BeamInput, DEFAULT_BEAM, designBeam } from './beam'
-import { DEFAULT_SHORE } from './shoring'
+import { type BeamInput, DEFAULT_BEAM, designBeam, middleRowShare } from './beam'
+import { BS_TUBE } from './sections'
+import { braceSets, DEFAULT_SHORE } from './shoring'
 
 const base: BeamInput = {
   ...DEFAULT_BEAM,
@@ -204,5 +205,52 @@ describe('beam bottom: runners along the beam or cross joists, automatic runner 
     const d = designBeam({ ...auto, length: 12, h: 1.2, shore: { ...base.shore, braceLevels: 0, lengthM: 3 } })
     expect(d.layout.headSpacing).toBe(20)
     expect(d.warnings.some((w) => w.startsWith('ลดระยะเสาค้ำถึง 20 ซม. แล้วยังรับไม่ได้'))).toBe(true)
+  })
+})
+
+describe('beam bottom on stringers: heads → stringer rows → U-heads and tube posts with ledgers', () => {
+  const tube = { ...base.shore, sectionId: BS_TUBE, materialId: 'steel-a36', postSpacingM: 0.9 }
+  const on: BeamInput = { ...base, b: 0.4, h: 0.8, length: 8, clearHeight: 4.5, shore: tube, stringer: { ...DEFAULT_BEAM.stringer!, enabled: true } }
+  it('off or missing: the shores stay under the heads, exactly as before', () => {
+    const old = designBeam(base)
+    expect(designBeam({ ...base, stringer: { ...DEFAULT_BEAM.stringer!, enabled: false } })).toEqual(old)
+    expect(old.layout.stringer).toBeUndefined()
+    expect(old.quantities.shores).toBe(old.layout.headX.length)
+  })
+  it('the shore spacing comes from the stringer and the post, not from the heads', () => {
+    const d = designBeam(on)
+    const sg = d.layout.stringer!
+    expect(sg.z).toEqual([-0.45, 0.45])
+    expect(sg.shoreSpacing).toBe(comp(d, 'stringer').spacing!.value)
+    expect(sg.shoreSpacing).toBeGreaterThan(d.layout.headSpacing)
+    expect(d.quantities.shores).toBe(2 * sg.shoreX.length)
+    expect(['head', 'stringer', 'shore'].every((k) => comp(d, k).rows.every((r) => r.ratio <= 1))).toBe(true)
+  })
+  it('ledgers both ways at lifts of at most 2 m (more when the post governs), their heights in the layout', () => {
+    const d = designBeam(on)
+    const { ledgerY } = d.layout.stringer!
+    expect(ledgerY.length).toBeGreaterThanOrEqual(Math.ceil(d.layout.shoreLength / 2) - 1)
+    const lifts = [0, ...ledgerY, d.layout.shoreLength].slice(1).map((y, i, ys) => y - (i ? ys[i - 1] : 0))
+    expect(Math.max(...lifts)).toBeLessThanOrEqual(2 + 1e-9)
+    expect(d.quantities.ledgerLength).toBeCloseTo(ledgerY.length * (2 * on.length + d.layout.stringer!.shoreX.length * 0.9), 6)
+  })
+  it('three rows: the middle row takes the larger share and the heads span half the width', () => {
+    const d3 = designBeam({ ...on, stringer: { ...on.stringer!, rows: 3 } })
+    expect(d3.layout.stringer!.z).toEqual([-0.45, 0, 0.45])
+    expect(comp(d3, 'head').maxRatio).toBeLessThan(comp(designBeam(on), 'head').maxRatio)
+    expect(middleRowShare({ ...on, type: 'isolated', b: 0.9 }, 0.9)).toBeCloseTo(0.625, 6) // uniform over the rows
+    expect(middleRowShare({ ...on, type: 'isolated', b: 0.05 }, 0.9)).toBeGreaterThan(0.99) // ≈ point load on the middle
+  })
+  it('X-bracing at both ends of every row, no more than 3 unbraced bays between sets, and across at those lines', () => {
+    expect(braceSets(10, 1)).toEqual([0, 3, 6, 9])
+    expect(braceSets(3, 2)).toEqual([0, 1])
+    const d = designBeam({ ...on, length: 15 })
+    const { braceSets: sets, braceBays: k, shoreX, acrossLines } = d.layout.stringer!
+    const bays = shoreX.length - 1
+    expect(sets[0]).toBe(0)
+    expect(sets[sets.length - 1] + k).toBe(bays)
+    sets.slice(1).forEach((j, i) => expect(j - (sets[i] + k)).toBeLessThanOrEqual(3))
+    expect(acrossLines).toEqual([...sets, bays])
+    expect(comp(d, 'bracing').rows).toHaveLength(2)
   })
 })

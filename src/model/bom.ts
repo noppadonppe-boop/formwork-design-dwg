@@ -124,7 +124,16 @@ function partSpec(el: ElementData, p: Part): Spec | undefined {
   }
   const sm = pick()
   if (!sm) return undefined
-  const role = g === 'stake' ? (p.id.startsWith('kick') ? 'หลักตีนเคร่า' : 'หลักรับค้ำยัน') : GROUP_LABEL[g]
+  const role =
+    g === 'stake'
+      ? p.id.startsWith('kick')
+        ? 'หลักตีนเคร่า'
+        : 'หลักรับค้ำยัน'
+      : p.id.startsWith('ledger')
+        ? 'ท่อยึดแนวราบ'
+        : el.type === 'beam' && g === 'stringer'
+          ? 'คานแนวยาว'
+          : GROUP_LABEL[g]
   return memberSpec(sm[0], sm[1], role)
 }
 
