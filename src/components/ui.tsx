@@ -44,8 +44,15 @@ export function Field({ label, hint, error, children, className }: { label: Reac
 export function NumberInput({ unit, className, ...rest }: InputHTMLAttributes<HTMLInputElement> & { unit?: string }) {
   return (
     <span className={clsx('flex h-10 items-stretch overflow-hidden rounded-lg border border-slate-300 bg-white focus-within:border-sel focus-within:ring-2 focus-within:ring-blue-100', className)}>
-      <input type="number" step="any" inputMode="decimal" className="num min-w-0 flex-1 px-3 text-sm outline-none" {...rest} />
-      {unit && <span className="flex items-center border-l border-line bg-slate-50 px-2.5 text-xs text-muted">{unit}</span>}
+      {/* no spin buttons: they take the room of two digits */}
+      <input
+        type="number"
+        step="any"
+        inputMode="decimal"
+        className="num min-w-0 flex-1 [appearance:textfield] px-2.5 text-sm outline-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+        {...rest}
+      />
+      {unit && <span className="flex items-center whitespace-nowrap border-l border-line bg-slate-50 px-2 text-xs text-muted">{unit}</span>}
     </span>
   )
 }

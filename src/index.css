@@ -54,6 +54,11 @@
   .num {
     @apply font-mono tabular-nums;
   }
+  /* a row of up to three numeric fields: wraps to two columns when a field would be too narrow for its value */
+  .fields3 {
+    @apply grid gap-2;
+    grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
+  }
 }
 
 /* ---------------------------------------------------------------- A4 report */

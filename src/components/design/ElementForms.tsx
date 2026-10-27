@@ -68,7 +68,7 @@ function PressureGroup({ p, onChange }: { p: PressureParams; onChange: (p: Press
           <option value="HYDROSTATIC">γH เต็มความสูง</option>
         </Select>
       </Field>
-      <div className="grid grid-cols-3 gap-2">
+      <div className="fields3">
         <NumField label="อัตราเท R" unit="ม./ชม." value={p.R} min={0.1} max={20} onChange={(v) => v !== undefined && onChange({ ...p, R: v })} />
         <NumField label="T" unit="°C" value={p.T} min={0} max={45} onChange={(v) => v !== undefined && onChange({ ...p, T: v })} />
         <NumField label="Slump" unit="ซม." value={p.slump} min={0} max={25} onChange={(v) => v !== undefined && onChange({ ...p, slump: v })} />
@@ -120,7 +120,7 @@ function BraceGroup<B extends BraceParams>({ b, onChange, extra }: { b: B; onCha
   return (
     <Group title="ค้ำยันด้านข้าง" part="brace">
       <MemberPicker label="ค้ำยัน" sectionId={b.sectionId} materialId={b.materialId} pipes onChange={(v) => onChange({ ...b, ...v })} />
-      <div className="grid grid-cols-3 gap-2">
+      <div className="fields3">
         <NumField label="มุม" unit="°" value={b.angleDeg} min={30} max={75} onChange={(v) => v !== undefined && onChange({ ...b, angleDeg: v })} />
         <NumField label="สูงจุดยึด" unit="ม." value={b.heightM} optional placeholder="= H" onChange={(v) => onChange({ ...b, heightM: v })} />
         <NumField label="แรงลม" unit="กก./ม.²" value={b.wind} min={0} onChange={(v) => v !== undefined && onChange({ ...b, wind: v })} />
@@ -140,7 +140,7 @@ function WallFields({ inp, set }: { inp: WallInput; set: (fn: (i: WallInput) => 
   return (
     <>
       <Group title="ขนาดกำแพง" part="concrete">
-        <div className="grid grid-cols-3 gap-2">
+        <div className="fields3">
           <NumField label="ความหนา" unit="ซม." scale={100} value={inp.thickness} min={5} max={300} onChange={(v) => v && set((i) => ({ ...i, thickness: v }))} />
           <NumField label="ความสูงเท H" unit="ม." value={inp.height} min={0.2} max={15} onChange={(v) => v && set((i) => ({ ...i, height: v }))} />
           <NumField label="ความยาว" unit="ม." value={inp.length} min={0.2} max={200} onChange={(v) => v && set((i) => ({ ...i, length: v }))} />
@@ -193,7 +193,7 @@ function ColumnFields({ inp, set }: { inp: ColumnInput; set: (fn: (i: ColumnInpu
   return (
     <>
       <Group title="ขนาดเสา" part="concrete">
-        <div className="grid grid-cols-3 gap-2">
+        <div className="fields3">
           <NumField label="ด้าน b" unit="ซม." scale={100} value={inp.b} min={10} max={300} onChange={(v) => v && set((i) => ({ ...i, b: v }))} />
           <NumField label="ด้าน h" unit="ซม." scale={100} value={inp.h} min={10} max={300} onChange={(v) => v && set((i) => ({ ...i, h: v }))} />
           <NumField label="ความสูงเท H" unit="ม." value={inp.height} min={0.3} max={15} onChange={(v) => v && set((i) => ({ ...i, height: v }))} />
@@ -406,7 +406,7 @@ function ShoreFields<S extends ShoreParams>({ s, onChange, children }: { s: S; o
           <NumField label="SWL ต่อขา" unit="กก." hint="ตามข้อมูลผู้ผลิต" value={s.swl} min={50} max={20000} onChange={(v) => v && onChange({ ...s, swl: v })} />
         </div>
       )}
-      <div className="grid grid-cols-3 gap-2">
+      <div className="fields3">
         <NumField label="ความยาวเสา" unit="ม." optional placeholder="อัตโนมัติ" value={s.lengthM} min={0.3} max={15} onChange={(v) => onChange({ ...s, lengthM: v })} />
         <NumField label="แป้นรองฐาน" unit="ซม." hint="ด้านของแผ่นรองใต้เสา" value={s.baseCm} min={0} max={100} onChange={(v) => v !== undefined && onChange({ ...s, baseCm: v })} />
         <NumField label="รับแรงแบกทาน" unit="กก./ม.²" hint="ของพื้นใต้เสา · 0 = ไม่ตรวจ" value={s.bearing} min={0} onChange={(v) => v !== undefined && onChange({ ...s, bearing: v })} />
@@ -491,7 +491,7 @@ function BeamFields({ inp, set }: { inp: BeamInput; set: (fn: (i: BeamInput) => 
             ))}
           </Select>
         </Field>
-        <div className="grid grid-cols-3 gap-2">
+        <div className="fields3">
           <NumField label="กว้าง b" unit="ซม." scale={100} value={inp.b} min={10} max={200} onChange={(v) => v && set((i) => ({ ...i, b: v }))} />
           <NumField label="ลึก h (รวมพื้น)" unit="ซม." scale={100} value={inp.h} min={15} max={300} onChange={(v) => v && set((i) => ({ ...i, h: v }))} />
           <NumField label="ยาว L" unit="ม." value={inp.length} min={0.5} max={30} onChange={(v) => v && set((i) => ({ ...i, length: v }))} />
@@ -634,7 +634,7 @@ function FootingFields({ inp, set }: { inp: FootingInput; set: (fn: (i: FootingI
   return (
     <>
       <Group title="ขนาดฐานราก" part="concrete">
-        <div className="grid grid-cols-3 gap-2">
+        <div className="fields3">
           <NumField label="ยาว X" unit="ม." value={inp.lengthX} min={0.2} max={30} onChange={(v) => v && set((i) => ({ ...i, lengthX: v }))} />
           <NumField label="ยาว Y" unit="ม." value={inp.lengthY} min={0.2} max={30} onChange={(v) => v && set((i) => ({ ...i, lengthY: v }))} />
           <NumField label="ลึก H" unit="ม." value={inp.height} min={0.2} max={6} onChange={(v) => v && set((i) => ({ ...i, height: v }))} />
@@ -669,7 +669,7 @@ function FootingFields({ inp, set }: { inp: FootingInput; set: (fn: (i: FootingI
             />
           </div>
           <MemberPicker label="ค้ำยัน" sectionId={inp.brace.sectionId} materialId={inp.brace.materialId} pipes onChange={(v) => set((i) => ({ ...i, brace: { ...i.brace, ...v } }))} />
-          <div className="grid grid-cols-3 gap-2">
+          <div className="fields3">
             <NumField label="มุม" unit="°" value={inp.brace.angleDeg} min={30} max={60} onChange={(v) => v && set((i) => ({ ...i, brace: { ...i.brace, angleDeg: v } }))} />
             <NumField label="ระยะจุดค้ำ" unit="ซม." optional placeholder="อัตโนมัติ" value={inp.brace.spacingCm} min={15} max={200} onChange={(v) => set((i) => ({ ...i, brace: { ...i.brace, spacingCm: v } }))} />
             <NumField label="ยื่นปลายบน" unit="ม." value={inp.brace.topOverhangM} min={0} max={1} onChange={(v) => v !== undefined && set((i) => ({ ...i, brace: { ...i.brace, topOverhangM: v } }))} />
@@ -735,7 +735,7 @@ function FootingFields({ inp, set }: { inp: FootingInput; set: (fn: (i: FootingI
       {inp.support !== 'tied' && (
         <Group title="หลักยึดและดิน" part="stake">
           <MemberPicker label="หลัก" sectionId={inp.stake.sectionId} materialId="timber-yang" kinds={['timber']} onChange={(v) => set((i) => ({ ...i, stake: { ...i.stake, sectionId: v.sectionId } }))} />
-          <div className="grid grid-cols-3 gap-2">
+          <div className="fields3">
             <NumField label="ฝังลึก" unit="ม." value={inp.stake.embedM} min={0.2} max={3} onChange={(v) => v && set((i) => ({ ...i, stake: { ...i.stake, embedM: v } }))} />
             <NumField label="แผ่นไม้หลังหลัก" unit="ซม." value={inp.stake.boardCm} min={5} max={60} onChange={(v) => v && set((i) => ({ ...i, stake: { ...i.stake, boardCm: v } }))} />
             <NumField label="ดินรับแรง" unit="กก./ม.²" value={inp.soilBearing} min={1000} max={100000} onChange={(v) => v && set((i) => ({ ...i, soilBearing: v }))} />
