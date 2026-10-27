@@ -1,6 +1,7 @@
 // Illustrations for the user manual: schematic sections of each formwork type and the mechanics behind the
 // checks. Drawn as SVG so they stay sharp at any size; colours match the 3D view and the shop drawings.
 import type { ReactNode } from 'react'
+import { useL } from '@/i18n/manual'
 
 const C = {
   conc: '#e9ebee',
@@ -77,10 +78,11 @@ const svgProps = (w: number, h: number, label: string) => ({ viewBox: `0 0 ${w} 
 // ---------------------------------------------------------------- wall
 
 export function WallSectionFigure() {
+  const L = useL()
   const id = 'wall'
   const levels = [92, 172, 252]
   return (
-    <svg {...svgProps(670, 360, 'รูปตัดแบบหล่อกำแพง แสดงแผ่นผิว เคร่า คานรับเคร่า ไทร์ และค้ำยัน')}>
+    <svg {...svgProps(670, 360, L('รูปตัดแบบหล่อกำแพง แสดงแผ่นผิว เคร่า คานรับเคร่า ไทร์ และค้ำยัน', 'Wall form section: sheathing, studs, wales, ties and braces', '墙模板剖面:面板、竖楞、围檩、对拉螺栓和斜撑'))}>
       <Defs id={id} />
       <g transform="translate(70 0)">
       <line x1="20" y1="322" x2="580" y2="322" stroke={C.ink} strokeWidth="1.5" />
@@ -119,32 +121,32 @@ export function WallSectionFigure() {
           return <line key={y} x1={480 + w} y1={y} x2={484} y2={y} stroke={C.load} strokeWidth="1.3" markerEnd={`url(#${id}-arrow)`} />
         })}
         <text x="520" y="32" fontSize="12" textAnchor="middle" fill={C.load} fontWeight="600">
-          แรงดันคอนกรีต P
+          {L('แรงดันคอนกรีต P', 'Concrete pressure P', '混凝土侧压力 P')}
         </text>
         <text x="566" y="164" fontSize="11" fill={C.load}>
           Pmax
         </text>
       </g>
       <Callout x={280} y={60} tx={300} ty={16}>
-        คอนกรีต (ความหนา t)
+        {L('คอนกรีต (ความหนา t)', 'Concrete (thickness t)', '混凝土(厚度 t)')}
       </Callout>
       <Callout x={246} y={300} tx={200} ty={345}>
-        แผ่นผิว (ไม้อัด)
+        {L('แผ่นผิว (ไม้อัด)', 'Sheathing (plywood)', '面板(胶合板)')}
       </Callout>
       <Callout x={324} y={300} tx={360} ty={345}>
-        เคร่าตั้ง (Stud)
+        {L('เคร่าตั้ง (Stud)', 'Vertical stud', '竖楞 (Stud)')}
       </Callout>
       <Callout x={223} y={172} tx={84} ty={172}>
-        คานรับเคร่าคู่ (Wale)
+        {L('คานรับเคร่าคู่ (Wale)', 'Double wale', '双围檩 (Wale)')}
       </Callout>
       <Callout x={280} y={252} tx={84} ty={236}>
-        Form tie + แผ่นรอง
+        {L('Form tie + แผ่นรอง', 'Form tie + plate', '对拉螺栓 + 垫板')}
       </Callout>
       <Callout x={198} y={120} tx={84} ty={104}>
-        ค้ำยัน (Brace)
+        {L('ค้ำยัน (Brace)', 'Brace', '斜撑 (Brace)')}
       </Callout>
       <Callout x={121} y={330} tx={84} ty={300}>
-        หลัก
+        {L('หลัก', 'Stake', '木桩')}
       </Callout>
       </g>
     </svg>
@@ -154,16 +156,17 @@ export function WallSectionFigure() {
 // ---------------------------------------------------------------- slab
 
 export function SlabSystemFigure() {
+  const L = useL()
   const id = 'slab'
   const shores = [96, 236, 376, 516]
   return (
-    <svg {...svgProps(780, 380, 'รูปด้านระบบแบบหล่อพื้น แผ่นพื้นแบบ ตง คานรองรับ เสาค้ำ และค้ำยันทางข้าง')}>
+    <svg {...svgProps(780, 380, L('รูปด้านระบบแบบหล่อพื้น แผ่นพื้นแบบ ตง คานรองรับ เสาค้ำ และค้ำยันทางข้าง', 'Slab form elevation: deck, joists, stringers, shores and lateral bracing', '楼板模板立面:底模面板、次楞、主楞、立杆和水平拉结'))}>
       <Defs id={id} />
       {Array.from({ length: 14 }, (_, i) => 60 + i * 38).map((x) => (
         <line key={x} x1={x} y1="22" x2={x} y2="42" stroke={C.load} strokeWidth="1.4" markerEnd={`url(#${id}-arrow)`} />
       ))}
       <text x="310" y="14" textAnchor="middle" fontSize="12" fill={C.load} fontWeight="600">
-        w = γ·t + น้ำหนักจร + น้ำหนักแบบหล่อ (กก./ม.²)
+        {L('w = γ·t + น้ำหนักจร + น้ำหนักแบบหล่อ (กก./ม.²)', 'w = γ·t + live load + formwork weight (kg/m²)', 'w = γ·t + 施工活荷载 + 模板自重 (kg/m²)')}
       </text>
       <rect x="40" y="44" width="540" height="24" fill={`url(#${id}-hatch)`} stroke={C.concLine} />
       <rect x="40" y="68" width="540" height="6" fill={C.ply} stroke={C.plyLine} />
@@ -189,7 +192,7 @@ export function SlabSystemFigure() {
         <line x1="96" y1="340" x2="236" y2="340" markerStart={`url(#${id}-dim)`} markerEnd={`url(#${id}-dim)`} />
       </g>
       <text x="166" y="334" fontSize="12" textAnchor="middle">
-        L (ระยะเสาค้ำ)
+        {L('L (ระยะเสาค้ำ)', 'L (shore spacing)', 'L(立杆间距)')}
       </text>
       <text x="306" y="334" fontSize="12" textAnchor="middle">
         L
@@ -198,28 +201,28 @@ export function SlabSystemFigure() {
         <line x1="417" y1="62" x2="457" y2="62" stroke="none" />
       </g>
       <Callout x={560} y={56} tx={600} ty={50}>
-        คอนกรีตพื้น t
+        {L('คอนกรีตพื้น t', 'Slab concrete t', '楼板混凝土 t')}
       </Callout>
       <Callout x={566} y={71} tx={600} ty={74}>
-        แผ่นพื้นแบบ
+        {L('แผ่นพื้นแบบ', 'Deck sheathing', '底模面板')}
       </Callout>
       <Callout x={537} y={82} tx={600} ty={98}>
-        ตง (Joist) @a
+        {L('ตง (Joist) @a', 'Joist @a', '次楞 (Joist) @a')}
       </Callout>
       <Callout x={570} y={99} tx={600} ty={122}>
-        คานรองรับ (Stringer)
+        {L('คานรองรับ (Stringer)', 'Stringer', '主楞 (Stringer)')}
       </Callout>
       <Callout x={516} y={180} tx={600} ty={186}>
-        เสาค้ำ
+        {L('เสาค้ำ', 'Shore', '立杆')}
       </Callout>
       <Callout x={446} y={210} tx={600} ty={240}>
-        ค้ำยันทแยง (ไขว้)
+        {L('ค้ำยันทแยง (ไขว้)', 'Diagonal (cross) bracing', '交叉斜撑')}
       </Callout>
       <Callout x={530} y={307} tx={600} ty={300}>
-        แป้นรองฐาน
+        {L('แป้นรองฐาน', 'Base plate / sole', '底座垫板')}
       </Callout>
       <text x="310" y="372" fontSize="12" textAnchor="middle" fill={C.muted}>
-        ตงวางตั้งฉากกับคานรองรับ (ในรูปเห็นเป็นหน้าตัดสี่เหลี่ยมเล็ก ๆ)
+        {L('ตงวางตั้งฉากกับคานรองรับ (ในรูปเห็นเป็นหน้าตัดสี่เหลี่ยมเล็ก ๆ)', 'Joists run across the stringers (shown as the small rectangles)', '次楞垂直于主楞布置(图中小矩形截面)')}
       </text>
     </svg>
   )
@@ -228,9 +231,10 @@ export function SlabSystemFigure() {
 // ---------------------------------------------------------------- beam
 
 export function BeamSectionFigure() {
+  const L = useL()
   const id = 'beam'
   return (
-    <svg {...svgProps(740, 380, 'รูปตัดแบบหล่อคานที่หล่อร่วมกับพื้น')}>
+    <svg {...svgProps(740, 380, L('รูปตัดแบบหล่อคานที่หล่อร่วมกับพื้น', 'Section of a beam form cast with the slab', '梁与楼板同浇的梁模板剖面'))}>
       <Defs id={id} />
       {/* slab and beam */}
       <rect x="40" y="56" width="200" height="26" fill={`url(#${id}-hatch)`} stroke={C.concLine} />
@@ -265,31 +269,31 @@ export function BeamSectionFigure() {
         <line key={y} x1={262 - i * 6} y1={y} x2="244" y2={y} stroke={C.load} strokeWidth="1.3" markerEnd={`url(#${id}-arrow)`} />
       ))}
       <text x="280" y="44" fontSize="12" textAnchor="middle" fill={C.load} fontWeight="600">
-        แรงดันข้าง = γ·h (สามเหลี่ยม)
+        {L('แรงดันข้าง = γ·h (สามเหลี่ยม)', 'Side pressure = γ·h (triangular)', '侧压力 = γ·h(三角形分布)')}
       </text>
       <Callout x={236} y={150} tx={196} ty={150}>
-        แบบข้างคาน
+        {L('แบบข้างคาน', 'Beam side form', '梁侧模')}
       </Callout>
       <Callout x={226} y={190} tx={196} ty={190}>
-        เคร่าข้าง (Stud)
+        {L('เคร่าข้าง (Stud)', 'Side stud', '侧竖楞 (Stud)')}
       </Callout>
       <Callout x={480} y={96} tx={560} ty={124}>
-        ตงพื้นยึดปากแบบ
+        {L('ตงพื้นยึดปากแบบ', 'Slab joist ties the form top', '楼板次楞固定梁侧模上口')}
       </Callout>
       <Callout x={300} y={210} tx={560} ty={170}>
-        ท้องแบบ
+        {L('ท้องแบบ', 'Soffit', '底模')}
       </Callout>
       <Callout x={301} y={220} tx={560} ty={198}>
-        ไม้เสริมท้องแบบ
+        {L('ไม้เสริมท้องแบบ', 'Soffit battens', '底模加强木')}
       </Callout>
       <Callout x={370} y={234} tx={560} ty={234}>
-        คานขวาง (Head)
+        {L('คานขวาง (Head)', 'Head', '横担 (Head)')}
       </Callout>
       <Callout x={330} y={258} tx={560} ty={268}>
-        เท้าแขน
+        {L('เท้าแขน', 'Knee brace', '斜撑臂')}
       </Callout>
       <Callout x={280} y={320} tx={560} ty={310}>
-        เสาค้ำ (ตุ๊กตาตัวที)
+        {L('เสาค้ำ (ตุ๊กตาตัวที)', 'Shore (T-head)', '立杆(T 形支撑)')}
       </Callout>
     </svg>
   )
@@ -298,9 +302,10 @@ export function BeamSectionFigure() {
 // ---------------------------------------------------------------- footing
 
 export function FootingFigure() {
+  const L = useL()
   const id = 'ftg'
   return (
-    <svg {...svgProps(600, 300, 'รูปตัดแบบหล่อฐานรากแบบค้ำยันลงหลัก')}>
+    <svg {...svgProps(600, 300, L('รูปตัดแบบหล่อฐานรากแบบค้ำยันลงหลัก', 'Footing form section braced to stakes', '斜撑至木桩的基础模板剖面'))}>
       <Defs id={id} />
       <path d="M20 60 L120 60 L170 230 L430 230 L480 60 L580 60 L580 290 L20 290 Z" fill={C.soil} opacity="0.55" />
       <rect x="170" y="222" width="260" height="8" fill="#cfd5dd" stroke={C.concLine} />
@@ -320,22 +325,22 @@ export function FootingFigure() {
       <rect x="200" y="210" width="8" height="40" fill={C.tim} stroke={C.timLine} />
       <rect x="392" y="210" width="8" height="40" fill={C.tim} stroke={C.timLine} />
       <Callout x={300} y={160} tx={300} ty={30} middle>
-        ฐานราก (ลึก H)
+        {L('ฐานราก (ลึก H)', 'Footing (depth H)', '基础(深 H)')}
       </Callout>
       <Callout x={300} y={226} tx={300} ty={278} middle>
-        คอนกรีตหยาบ ~5 ซม.
+        {L('คอนกรีตหยาบ ~5 ซม.', 'Lean concrete ~5 cm', '垫层混凝土 ~5 cm')}
       </Callout>
       <Callout x={226} y={140} tx={196} ty={40}>
-        แผ่นผิวข้างแบบ + เคร่า
+        {L('แผ่นผิวข้างแบบ + เคร่า', 'Side sheathing + studs', '侧面板 + 竖楞')}
       </Callout>
       <Callout x={437} y={170} tx={492} ty={104}>
-        ค้ำยันทแยง ≤ 45°
+        {L('ค้ำยันทแยง ≤ 45°', 'Brace ≤ 45°', '斜撑 ≤ 45°')}
       </Callout>
       <Callout x={108} y={240} tx={150} ty={282}>
-        หลักรับค้ำยัน
+        {L('หลักรับค้ำยัน', 'Brace stake', '斜撑木桩')}
       </Callout>
       <Callout x={396} y={240} tx={420} ty={282}>
-        หลักตีนเคร่า
+        {L('หลักตีนเคร่า', 'Stud toe stake', '竖楞根部木桩')}
       </Callout>
     </svg>
   )
@@ -344,17 +349,18 @@ export function FootingFigure() {
 // ---------------------------------------------------------------- mechanics
 
 export function ContinuousBeamFigure() {
+  const L = useL()
   const id = 'cb'
   const sx = [50, 210, 370, 530]
   return (
-    <svg {...svgProps(580, 270, 'คานต่อเนื่องรับน้ำหนักแผ่สม่ำเสมอ และแผนภาพโมเมนต์')}>
+    <svg {...svgProps(580, 270, L('คานต่อเนื่องรับน้ำหนักแผ่สม่ำเสมอ และแผนภาพโมเมนต์', 'Continuous beam under uniform load, with its moment diagram', '均布荷载下的连续梁及弯矩图'))}>
       <Defs id={id} />
       {Array.from({ length: 17 }, (_, i) => 50 + i * 30).map((x) => (
         <line key={x} x1={x} y1="22" x2={x} y2="56" stroke={C.load} strokeWidth="1.3" markerEnd={`url(#${id}-arrow)`} />
       ))}
       <line x1="50" y1="22" x2="530" y2="22" stroke={C.load} strokeWidth="1.3" />
       <text x="290" y="14" fontSize="12.5" textAnchor="middle" fill={C.load} fontWeight="600">
-        w (กก./ซม.) = แรงดันหรือน้ำหนัก × ระยะห่างของชิ้นส่วน
+        {L('w (กก./ซม.) = แรงดันหรือน้ำหนัก × ระยะห่างของชิ้นส่วน', 'w (kg/cm) = pressure or load × member spacing', 'w (kg/cm) = 压力或荷载 × 构件间距')}
       </text>
       <rect x="40" y="60" width="500" height="12" fill={C.tim} stroke={C.timLine} />
       {sx.map((x) => (
@@ -378,16 +384,17 @@ export function ContinuousBeamFigure() {
         M⁻ ≈ wl²/10
       </text>
       <text x="40" y="262" fontSize="12" fill={C.muted}>
-        ชิ้นส่วนที่พาดต่อเนื่องตั้งแต่ 3 ช่วง: M = wl²/10 · V = 5wl/8 · Δ = wl⁴/128EI
+        {L('ชิ้นส่วนที่พาดต่อเนื่องตั้งแต่ 3 ช่วง: M = wl²/10 · V = 5wl/8 · Δ = wl⁴/128EI', 'Members continuous over 3+ spans: M = wl²/10 · V = 5wl/8 · Δ = wl⁴/128EI', '三跨及以上连续构件:M = wl²/10 · V = 5wl/8 · Δ = wl⁴/128EI')}
       </text>
     </svg>
   )
 }
 
 export function BucklingFigure() {
+  const L = useL()
   const id = 'bk'
   return (
-    <svg {...svgProps(460, 300, 'เสาค้ำไม่มีค้ำยันกับมีค้ำยันกลางความสูง')}>
+    <svg {...svgProps(460, 300, L('เสาค้ำไม่มีค้ำยันกับมีค้ำยันกลางความสูง', 'Shore without and with bracing at mid-height', '无拉结与中部设水平拉结的立杆'))}>
       <Defs id={id} />
       {[110, 330].map((x) => (
         <g key={x}>
@@ -408,7 +415,7 @@ export function BucklingFigure() {
       <path d="M330 50 Q356 103 330 156 Q304 209 330 262" fill="none" stroke={C.steelLine} strokeWidth="6" strokeLinecap="round" />
       <line x1="330" y1="156" x2="440" y2="156" stroke={C.timLine} strokeWidth="5" />
       <text x="400" y="148" fontSize="11.5" textAnchor="middle" fill={C.muted}>
-        ค้ำยันทางข้าง
+        {L('ค้ำยันทางข้าง', 'Lateral brace', '水平拉结')}
       </text>
       <line x1="280" y1="50" x2="280" y2="156" stroke={C.ink} markerStart={`url(#${id}-dim)`} markerEnd={`url(#${id}-dim)`} />
       <line x1="280" y1="156" x2="280" y2="262" stroke={C.ink} markerStart={`url(#${id}-dim)`} markerEnd={`url(#${id}-dim)`} />
@@ -419,24 +426,25 @@ export function BucklingFigure() {
         l/2
       </text>
       <text x="110" y="290" fontSize="12.5" textAnchor="middle">
-        ไม่มีค้ำยัน: ยาวไม่ค้ำยัน = l
+        {L('ไม่มีค้ำยัน: ยาวไม่ค้ำยัน = l', 'Unbraced: unbraced length = l', '无拉结:计算长度 = l')}
       </text>
       <text x="340" y="290" fontSize="12.5" textAnchor="middle">
-        ค้ำกลางความสูง: รับแรงได้ ≈ 4 เท่า
+        {L('ค้ำกลางความสูง: รับแรงได้ ≈ 4 เท่า', 'Braced at mid-height: ≈ 4× capacity', '中部拉结:承载力 ≈ 4 倍')}
       </text>
     </svg>
   )
 }
 
 export function TieAreaFigure() {
+  const L = useL()
   const id = 'tie'
   const rows = [70, 140, 210]
   const cols = [60, 160, 260, 360]
   return (
-    <svg {...svgProps(540, 276, 'พื้นที่รับแรงของ Form tie หนึ่งตัว')}>
+    <svg {...svgProps(540, 276, L('พื้นที่รับแรงของ Form tie หนึ่งตัว', 'Tributary area of one form tie', '单根对拉螺栓的受荷面积'))}>
       <Defs id={id} />
       <text x="20" y="18" fontSize="13" fill={C.load} fontWeight="600">
-        T = P × (ระยะคานรับเคร่า × ระยะไทร์) ≤ SWL
+        {L('T = P × (ระยะคานรับเคร่า × ระยะไทร์) ≤ SWL', 'T = P × (wale spacing × tie spacing) ≤ SWL', 'T = P × (围檩间距 × 螺栓间距) ≤ SWL')}
       </text>
       <rect x="20" y="40" width="400" height="200" fill={C.ply} opacity="0.45" stroke={C.plyLine} />
       {rows.map((y) => (
@@ -447,20 +455,20 @@ export function TieAreaFigure() {
       <circle cx="160" cy="140" r="7" fill={C.load} />
       <line x1="110" y1="258" x2="210" y2="258" stroke={C.ink} markerStart={`url(#${id}-dim)`} markerEnd={`url(#${id}-dim)`} />
       <text x="160" y="254" fontSize="12" textAnchor="middle">
-        ระยะไทร์
+        {L('ระยะไทร์', 'Tie spacing', '螺栓间距')}
       </text>
       <line x1="440" y1="70" x2="440" y2="140" stroke={C.ink} markerStart={`url(#${id}-dim)`} markerEnd={`url(#${id}-dim)`} />
       <text x="448" y="100" fontSize="12">
-        ระยะคาน
+        {L('ระยะคาน', 'Wale', '围檩')}
       </text>
       <text x="448" y="116" fontSize="12">
-        รับเคร่า
+        {L('รับเคร่า', 'spacing', '间距')}
       </text>
       <text x="448" y="190" fontSize="11.5" fill={C.load}>
-        พื้นที่รับแรง
+        {L('พื้นที่รับแรง', 'Tributary area', '受荷面积')}
       </text>
       <text x="448" y="205" fontSize="11.5" fill={C.load}>
-        ของไทร์ 1 ตัว
+        {L('ของไทร์ 1 ตัว', 'of one tie', '(单根螺栓)')}
       </text>
       <line x1="210" y1="160" x2="444" y2="196" stroke={C.load} strokeWidth="0.8" strokeDasharray="3 3" />
     </svg>
@@ -469,13 +477,30 @@ export function TieAreaFigure() {
 
 /** Five load paths side by side (HTML so it wraps on phones). */
 export function LoadPathFigure() {
-  const rows: [string, string[]][] = [
-    ['กำแพง', ['แรงดันคอนกรีต', 'แผ่นผิว', 'เคร่าตั้ง', 'คานรับเคร่า', 'Form tie / ค้ำยัน']],
-    ['เสา', ['แรงดันคอนกรีต', 'แผ่นผิว', 'เคร่าตั้ง', 'คานรัดแบบ', 'สลักเกลียว / ไทร์']],
-    ['พื้น', ['น้ำหนักพื้น w', 'แผ่นพื้นแบบ', 'ตง', 'คานรองรับ', 'เสาค้ำ → พื้นล่าง']],
-    ['คาน', ['คอนกรีตคาน + พื้น', 'ท้องแบบ', 'คานขวาง', 'เสาค้ำ', 'พื้นล่าง']],
-    ['ฐานราก', ['แรงดันคอนกรีต', 'แผ่นผิว', 'เคร่า', 'ค้ำยัน / ไทร์', 'หลัก → ดิน']],
-  ]
+  const L = useL()
+  const rows: [string, string[]][] = L(
+    [
+      ['กำแพง', ['แรงดันคอนกรีต', 'แผ่นผิว', 'เคร่าตั้ง', 'คานรับเคร่า', 'Form tie / ค้ำยัน']],
+      ['เสา', ['แรงดันคอนกรีต', 'แผ่นผิว', 'เคร่าตั้ง', 'คานรัดแบบ', 'สลักเกลียว / ไทร์']],
+      ['พื้น', ['น้ำหนักพื้น w', 'แผ่นพื้นแบบ', 'ตง', 'คานรองรับ', 'เสาค้ำ → พื้นล่าง']],
+      ['คาน', ['คอนกรีตคาน + พื้น', 'ท้องแบบ', 'คานขวาง', 'เสาค้ำ', 'พื้นล่าง']],
+      ['ฐานราก', ['แรงดันคอนกรีต', 'แผ่นผิว', 'เคร่า', 'ค้ำยัน / ไทร์', 'หลัก → ดิน']],
+    ],
+    [
+      ['Wall', ['Concrete pressure', 'Sheathing', 'Vertical studs', 'Wales', 'Form ties / braces']],
+      ['Column', ['Concrete pressure', 'Sheathing', 'Vertical studs', 'Column yokes', 'Bolts / ties']],
+      ['Slab', ['Slab load w', 'Deck sheathing', 'Joists', 'Stringers', 'Shores → floor below']],
+      ['Beam', ['Beam + slab concrete', 'Soffit', 'Heads', 'Shores', 'Floor below']],
+      ['Footing', ['Concrete pressure', 'Sheathing', 'Studs', 'Braces / ties', 'Stakes → soil']],
+    ],
+    [
+      ['墙', ['混凝土侧压力', '面板', '竖楞', '围檩', '对拉螺栓 / 斜撑']],
+      ['柱', ['混凝土侧压力', '面板', '竖楞', '柱箍', '螺栓 / 对拉螺栓']],
+      ['楼板', ['楼板荷载 w', '底模面板', '次楞', '主楞', '立杆 → 下层楼板']],
+      ['梁', ['梁及楼板混凝土', '底模', '横担', '立杆', '下层楼板']],
+      ['基础', ['混凝土侧压力', '面板', '竖楞', '斜撑 / 对拉螺栓', '木桩 → 土体']],
+    ],
+  )
   return (
     <div className="flex flex-col gap-2">
       {rows.map(([name, steps]) => (

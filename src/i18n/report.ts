@@ -77,7 +77,7 @@ export const HTML_LANG: Record<ReportLang, string> = { th: 'th', en: 'en', zh: '
 /**
  * Translate everything rendered inside the element given the returned ref — text nodes (SVG text included)
  * and title/aria-label/alt — and keep it translated as React updates the tree. Remount the container (key it
- * by language) when switching back to Thai.
+ * by language) when switching back to Thai. Anything inside translate="no" is left as written.
  */
 export function useTranslatedDom(lang: ReportLang): (el: HTMLElement | null) => void {
   const [root, setRoot] = useState<HTMLElement | null>(null)
@@ -85,7 +85,7 @@ export function useTranslatedDom(lang: ReportLang): (el: HTMLElement | null) => 
     if (!root || lang === 'th') return
     const fixText = (n: Node) => {
       const v = n.nodeValue
-      if (v && THAI.test(v)) {
+      if (v && THAI.test(v) && !n.parentElement?.closest('[translate="no"]')) {
         let t = translate(v, lang)
         // Thai runs on without spaces: English words from adjacent text nodes need one between them
         const prev = n.previousSibling
@@ -94,6 +94,7 @@ export function useTranslatedDom(lang: ReportLang): (el: HTMLElement | null) => 
       }
     }
     const fixAttrs = (el: Element) => {
+      if (el.closest('[translate="no"]')) return
       for (const a of ['title', 'aria-label', 'alt']) {
         const v = el.getAttribute(a)
         if (v && THAI.test(v)) el.setAttribute(a, translate(v, lang))
