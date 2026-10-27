@@ -38,6 +38,8 @@ describe('element BOM from the model', () => {
     expect(shore.qty).toBe(run.design.quantities.shores)
     expect(shore.weightKg).toBeGreaterThan(0)
     expect(lines.find((l) => l.description.startsWith('แป้นรองฐาน'))!.qty).toBe(run.design.quantities.shores)
+    expect(lines.find((l) => l.description.startsWith('แจ็คเบส'))!.qty).toBe(run.design.quantities.shores)
+    expect(lines.find((l) => l.description.includes('ก้ามปู'))!.qty).toBe(run.design.quantities.shores)
   })
   it('every part except concrete is in exactly one line', () => {
     for (const t of ['wall', 'column', 'slab', 'beam', 'footing'] as const) {

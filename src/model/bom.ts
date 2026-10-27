@@ -50,6 +50,8 @@ interface Spec {
   w?: number
   /** nominal size in inches when there is no library section (knee braces) */
   nominal?: [number, number]
+  /** piece of an assembly counted on another part (jack stem, nut) */
+  sub?: boolean
 }
 
 const memberSpec = (sectionId: string, materialId: string, role?: string): Spec => {
@@ -77,7 +79,10 @@ function partSpec(el: ElementData, p: Part): Spec | undefined {
   if (g === 'shore') {
     const s = i.shore
     if (p.id.endsWith('-base')) return { category: 'accessory', description: `แป้นรองฐานเสาค้ำ ${s.baseCm}×${s.baseCm} ซม.`, unit: 'ตัว' }
-    if (p.id.endsWith('-head')) return { category: 'accessory', description: 'หัวรับ U-head', unit: 'ตัว' }
+    // stem, nut and side plates of a screw jack sit in the line of its plate without adding to the count
+    const sub = /-(head|jack)-[a-z]$/.test(p.id)
+    if (/-jack(-[a-z])?$/.test(p.id)) return { category: 'accessory', description: 'แจ็คเบส (Jack base) ปรับระดับ', unit: 'ตัว', sub }
+    if (/-head(-[a-z])?$/.test(p.id)) return { category: 'accessory', description: 'ยูเฮด / ก้ามปู (U-head) ปรับระดับ', unit: 'ตัว', sub }
     if (p.id.startsWith('knee')) return { category: 'timber', description: 'ไม้เท้าแขนตุ๊กตา 1"×2½"', unit: 'ท่อน', nominal: [1, 2.5] }
     if (p.id.startsWith('xbr')) return { category: 'timber', description: 'ไม้ค้ำทแยงเสาคู่ 1"×3"', unit: 'ท่อน', nominal: [1, 3] }
     if (s.kind === 'rated') return { category: 'shore', description: s.ratedName, unit: 'ต้น' }
@@ -157,8 +162,9 @@ export function modelBom(el: ElementData, model: FormModel): BomLine[] {
       if (spec.w) line.weightKg = 0
       lines.set(key, line)
     }
-    line.qty++
     line.partIds.push(p.id)
+    if (spec.sub) continue
+    line.qty++
     const nom = spec.nominal ?? (spec.section ? nominalInches(spec.section) : undefined)
     if (line.volumeFt3 !== undefined) {
       if (nom) line.volumeFt3 += (nom[0] * nom[1] * L * 3.2808) / 144

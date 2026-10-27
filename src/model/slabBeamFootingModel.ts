@@ -34,18 +34,66 @@ function deck(parts: Part[], sh: SlabInput['sheathing'], id: string, x0: number,
     }
 }
 
-/** One shore (post or rated prop) from the floor to `top`, with an optional base plate. */
-function shorePart(parts: Part[], s: ShoreParams, id: string, x: number, z: number, top: number) {
+/** Member a U-head cradles: its width across `axis` (the side plates stand on either side) and depth. */
+interface Cradle {
+  axis: 'x' | 'z'
+  width: number
+  depth: number
+}
+
+/** Width of `count` members of width `w` laid side by side (see `pairOffsets`). */
+const pairWidth = (count: number, w: number) => {
+  const o = pairOffsets(count, w)
+  return o[o.length - 1] - o[0] + w
+}
+
+const STEM = 0.034 // screw jack stem Ø, m
+const JACK = 0.2 // screw jack length (base and head), m
+const PLATE = 0.006 // jack / U-head plate thickness, m
+
+/**
+ * One shore (post or rated prop) from the floor to `top`, with an optional base plate. Steel shores (rated props
+ * and pipe posts) stand on a screw jack base and carry the member above in a U-head (ก้ามปู) with side plates.
+ */
+function shorePart(parts: Part[], s: ShoreParams, id: string, x: number, z: number, top: number, cradle?: Cradle) {
   const base = s.baseCm > 0 ? 0.02 : 0
   if (base) parts.push({ id: `${id}-base`, group: 'shore', kind: 'timber', shape: 'box', center: [x, base / 2, z], size: [cm(s.baseCm), base, cm(s.baseCm)] })
-  if (s.kind === 'rated') {
-    parts.push({ id, group: 'shore', kind: 'steel', shape: 'bar', from: [x, base, z], to: [x, top - 0.006, z], b: 0.0486, d: 0.0486, round: true })
-    parts.push({ id: `${id}-head`, group: 'shore', kind: 'steel', shape: 'box', center: [x, top - 0.003, z], size: [0.15, 0.006, 0.15] })
+  const sec = s.kind === 'rated' ? undefined : getSection(s.sectionId)
+  if (!sec || sec.shape === 'pipe') {
+    const dia = sec ? cm(sec.B) : 0.0486
+    const nut = (nid: string, y: number) => parts.push({ id: nid, group: 'shore', kind: 'steel', shape: 'box', center: [x, y, z], size: [dia + 0.04, 0.03, dia + 0.04] })
+    // jack base: plate, screw stem into the tube, adjusting nut under the tube
+    const y0 = base + PLATE
+    const y1 = y0 + JACK
+    parts.push({ id: `${id}-jack`, group: 'shore', kind: 'steel', shape: 'box', center: [x, base + PLATE / 2, z], size: [0.15, PLATE, 0.15] })
+    parts.push({ id: `${id}-jack-s`, group: 'shore', kind: 'steel', shape: 'bar', from: [x, y0, z], to: [x, y1, z], b: STEM, d: STEM, round: true })
+    nut(`${id}-jack-n`, y1 - 0.115)
+    // U-head: plate under the member, side plates either side of it, screw stem down into the tube
+    const w = cradle ? cradle.width + 0.008 : 0.12
+    const y2 = top - PLATE - JACK
+    const along: Vec3 = cradle?.axis === 'x' ? [w + 2 * PLATE, PLATE, 0.12] : [0.12, PLATE, w + 2 * PLATE]
+    parts.push({ id: `${id}-head`, group: 'shore', kind: 'steel', shape: 'box', center: [x, top - PLATE / 2, z], size: along })
+    if (cradle) {
+      const hArm = Math.min(cradle.depth * 0.8, 0.1)
+      for (const [k, sg] of [['a', -1], ['b', 1]] as const) {
+        const o = sg * (w / 2 + PLATE / 2)
+        parts.push({
+          id: `${id}-head-${k}`,
+          group: 'shore',
+          kind: 'steel',
+          shape: 'box',
+          center: cradle.axis === 'x' ? [x + o, top + hArm / 2, z] : [x, top + hArm / 2, z + o],
+          size: cradle.axis === 'x' ? [PLATE, hArm, 0.12] : [0.12, hArm, PLATE],
+        })
+      }
+    }
+    parts.push({ id: `${id}-head-s`, group: 'shore', kind: 'steel', shape: 'bar', from: [x, y2, z], to: [x, top - PLATE, z], b: STEM, d: STEM, round: true })
+    nut(`${id}-head-n`, y2 + 0.115)
+    parts.push({ id, group: 'shore', kind: 'steel', shape: 'bar', from: [x, y1 - 0.1, z], to: [x, Math.max(y2 + 0.1, y1), z], b: dia, d: dia, round: true })
     return
   }
-  const sec = getSection(s.sectionId)
-  const round = sec.shape === 'pipe' || sec.shape === 'round'
-  const kind = sec.shape === 'pipe' ? 'steel' : kindOf(s.materialId)
+  const round = sec.shape === 'round'
+  const kind = kindOf(s.materialId)
   if (round) parts.push({ id, group: 'shore', kind, shape: 'bar', from: [x, base, z], to: [x, top, z], b: cm(sec.B), d: cm(sec.B), round: true })
   else parts.push({ id, group: 'shore', kind, shape: 'box', center: [x, (base + top) / 2, z], size: [cm(sec.B), top - base, cm(sec.H)] })
 }
@@ -79,7 +127,8 @@ export function slabModel(inp: SlabInput, d: SlabDesign): FormModel {
       parts.push({ id: `stringer-${i}-${k}`, group: 'stringer', kind: kindOf(inp.stringer.materialId), shape: 'box', center: [Lx / 2, Y - tSh - jh - sh / 2, z + o], size: [Lx, sh, sb] }),
     ),
   )
-  stringerY.forEach((z, i) => shoreX.forEach((x, j) => shorePart(parts, inp.shore, `shore-${i}-${j}`, x, z, shoreTop)))
+  const stringerCradle: Cradle = { axis: 'z', width: pairWidth(inp.stringer.count, sb), depth: sh }
+  stringerY.forEach((z, i) => shoreX.forEach((x, j) => shorePart(parts, inp.shore, `shore-${i}-${j}`, x, z, shoreTop, stringerCradle)))
 
   // lateral bracing: an X in the end bays of every row, both directions
   if (inp.bracing.enabled && shoreX.length > 1 && stringerY.length > 0) {
@@ -199,7 +248,7 @@ export function beamModel(inp: BeamInput, d: BeamDesign): FormModel {
       parts.push({ id: `head-${i}-${k}`, group: 'head', kind: kindOf(inp.head.materialId), shape: 'box', center: [x + o, yHeadTop - hd / 2, 0], size: [hb, hd, headLen] }),
     )
     const posts = double ? [-inp.shore.postSpacingM / 2, inp.shore.postSpacingM / 2] : [0]
-    posts.forEach((z, k) => shorePart(parts, inp.shore, `shore-${i}-${k}`, x, z, yHeadBot))
+    posts.forEach((z, k) => shorePart(parts, inp.shore, `shore-${i}-${k}`, x, z, yHeadBot, { axis: 'x', width: pairWidth(inp.head.count, hb), depth: hd }))
     if (!double && inp.shore.kind === 'post') {
       // knee braces of the T-head (ตุ๊กตา)
       const kb = 0.03

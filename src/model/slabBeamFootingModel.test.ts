@@ -9,13 +9,17 @@ describe('slab model', () => {
   const m = slabModel(DEFAULT_SLAB, d)
   it('one joist per joist line, one shore per grid point', () => {
     expect(count(m.parts, 'joist')).toBe(d.layout.joistX.length)
-    expect(m.parts.filter((p) => p.group === 'shore' && !p.id.endsWith('-base')).length).toBe(d.quantities.shores)
+    expect(m.parts.filter((p) => /^shore-\d+-\d+$/.test(p.id)).length).toBe(d.quantities.shores)
+    expect(m.parts.filter((p) => p.id.endsWith('-jack')).length).toBe(d.quantities.shores)
   })
   it('stacks shores → stringers → joists → deck under the slab soffit', () => {
     expect(m.bounds.max[1]).toBeCloseTo(DEFAULT_SLAB.clearHeight + DEFAULT_SLAB.thickness, 6)
     expect(m.bounds.min[1]).toBeGreaterThan(-0.1) // bars are padded by their width
-    const shore = m.parts.find((p) => p.id === 'shore-0-0')!
-    expect(shore.shape === 'bar' ? shore.to[1] : 0).toBeCloseTo(d.layout.shoreTop, 6)
+    // steel pipe shore: jack base on the floor, U-head (ก้ามปู) plate under the stringers
+    const head = m.parts.find((p) => p.id === 'shore-0-0-head')!
+    expect(head.shape === 'box' ? head.center[1] + head.size[1] / 2 : 0).toBeCloseTo(d.layout.shoreTop, 6)
+    const arm = m.parts.find((p) => p.id === 'shore-0-0-head-a')!
+    expect(arm.shape === 'box' ? arm.center[1] : 0).toBeGreaterThan(d.layout.shoreTop) // side plates hug the stringers
   })
   it('handles edit spacings and size', () => {
     expect(applySlabHandle(DEFAULT_SLAB, 'shoreSpacing', 1.12).shore.spacingCm).toBe(110)
