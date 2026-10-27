@@ -7,7 +7,7 @@ import { fmtVal } from '@/components/design/ResultsPanel'
 import type { AnyDesign } from '@/data/elements'
 import { elementHeight, elementSize, QUANTITY_LABEL, TYPE_LABEL } from '@/data/elements'
 import type { Criteria, ElementData, Project } from '@/data/types'
-import { beamBracing, beamCrossJoist, beamHasRunners, type ComponentResult, FOOTING_BRACE_AT_LABEL, FOOTING_SUPPORT_LABEL, FOOTING_TIE_LAYOUT_LABEL, getMaterial, getSection, getTie, type ShoreParams, type Status, type Trace } from '@/engine'
+import { beamBracing, beamCrossJoist, beamHasRunners, beamRunnerFlat, type ComponentResult, FOOTING_BRACE_AT_LABEL, FOOTING_SUPPORT_LABEL, FOOTING_TIE_LAYOUT_LABEL, getMaterial, getSection, getTie, type ShoreParams, type Status, type Trace } from '@/engine'
 import { Drawing } from './Drawing'
 import { elementViews } from './views'
 
@@ -142,7 +142,7 @@ function members(el: ElementData): MemberRow[] {
         { role: 'แผ่นผิวแบบ', materialId: i.sheathing.materialId, note: deckNote(i.sheathing) },
         { role: 'เคร่าข้าง', sectionId: i.stud.sectionId, materialId: i.stud.materialId },
         ...(i.bottomDir === 'across' ? [{ role: 'ตงขวางใต้ท้องแบบ', sectionId: beamCrossJoist(i).sectionId, materialId: beamCrossJoist(i).materialId }] : []),
-        ...(beamHasRunners(i) ? [{ role: i.bottomDir === 'across' ? 'คร่าวตามยาวรับตงขวาง' : 'ไม้เสริมท้องแบบ', sectionId: i.bottom.sectionId, materialId: i.bottom.materialId, note: `${i.bottom.auto ? 'จำนวนอัตโนมัติ' : `${i.bottom.count} ตัว`} ${i.bottom.flat ? 'วางนอน' : 'วางตั้ง'}` }] : []),
+        ...(beamHasRunners(i) ? [{ role: i.bottomDir === 'across' ? 'คร่าวตามยาวรับตงขวาง' : 'ไม้เสริมท้องแบบ', sectionId: i.bottom.sectionId, materialId: i.bottom.materialId, note: `${i.bottom.auto ? 'จำนวนอัตโนมัติ' : `${i.bottom.count} ตัว`}${getMaterial(i.bottom.materialId).kind === 'timber' ? (beamRunnerFlat(i) ? ' วางนอน' : ' วางตั้ง') : ''}` }] : []),
         { role: 'คานขวาง', sectionId: i.head.sectionId, materialId: i.head.materialId, note: i.head.count === 2 ? 'คู่' : 'เดี่ยว' },
         ...shoreRow(i.shore),
         ...(beamBracing(i).enabled ? [{ role: 'ค้ำยันทางข้าง', sectionId: beamBracing(i).sectionId, materialId: beamBracing(i).materialId }] : []),

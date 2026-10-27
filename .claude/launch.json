@@ -33,6 +33,21 @@
         "localtest"
       ],
       "port": 5180
+    },
+    {
+      "name": "formwork-local-alt",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5181",
+        "--strictPort",
+        "--mode",
+        "localtest"
+      ],
+      "port": 5181
     }
   ]
 }

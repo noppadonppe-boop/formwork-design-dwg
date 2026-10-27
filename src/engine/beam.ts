@@ -122,6 +122,9 @@ export const beamCrossJoist = (inp: BeamInput) => inp.crossJoist ?? DEFAULT_BEAM
 /** Whether there are runners along the beam under the bottom (always with cross joists or an automatic count). */
 export const beamHasRunners = (inp: BeamInput) => inp.bottomDir === 'across' || !!inp.bottom.auto || inp.bottom.count > 0
 
+/** Runners laid flat — timber only; steel tubes and channels are used as rolled. */
+export const beamRunnerFlat = (inp: BeamInput) => inp.bottom.flat && getMaterial(inp.bottom.materialId).kind === 'timber'
+
 /** One runner along the beam, flat or on edge. */
 export function beamRunnerSection(inp: BeamInput): Section {
   const s = getSection(inp.bottom.sectionId)

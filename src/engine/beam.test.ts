@@ -181,6 +181,14 @@ describe('beam bottom: runners along the beam or cross joists, automatic runner 
     expect(d.layout.bottomZ.length).toBeGreaterThanOrEqual(2)
     expect(d.warnings.some((w) => w.startsWith('คานกว้างเกิน 80 ซม.'))).toBe(false)
   })
+  it('steel runners: checked as steel, never laid flat, stiffer than timber so the heads can spread', () => {
+    const steel = designBeam({ ...base, bottom: { ...base.bottom, sectionId: 'box-50×50×2.3', materialId: 'steel-a36', flat: true } })
+    const timber = designBeam(base)
+    expect(comp(steel, 'bottom').spec).toContain('□ 50×50×2.3')
+    expect(comp(steel, 'bottom').spec).not.toContain('วางนอน')
+    expect(comp(steel, 'bottom').spacing!.max).toBeGreaterThan(comp(timber, 'bottom').spacing!.max)
+    expect(steel.layout.bottomZ).toHaveLength(2)
+  })
   it('wide beams: advice for double posts and cross joists', () => {
     const d = designBeam({ ...auto, b: 1.0, h: 0.8 })
     expect(d.warnings.some((w) => w.startsWith('คานกว้างเกิน 60 ซม. บนเสาตัวที'))).toBe(true)

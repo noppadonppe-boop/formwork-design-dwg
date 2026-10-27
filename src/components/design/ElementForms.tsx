@@ -19,6 +19,7 @@ import {
   FOOTING_TIE_LAYOUT_LABEL,
   FOOTING_WALE_CORNER_LABEL,
   FOOTING_WALE_SHIFT_LABEL,
+  getMaterial,
   type FootingWaleCorner,
   type FootingWaleShift,
   type FootingTieLayout,
@@ -530,9 +531,11 @@ function BeamFields({ inp, set }: { inp: BeamInput; set: (fn: (i: BeamInput) => 
               onChange={(v) => v !== undefined && set((i) => ({ ...i, bottom: { ...i.bottom, count: Math.round(v) } }))}
             />
           )}
-          <Segmented label="การวาง" value={inp.bottom.flat ? 'flat' : 'edge'} options={[{ value: 'flat', label: 'วางนอน' }, { value: 'edge', label: 'วางตั้ง' }]} onChange={(v) => set((i) => ({ ...i, bottom: { ...i.bottom, flat: v === 'flat' } }))} />
+          {getMaterial(inp.bottom.materialId).kind === 'timber' && (
+            <Segmented label="การวาง" value={inp.bottom.flat ? 'flat' : 'edge'} options={[{ value: 'flat', label: 'วางนอน' }, { value: 'edge', label: 'วางตั้ง' }]} onChange={(v) => set((i) => ({ ...i, bottom: { ...i.bottom, flat: v === 'flat' } }))} />
+          )}
         </div>
-        {beamHasRunners(inp) && <MemberPicker label={inp.bottomDir === 'across' ? 'คร่าวตามยาว' : 'ไม้เสริมท้อง (คร่าวตามยาว)'} sectionId={inp.bottom.sectionId} materialId={inp.bottom.materialId} kinds={['timber']} onChange={(v) => set((i) => ({ ...i, bottom: { ...i.bottom, ...v } }))} />}
+        {beamHasRunners(inp) && <MemberPicker label={inp.bottomDir === 'across' ? 'คร่าวตามยาว' : 'ไม้เสริมท้อง (คร่าวตามยาว)'} sectionId={inp.bottom.sectionId} materialId={inp.bottom.materialId} onChange={(v) => set((i) => ({ ...i, bottom: { ...i.bottom, ...v } }))} />}
       </Group>
       <Group title="คานขวางรับท้องแบบ (Head)" part="head">
         <MemberPicker label="คานขวาง" sectionId={inp.head.sectionId} materialId={inp.head.materialId} onChange={(v) => set((i) => ({ ...i, head: { ...i.head, ...v } }))} />
