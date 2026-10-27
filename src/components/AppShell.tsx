@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { FolderOpen, LogOut, Ruler, UserCog, UserPen, Users } from 'lucide-react'
+import { BookOpen, FolderOpen, LogOut, Ruler, UserCog, UserPen, Users } from 'lucide-react'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import { useAuth } from '@/auth/AuthProvider'
@@ -96,6 +96,10 @@ export function AppShell({ children }: { children: ReactNode }) {
           )}
         </nav>
         <SidebarProjectNav linkClass={navClass} />
+        <NavLink to="/manual" className={(s) => clsx(navClass(s), 'lg:mt-1')}>
+          <BookOpen size={18} aria-hidden />
+          คู่มือการใช้งาน
+        </NavLink>
         <div className="mt-auto hidden flex-col gap-2 lg:flex">
           {isMaster && (
             <NavLink to="/admin" className={navClass} title={pending ? `มีผู้ขอเข้าใช้งานรออนุมัติ ${pending} คน` : undefined}>

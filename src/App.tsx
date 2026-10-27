@@ -17,6 +17,7 @@ const ReportPage = lazy(() => import('./pages/ReportPage').then((m) => ({ defaul
 const ShopPage = lazy(() => import('./pages/ShopPage').then((m) => ({ default: m.ShopPage })))
 const ImportPage = lazy(() => import('./pages/ImportPage').then((m) => ({ default: m.ImportPage })))
 const BomPage = lazy(() => import('./pages/BomPage').then((m) => ({ default: m.BomPage })))
+const ManualPage = lazy(() => import('./pages/ManualPage').then((m) => ({ default: m.ManualPage })))
 const UserAdminPage = lazy(() => import('./pages/UserAdminPage').then((m) => ({ default: m.UserAdminPage })))
 
 /** Approved users only; `perm` / `roles` narrow it further. Routes with :projectId also need the project assigned. */
@@ -45,6 +46,7 @@ export function App() {
           <Route path="/" element={<Protected><ProjectsPage /></Protected>} />
           <Route path="/dashboard" element={<Navigate to="/" replace />} />
           <Route path="/admin" element={<Protected roles={['MasterAdmin']}><UserAdminPage /></Protected>} />
+          <Route path="/manual" element={<Protected><ManualPage /></Protected>} />
           <Route path="/library" element={<Protected perm="library"><LibraryPage /></Protected>} />
           <Route path="/projects/new" element={<Protected perm="project.create"><ProjectEditPage /></Protected>} />
           <Route path="/projects/:projectId" element={<Protected><ProjectPage /></Protected>} />
