@@ -45,6 +45,16 @@ export const RATED_SHORES = [
   { name: 'นั่งร้านแบบ Ring-lock (ต่อขา)', swl: 2500 },
 ] as const
 
+/**
+ * Typical allowable bearing of the ground under the shores, kg/m² — a rough guide for a first check only (EIT /
+ * common practice, factor of safety included); use the site's soil report or the engineer's value when there is one.
+ */
+export const GROUND_BEARING = [
+  { name: 'ดินเหนียวอ่อน (เช่น กรุงเทพฯ)', bearing: 3000 },
+  { name: 'ดินเหนียวแข็งปานกลาง / ดินถมบดอัด', bearing: 10000 },
+  { name: 'ทรายแน่น / ลูกรัง / หินคลุกบดอัด', bearing: 20000 },
+] as const
+
 export function shoreLabel(s: ShoreParams): string {
   return s.kind === 'rated' ? `${s.ratedName} SWL ${fmt(s.swl)} กก./ขา` : getSection(s.sectionId).label
 }

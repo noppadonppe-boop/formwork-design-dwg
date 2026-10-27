@@ -23,6 +23,7 @@ import {
   FOOTING_TIE_LAYOUT_LABEL,
   FOOTING_WALE_CORNER_LABEL,
   FOOTING_WALE_SHIFT_LABEL,
+  GROUND_BEARING,
   getMaterial,
   type FootingWaleCorner,
   type FootingWaleShift,
@@ -407,9 +408,30 @@ function ShoreFields<S extends ShoreParams>({ s, onChange, children }: { s: S; o
       )}
       <div className="grid grid-cols-3 gap-2">
         <NumField label="ความยาวเสา" unit="ม." optional placeholder="อัตโนมัติ" value={s.lengthM} min={0.3} max={15} onChange={(v) => onChange({ ...s, lengthM: v })} />
-        <NumField label="แป้นรองฐาน" unit="ซม." value={s.baseCm} min={0} max={100} onChange={(v) => v !== undefined && onChange({ ...s, baseCm: v })} />
-        <NumField label="รับแรงแบกทาน" unit="กก./ม.²" hint="0 = ไม่ตรวจ" value={s.bearing} min={0} onChange={(v) => v !== undefined && onChange({ ...s, bearing: v })} />
+        <NumField label="แป้นรองฐาน" unit="ซม." hint="ด้านของแผ่นรองใต้เสา" value={s.baseCm} min={0} max={100} onChange={(v) => v !== undefined && onChange({ ...s, baseCm: v })} />
+        <NumField label="รับแรงแบกทาน" unit="กก./ม.²" hint="ของพื้นใต้เสา · 0 = ไม่ตรวจ" value={s.bearing} min={0} onChange={(v) => v !== undefined && onChange({ ...s, bearing: v })} />
       </div>
+      <Field label="พื้นใต้เสาค้ำ (ค่าแนะนำแรงแบกทาน)">
+        <Select
+          value={GROUND_BEARING.find((g) => g.bearing === s.bearing)?.name ?? (s.bearing === 0 ? 'none' : '')}
+          onChange={(e) => {
+            const g = GROUND_BEARING.find((x) => x.name === e.target.value)
+            if (g) onChange({ ...s, bearing: g.bearing })
+            else if (e.target.value === 'none') onChange({ ...s, bearing: 0 })
+          }}
+        >
+          <option value="">กำหนดเอง ({s.bearing.toLocaleString()} กก./ม.²)</option>
+          {GROUND_BEARING.map((g) => (
+            <option key={g.name} value={g.name}>
+              {g.name} — {g.bearing.toLocaleString()} กก./ม.²
+            </option>
+          ))}
+          <option value="none">พื้นคอนกรีต / โครงสร้าง — ไม่ตรวจ (ให้วิศวกรตรวจพื้นรับน้ำหนัก)</option>
+        </Select>
+      </Field>
+      <p className="text-xs leading-relaxed text-muted">
+        ตรวจว่าพื้นใต้เสารับแรงกดได้: น้ำหนักต่อต้น ÷ (ด้านแป้นรองฐาน)² ≤ แรงแบกทาน — ตรวจเมื่อกรอกทั้งสองช่องมากกว่า 0. แป้นรองฐานคือด้านของแผ่นรองสี่เหลี่ยมใต้เสา (แจ็คเบสทั่วไป 15 ซม.; วางบนไม้หมอน/แผ่นไม้รองให้กรอกด้านที่กระจายแรงได้จริงต่อเสา เช่น 30). แรงแบกทานใช้ค่าจากผลเจาะสำรวจดินหรือวิศวกร — ค่าแนะนำข้างบนเป็นค่าประมาณสำหรับตรวจเบื้องต้น ถ้าไม่ผ่าน ให้ขยายแป้นรองฐาน/ใช้ไม้หมอน หรือเทคอนกรีตหยาบรองใต้เสา
+      </p>
       {children}
     </Group>
   )
