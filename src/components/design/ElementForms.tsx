@@ -147,6 +147,7 @@ function WallFields({ inp, set }: { inp: WallInput; set: (fn: (i: WallInput) => 
         <div className="grid grid-cols-2 gap-2">
           <NumField label="ระยะ c/c" unit="ซม." optional placeholder="อัตโนมัติ" value={inp.wale.spacingCm} min={20} max={300} onChange={(v) => set((i) => ({ ...i, wale: { ...i.wale, spacingCm: v } }))} />
           <NumField label="ตัวแรกจากฐาน" unit="ม." value={inp.bottomWaleOffsetM} min={0.05} max={1} onChange={(v) => v && set((i) => ({ ...i, bottomWaleOffsetM: v }))} />
+          <NumField label="ตัวบนจากขอบบน" unit="ม." optional placeholder="อัตโนมัติ" hint="เว้นว่าง = ช่วงยื่นยาวสุดที่ผ่าน" value={inp.topWaleOffsetM} min={0.05} max={1} onChange={(v) => set((i) => ({ ...i, topWaleOffsetM: v }))} />
         </div>
       </Group>
       <Group title="Form tie" part="tie">

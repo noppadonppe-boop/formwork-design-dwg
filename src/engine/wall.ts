@@ -16,8 +16,8 @@ import {
   TIE_MODULES,
 } from './design'
 import { getMaterial, getTie } from './materials'
-import { checkBeam, type DeflectionCriteria, maxSpan } from './member'
-import { lateralPressure } from './pressure'
+import { type CheckRow, checkBeam, type DeflectionCriteria, maxSpan, type MemberInput, shearCapacity } from './member'
+import { lateralPressure, pressureAt, type PressureResult } from './pressure'
 import { getSection, multiple, plywoodStrip } from './sections'
 import { Trace } from './trace'
 import { floorTo, fmt, pressureToLineLoad } from './units'
@@ -45,6 +45,8 @@ export interface WallInput {
   brace: BraceParams
   /** height of the lowest wale above the base, m */
   bottomWaleOffsetM: number
+  /** distance from the top of the form down to the top wale, m (auto: the longest stud cantilever that passes) */
+  topWaleOffsetM?: number
   deflection?: DeflectionCriteria
   /** check shear on timber studs/wales (eq 5.13, l − 2d). Book's direct examples skip it; its tables include it. Default true. */
   checkTimberShear?: boolean
@@ -85,6 +87,52 @@ export const DEFAULT_WALL: WallInput = {
   tie: { tieId: 'tie-3/8' },
   brace: { ...DEFAULT_BRACE },
   bottomWaleOffsetM: 0.1,
+}
+
+/**
+ * Stud cantilever of c cm above the top wale. Pressure grows from the free surface at the form top
+ * (γz ≤ Pmax), so the load is integrated in slices: V = ΣF, M = ΣF·x, tip Δ = ΣF·x²(3c − x)/6EI.
+ */
+function studCantilever(stud: MemberInput, pres: PressureResult, a: number, c: number, defl?: DeflectionCriteria) {
+  const n = 100
+  const dz = c / n
+  const EI = stud.material.E * stud.section.Ix
+  let V = 0
+  let M = 0
+  let delta = 0
+  for (let i = 0; i < n; i++) {
+    const z = (i + 0.5) * dz // depth below the top, cm
+    const F = pressureToLineLoad(pressureAt(pres, z / 100), a / 100) * dz
+    const x = c - z // lever arm to the top wale, cm
+    V += F
+    M += F * x
+    delta += (F * x * x * (3 * c - x)) / (6 * EI)
+  }
+  const { section: s, material: m } = stud
+  const rows: CheckRow[] = [{ item: 'หน่วยแรงดัด fb', demand: M / s.Sx, capacity: m.Fb, ratio: M / s.Sx / m.Fb, unit: 'กก./ซม.²', ref: 'สมการ 5.2' }]
+  const Vcap = stud.checkShear ? shearCapacity(s, m) : undefined
+  if (Vcap !== undefined) {
+    const fv = s.Aweb !== undefined ? V / s.Aweb : (3 * V) / (2 * s.B * s.H)
+    rows.push({ item: 'หน่วยแรงเฉือน fv', demand: fv, capacity: m.Fv!, ratio: V / Vcap, unit: 'กก./ซม.²', ref: 'สมการ 5.11' })
+  }
+  let deltaAllow = c / (defl?.ratio ?? 360)
+  if (defl?.absCm !== undefined) deltaAllow = Math.min(deltaAllow, defl.absCm)
+  rows.push({ item: 'การแอ่นตัว Δ', demand: delta, capacity: deltaAllow, ratio: delta / deltaAllow, unit: 'ซม.' })
+  return { V, M, delta, deltaAllow, rows, maxRatio: Math.max(...rows.map((r) => r.ratio)) }
+}
+
+const CANTILEVER_GOV: Record<string, string> = { 'หน่วยแรงดัด fb': 'bending', 'หน่วยแรงเฉือน fv': 'shear', 'การแอ่นตัว Δ': 'deflection' }
+
+/** Longest stud cantilever (cm) that passes; the ratio grows with c, so bisect. */
+function maxStudCantilever(stud: MemberInput, pres: PressureResult, a: number, defl?: DeflectionCriteria): number {
+  let lo = 0
+  let hi = 500
+  for (let i = 0; i < 40; i++) {
+    const mid = (lo + hi) / 2
+    if (studCantilever(stud, pres, a, mid, defl).maxRatio <= 1) lo = mid
+    else hi = mid
+  }
+  return lo
 }
 
 function positions(length: number, spacing: number): number[] {
@@ -141,6 +189,39 @@ export function designWall(inp: WallInput): WallDesign {
       max: stLim.max + add,
       governing: governingLabel(stLim.governing),
       fixed: inp.wale.spacingCm !== undefined,
+    }),
+  )
+
+  // 2b) stud cantilever above the top wale → top wale level
+  const tTop = new Trace()
+  const cMax = maxStudCantilever(stud, pres, a, defl)
+  tTop.add({ label: 'แรงดันเพิ่มจากผิวคอนกรีต (γz ≤ Pmax)', expr: `น้ำหนักแผ่บนเคร่า = γz × ${(a / 100).toFixed(2)} / 100`, unit: 'กก./ซม.' })
+  tTop.add({ label: 'ช่วงยื่นสูงสุดที่ผ่าน (แรงดัด แรงเฉือน การแอ่นตัว)', value: cMax, unit: 'ซม.' })
+  const topOff = inp.topWaleOffsetM ?? Math.max(floorTo(cMax, 5), 5) / 100
+  const topZ = Math.max(inp.height - topOff, inp.bottomWaleOffsetM)
+  let waleLevels: number[] = []
+  for (let z = inp.bottomWaleOffsetM; z < inp.height - 0.05; z += waleCC / 100) waleLevels.push(Math.round(z * 1000) / 1000)
+  if (inp.height - waleLevels[waleLevels.length - 1] > topOff + 1e-6) {
+    // top too long: spread the wales evenly from the bottom wale to the top wale (spacing ≤ waleCC)
+    const spans = Math.max(Math.ceil((topZ - inp.bottomWaleOffsetM) / (waleCC / 100) - 1e-9), 1)
+    const s = (topZ - inp.bottomWaleOffsetM) / spans
+    waleLevels = Array.from({ length: spans + 1 }, (_, i) => Math.round((inp.bottomWaleOffsetM + i * s) * 1000) / 1000)
+    tTop.add({ label: 'จัดระยะคานรับเคร่าใหม่ให้เท่ากัน', expr: `(${topZ.toFixed(2)} − ${inp.bottomWaleOffsetM.toFixed(2)}) / ${spans}`, value: s * 100, unit: 'ซม.' })
+  }
+  const cUsed = (inp.height - waleLevels[waleLevels.length - 1]) * 100
+  tTop.add({ label: 'ช่วงยื่นที่ใช้', expr: `${inp.height.toFixed(2)} − ${waleLevels[waleLevels.length - 1].toFixed(2)}`, value: cUsed, unit: 'ซม.' })
+  const top = studCantilever(stud, pres, a, cUsed, defl)
+  tTop.add({ label: 'โมเมนต์ที่คานบนสุด M = ΣF·x', value: top.M, unit: 'กก.-ซม.' })
+  tTop.add({ label: 'fb = M/S', expr: `${fmt(top.M)} / ${stud.section.Sx.toFixed(2)} ≤ ${stud.material.Fb}`, value: top.M / stud.section.Sx, unit: 'กก./ซม.²', status: top.rows[0].ratio <= 1 ? 'ok' : 'fail' })
+  if (top.rows.length === 3) tTop.add({ label: 'แรงเฉือนที่คานบนสุด V = ΣF', value: top.V, unit: 'กก.' })
+  tTop.add({ label: 'การแอ่นตัวปลายเคร่า Δ = ΣF·x²(3c − x)/6EI', expr: `≤ ${top.deltaAllow.toFixed(3)} ซม.`, value: top.delta, unit: 'ซม.', status: top.delta <= top.deltaAllow ? 'ok' : 'fail' })
+  components.push(
+    component('stud-top', 'เคร่าตั้ง — ช่วงยื่นด้านบน', `${stud.section.label} @${a} ซม. ยื่นเหนือคานบนสุด ${fmt(cUsed)} ซม.`, top.rows, tTop, {
+      label: 'ช่วงยื่นเหนือคานบนสุด',
+      value: Math.round(cUsed),
+      max: cMax,
+      governing: governingLabel(CANTILEVER_GOV[studCantilever(stud, pres, a, cMax, defl).rows.reduce((x, y) => (y.ratio > x.ratio ? y : x)).item]),
+      fixed: inp.topWaleOffsetM !== undefined,
     }),
   )
 
@@ -203,8 +284,6 @@ export function designWall(inp: WallInput): WallDesign {
   )
 
   // layout & quantities
-  const waleLevels: number[] = []
-  for (let z = inp.bottomWaleOffsetM; z < inp.height - 0.05; z += waleCC / 100) waleLevels.push(Math.round(z * 1000) / 1000)
   const studX = positions(inp.length, a / 100)
   const tieX = positions(inp.length, tieSp / 100).filter((x) => x > 0 && x < inp.length)
   const sheet = 1.22 * 2.44

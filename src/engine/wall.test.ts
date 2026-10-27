@@ -158,3 +158,41 @@ describe('Example 8.3 — wall 40 cm × 5.00 m', () => {
     expect(brace.status).toBe('ok')
   })
 })
+
+describe('stud cantilever above the top wale', () => {
+  const top = (inp: WallInput) => designWall(inp).components.find((c) => c.key === 'stud-top')!
+
+  it('Ex 8.1 stepped wales (0.10, 0.90, 1.70) leave 80 cm on top: fb 87 > 80, Δ 0.32 > l/360', () => {
+    const c = top({ ...ex81, topWaleOffsetM: 0.8 })
+    expect(c.spacing!.value).toBe(80)
+    expect(c.rows[0].demand).toBeCloseTo(87.4, 0)
+    expect(c.status).toBe('fail')
+  })
+
+  it('triangular load γz (within hCrit) matches closed form: M = kc³/6, Δ = kc⁵/30EI', () => {
+    const d = designWall({ ...ex81, topWaleOffsetM: 0.5 })
+    const c = d.components.find((x) => x.key === 'stud-top')!
+    const s = timber(1.5, 3)
+    const k = (2400 * 15) / 1e6 // kg/cm per cm of depth
+    expect(c.spacing!.value).toBe(50)
+    expect(c.rows[0].demand).toBeCloseTo((k * 50 ** 3) / 6 / s.Sx, 1)
+    expect(c.rows.at(-1)!.demand).toBeCloseTo((k * 50 ** 5) / (30 * soft.E * s.Ix), 4)
+  })
+
+  it('auto: top wale at the longest passing cantilever, wales re-spaced evenly ≤ c/c', () => {
+    const d = designWall(ex81)
+    const c = top(ex81)
+    expect(c.spacing!.max).toBeCloseTo(73.2, 0) // deflection-governed
+    expect(d.layout.waleLevels).toEqual([0.1, 0.667, 1.233, 1.8])
+    expect(c.spacing!.value).toBe(70)
+    expect(c.status).not.toBe('fail')
+    const gaps = d.layout.waleLevels.slice(1).map((z, i) => z - d.layout.waleLevels[i])
+    expect(Math.max(...gaps)).toBeLessThanOrEqual(d.layout.waleSpacing / 100 + 1e-9)
+  })
+
+  it('keeps the stepped wales when the top already passes (Ex 8.3: 0.30 … 4.80, 20 cm on top)', () => {
+    const d = designWall(ex83)
+    expect(d.layout.waleLevels).toEqual([0.3, 1.2, 2.1, 3, 3.9, 4.8])
+    expect(top(ex83).status).toBe('ok')
+  })
+})
