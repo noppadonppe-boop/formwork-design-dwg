@@ -27,7 +27,7 @@ export function elementGroups(el: ElementData): PartGroup[] {
     }
     case 'footing': {
       const s = el.input.support
-      return ['concrete', 'sheathing', 'stud', ...(s === 'braced' ? (['brace', 'stake'] as const) : s === 'tied' ? (['wale', 'tie'] as const) : (['stake'] as const))]
+      return ['concrete', 'sheathing', 'stud', ...(s === 'braced' ? (el.input.brace.at === 'wale' ? (['wale', 'brace', 'stake'] as const) : (['brace', 'stake'] as const)) : s === 'tied' ? (['wale', 'tie'] as const) : (['stake'] as const))]
     }
   }
 }

@@ -40,6 +40,25 @@ export interface DesignResult {
   maxRatio: number
   status: Status
   warnings: string[]
+  /** alternative arrangements checked side by side, with a recommendation (footings) */
+  advice?: DesignAdvice
+}
+
+export interface AdviceOption {
+  key: string
+  label: string
+  ratio: number
+  status: Status
+  /** quantities / reason shown next to the option */
+  note: string
+  current: boolean
+  recommended: boolean
+}
+
+export interface DesignAdvice {
+  title: string
+  summary: string[]
+  options: AdviceOption[]
 }
 
 export interface PressureParams {

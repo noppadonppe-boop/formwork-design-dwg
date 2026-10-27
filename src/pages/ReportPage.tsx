@@ -25,7 +25,7 @@ export function ReportPage() {
     const els = (elements ?? []).filter((e) => !elementId || e.id === elementId).sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }))
     return els.map((el) => {
       try {
-        return { el, run: runDesign(el, criteria) }
+        return { el, run: runDesign(el, criteria, { advise: true }) }
       } catch (e) {
         return { el, error: (e as Error).message }
       }

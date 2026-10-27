@@ -298,44 +298,57 @@ export function footingModel(inp: FootingInput, d: FootingDesign): FormModel {
   const br = getSection(inp.brace.sectionId)
   const stake = getSection(inp.stake.sectionId)
   const levels = d.layout.braceLevels
+  const viaWale = inp.support === 'braced' && inp.brace.at === 'wale'
+  const w = getSection(inp.wale.sectionId)
+  const wb = cm(w.B)
+  const wd = cm(w.H)
+  const waleLevels = inp.support === 'tied' || viaWale ? d.layout.waleLevels : []
   faces.forEach((f, fi) => {
     parts.push({ id: `ply-${fi}`, group: 'sheathing', kind: shKind, shape: 'box', ...box(f, 0, f.off + tSh / 2, H / 2, 2 * f.half, H, tSh) })
     const us = spread(2 * f.half - sb, a).map((u) => u - f.half + sb / 2)
     const rStud = f.off + tSh + sd / 2
+    const r0 = f.off + tSh + sd
     us.forEach((u, i) => {
       parts.push({ id: `stud-${fi}-${i}`, group: 'stud', kind: sKind, shape: 'box', ...box(f, u, rStud, (yStud0 + H) / 2, sb, H - yStud0, sd) })
-      if (inp.support === 'braced') {
-        const r0 = f.off + tSh + sd
-        parts.push({ id: `kick-${fi}-${i}`, group: 'stake', kind: 'timber', shape: 'box', ...box(f, u, r0 + cm(stake.H) / 2, (0.15 - embed) / 2, cm(stake.B), 0.15 + embed, cm(stake.H)) })
+      if (inp.support === 'braced') parts.push({ id: `kick-${fi}-${i}`, group: 'stake', kind: 'timber', shape: 'box', ...box(f, u, r0 + cm(stake.H) / 2, (0.15 - embed) / 2, cm(stake.B), 0.15 + embed, cm(stake.H)) })
+    })
+    // wales run round the footing, lapping past the corners
+    waleLevels.forEach((y, i) =>
+      pairOffsets(inp.wale.count, wb).forEach((o, k) =>
+        parts.push({ id: `wale-${fi}-${i}-${k}`, group: 'wale', kind: kindOf(inp.wale.materialId), shape: 'box', ...box(f, 0, r0 + wd / 2, y + o, 2 * f.half + 2 * (sd + wd) + 0.2, wb, wd) }),
+      ),
+    )
+    if (inp.support === 'braced') {
+      // braces at every stud, or along the wales at the brace spacing
+      const along = d.layout.braceAlong
+      const ub = viaWale && along ? spread(2 * f.half - sb, along / 100).map((u) => u - f.half + sb / 2) : us
+      const rb = viaWale ? r0 + wd : r0
+      ub.forEach((u, i) => {
         levels.forEach((y, k) => {
           const run = y / Math.tan(th)
-          parts.push({ id: `brace-${fi}-${i}-${k}`, group: 'brace', kind: kindOf(inp.brace.materialId), shape: 'bar', from: at(f, u, r0, y), to: at(f, u, r0 + run, 0), b: cm(br.B), d: cm(br.H) })
+          parts.push({ id: `brace-${fi}-${i}-${k}`, group: 'brace', kind: kindOf(inp.brace.materialId), shape: 'bar', from: at(f, u, rb, y), to: at(f, u, rb + run, 0), b: cm(br.B), d: cm(br.H) })
         })
         const run = (levels[0] ?? H) / Math.tan(th)
-        parts.push({ id: `stake-${fi}-${i}`, group: 'stake', kind: 'timber', shape: 'box', ...box(f, u, r0 + run + 0.05, (0.2 - embed) / 2, cm(stake.B), 0.2 + embed, cm(stake.H)) })
-      }
-    })
-    if (inp.support === 'tied') {
-      const w = getSection(inp.wale.sectionId)
-      const wb = cm(w.B)
-      const wd = cm(w.H)
-      d.layout.waleLevels.forEach((y, i) =>
-        pairOffsets(inp.wale.count, wb).forEach((o, k) =>
-          parts.push({ id: `wale-${fi}-${i}-${k}`, group: 'wale', kind: kindOf(inp.wale.materialId), shape: 'box', ...box(f, 0, f.off + tSh + sd + wd / 2, y + o, 2 * f.half + 2 * (sd + wd) + 0.2, wb, wd) }),
-        ),
-      )
+        parts.push({ id: `stake-${fi}-${i}`, group: 'stake', kind: 'timber', shape: 'box', ...box(f, u, rb + run + 0.05, (0.2 - embed) / 2, cm(stake.B), 0.2 + embed, cm(stake.H)) })
+      })
     }
   })
-  if (inp.support === 'tied' && d.layout.tieSpacing) {
-    // ties across the shorter plan dimension
-    const alongX = Ly <= Lx
-    const long = alongX ? Lx : Ly
-    const short = alongX ? Ly : Lx
-    const w = getSection(inp.wale.sectionId)
-    const r = short / 2 + tSh + sd + cm(w.H) + 0.06
-    const us = spread(long, d.layout.tieSpacing / 100).slice(1, -1).map((u) => u - long / 2)
+  if (inp.support === 'tied' && d.layout.tieLayout && d.layout.tieLayout !== 'none') {
+    // ties through the long faces (across the short side), and through the short faces when both ways;
+    // interior points only, spread evenly — the second direction sits a bar's width higher
+    const long = Math.max(Lx, Ly)
+    const short = Math.min(Lx, Ly)
+    const longIsX = Lx >= Ly
+    const reach = (half: number) => half + tSh + sd + wd + 0.06
+    const evenly = (L: number, n: number) => Array.from({ length: n }, (_, j) => -L / 2 + ((j + 1) * L) / (n + 1))
+    const runs: { u: number[]; alongX: boolean; r: number; dy: number }[] = [{ u: evenly(long, d.layout.tiesLong ?? 0), alongX: longIsX, r: reach(short / 2), dy: 0 }]
+    if (d.layout.tieLayout === 'both') runs.push({ u: evenly(short, d.layout.tiesShort ?? 0), alongX: !longIsX, r: reach(long / 2), dy: 0.03 })
     d.layout.waleLevels.forEach((y, i) =>
-      us.forEach((u, j) => parts.push({ id: `tie-${i}-${j}`, group: 'tie', kind: 'tie', shape: 'bar', from: alongX ? [u, y, -r] : [-r, y, u], to: alongX ? [u, y, r] : [r, y, u], b: 0.014, d: 0.014, round: true })),
+      runs.forEach((g, gi) =>
+        g.u.forEach((u, j) =>
+          parts.push({ id: `tie-${i}-${gi}-${j}`, group: 'tie', kind: 'tie', shape: 'bar', from: g.alongX ? [u, y + g.dy, -g.r] : [-g.r, y + g.dy, u], to: g.alongX ? [u, y + g.dy, g.r] : [g.r, y + g.dy, u], b: 0.014, d: 0.014, round: true }),
+        ),
+      ),
     )
   }
 

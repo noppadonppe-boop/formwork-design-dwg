@@ -78,7 +78,7 @@ export function ElementPage() {
   const run = useMemo(() => {
     if (!draft) return undefined
     try {
-      return { ok: true as const, res: runDesign(draft, criteria) }
+      return { ok: true as const, res: runDesign(draft, criteria, { advise: true }) }
     } catch (e) {
       return { ok: false as const, error: (e as Error).message }
     }

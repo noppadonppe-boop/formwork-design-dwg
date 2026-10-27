@@ -54,5 +54,20 @@ describe('footing model', () => {
     const tie = m.parts.find((p) => p.group === 'tie')!
     expect(tie.shape === 'bar' && tie.from[0] === tie.to[0]).toBe(true) // runs along z (Ly is shorter)
   })
+  it('model ties match the design count for every tie layout', () => {
+    for (const layout of ['none', 'short', 'both'] as const) {
+      const inp = { ...DEFAULT_FOOTING, support: 'tied' as const, tie: { ...DEFAULT_FOOTING.tie, layout } }
+      const d = designFooting(inp)
+      expect(count(footingModel(inp, d).parts, 'tie')).toBe(d.quantities.ties)
+    }
+  })
+  it('braced through wales: wales at every brace level, braces and stakes as designed', () => {
+    const inp = { ...DEFAULT_FOOTING, brace: { ...DEFAULT_FOOTING.brace, at: 'wale' as const } }
+    const d = designFooting(inp)
+    const m = footingModel(inp, d)
+    expect(count(m.parts, 'wale')).toBe(4 * 2 * d.layout.braceLevels.length)
+    expect(count(m.parts, 'brace')).toBe(d.quantities.braces)
+    expect(count(m.parts, 'stake')).toBe(d.quantities.stakes)
+  })
   it('plan handles double the dragged half size', () => expect(applyFootingHandle(DEFAULT_FOOTING, 'lengthX', 1.5).lengthX).toBe(3))
 })

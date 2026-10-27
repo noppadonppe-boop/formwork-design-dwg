@@ -11,7 +11,10 @@ import {
   type BraceParams,
   type ColumnInput,
   type DeckSheathing,
+  FOOTING_BRACE_AT_LABEL,
   FOOTING_SUPPORT_LABEL,
+  FOOTING_TIE_LAYOUT_LABEL,
+  type FootingTieLayout,
   type FootingInput,
   PLYWOOD,
   PLYWOOD_THICKNESS,
@@ -551,29 +554,58 @@ function FootingFields({ inp, set }: { inp: FootingInput; set: (fn: (i: FootingI
       </Group>
       {inp.support === 'braced' && (
         <Group title="ค้ำยันทแยง" part="brace">
+          <div className="label">
+            <span>ตำแหน่งค้ำยัน</span>
+            <Segmented
+              label="ตำแหน่งค้ำยัน"
+              value={inp.brace.at ?? 'stud'}
+              options={(['stud', 'wale'] as const).map((k) => ({ value: k, label: FOOTING_BRACE_AT_LABEL[k] }))}
+              onChange={(v) => set((i) => ({ ...i, brace: { ...i.brace, at: v } }))}
+            />
+          </div>
           <MemberPicker label="ค้ำยัน" sectionId={inp.brace.sectionId} materialId={inp.brace.materialId} pipes onChange={(v) => set((i) => ({ ...i, brace: { ...i.brace, ...v } }))} />
           <div className="grid grid-cols-3 gap-2">
             <NumField label="มุม" unit="°" value={inp.brace.angleDeg} min={30} max={60} onChange={(v) => v && set((i) => ({ ...i, brace: { ...i.brace, angleDeg: v } }))} />
             <NumField label="ระยะจุดค้ำ" unit="ซม." optional placeholder="อัตโนมัติ" value={inp.brace.spacingCm} min={15} max={200} onChange={(v) => set((i) => ({ ...i, brace: { ...i.brace, spacingCm: v } }))} />
             <NumField label="ยื่นปลายบน" unit="ม." value={inp.brace.topOverhangM} min={0} max={1} onChange={(v) => v !== undefined && set((i) => ({ ...i, brace: { ...i.brace, topOverhangM: v } }))} />
           </div>
+          {inp.brace.at === 'wale' && (
+            <NumField label="ระยะค้ำยันตามคานรับเคร่า" unit="ซม." optional placeholder="อัตโนมัติ" value={inp.brace.alongCm} min={20} max={300} onChange={(v) => set((i) => ({ ...i, brace: { ...i.brace, alongCm: v } }))} />
+          )}
+        </Group>
+      )}
+      {(inp.support === 'tied' || (inp.support === 'braced' && inp.brace.at === 'wale')) && (
+        <Group title={inp.support === 'tied' ? 'คานรับเคร่ารอบฐาน (Wales)' : 'คานรับเคร่า (รับค้ำยัน)'} part="wale">
+          <MemberPicker label="คานรับเคร่า" sectionId={inp.wale.sectionId} materialId={inp.wale.materialId} onChange={(v) => set((i) => ({ ...i, wale: { ...i.wale, ...v } }))} />
+          <div className="grid grid-cols-3 gap-2">
+            <Segmented label="ต่อชุด" value={String(inp.wale.count) as '1' | '2'} options={[{ value: '1', label: 'เดี่ยว' }, { value: '2', label: 'คู่' }]} onChange={(v) => set((i) => ({ ...i, wale: { ...i.wale, count: Number(v) as 1 | 2 } }))} />
+            {inp.support === 'tied' && (
+              <>
+                <NumField label="ระยะ c/c" unit="ซม." optional placeholder="อัตโนมัติ" value={inp.wale.spacingCm} min={20} max={300} onChange={(v) => set((i) => ({ ...i, wale: { ...i.wale, spacingCm: v } }))} />
+                <NumField label="ตัวแรกจากฐาน" unit="ม." value={inp.wale.bottomOffsetM} min={0.05} max={1} onChange={(v) => v && set((i) => ({ ...i, wale: { ...i.wale, bottomOffsetM: v } }))} />
+              </>
+            )}
+          </div>
         </Group>
       )}
       {inp.support === 'tied' && (
-        <>
-          <Group title="คานรับเคร่า (Wales)" part="wale">
-            <MemberPicker label="คานรับเคร่า" sectionId={inp.wale.sectionId} materialId={inp.wale.materialId} onChange={(v) => set((i) => ({ ...i, wale: { ...i.wale, ...v } }))} />
-            <div className="grid grid-cols-3 gap-2">
-              <Segmented label="ต่อชุด" value={String(inp.wale.count) as '1' | '2'} options={[{ value: '1', label: 'เดี่ยว' }, { value: '2', label: 'คู่' }]} onChange={(v) => set((i) => ({ ...i, wale: { ...i.wale, count: Number(v) as 1 | 2 } }))} />
-              <NumField label="ระยะ c/c" unit="ซม." optional placeholder="อัตโนมัติ" value={inp.wale.spacingCm} min={20} max={300} onChange={(v) => set((i) => ({ ...i, wale: { ...i.wale, spacingCm: v } }))} />
-              <NumField label="ตัวแรกจากฐาน" unit="ม." value={inp.wale.bottomOffsetM} min={0.05} max={1} onChange={(v) => v && set((i) => ({ ...i, wale: { ...i.wale, bottomOffsetM: v } }))} />
-            </div>
-          </Group>
-          <Group title="Form tie" part="tie">
-            <TieSelect value={inp.tie.tieId} onChange={(v) => set((i) => ({ ...i, tie: { ...i.tie, tieId: v } }))} />
-            <NumField label="ระยะไทร์" unit="ซม." optional placeholder="อัตโนมัติ" value={inp.tie.spacingCm} min={20} max={300} onChange={(v) => set((i) => ({ ...i, tie: { ...i.tie, spacingCm: v } }))} />
-          </Group>
-        </>
+        <Group title="Form tie" part="tie">
+          <Field label="การวางไทร์">
+            <Select value={inp.tie.layout ?? 'auto'} onChange={(e) => set((i) => ({ ...i, tie: { ...i.tie, layout: e.target.value as FootingTieLayout } }))}>
+              {Object.entries(FOOTING_TIE_LAYOUT_LABEL).map(([k, l]) => (
+                <option key={k} value={k}>
+                  {l}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          {inp.tie.layout !== 'none' && (
+            <>
+              <TieSelect value={inp.tie.tieId} onChange={(v) => set((i) => ({ ...i, tie: { ...i.tie, tieId: v } }))} />
+              <NumField label="ระยะไทร์" unit="ซม." optional placeholder="อัตโนมัติ" value={inp.tie.spacingCm} min={20} max={300} onChange={(v) => set((i) => ({ ...i, tie: { ...i.tie, spacingCm: v } }))} />
+            </>
+          )}
+        </Group>
       )}
       {inp.support !== 'tied' && (
         <Group title="หลักยึดและดิน" part="stake">

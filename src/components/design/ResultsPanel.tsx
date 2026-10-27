@@ -1,7 +1,7 @@
 import clsx from 'clsx'
-import { AlertTriangle, ChevronDown } from 'lucide-react'
+import { AlertTriangle, ChevronDown, Lightbulb } from 'lucide-react'
 import { useState } from 'react'
-import type { ComponentResult, DesignResult, Step, Trace } from '@/engine'
+import type { ComponentResult, DesignAdvice, DesignResult, Step, Trace } from '@/engine'
 import { fmt } from '@/engine'
 import { RatioBar, StatusBadge } from '../ui'
 import { PressureDiagram } from './PressureDiagram'
@@ -82,6 +82,46 @@ function ComponentCard({ c }: { c: ComponentResult }) {
   )
 }
 
+/** Alternative arrangements checked with the same members, and the recommended one. */
+export function AdviceCard({ advice }: { advice: DesignAdvice }) {
+  return (
+    <section className="card overflow-hidden" aria-label={advice.title}>
+      <div className="flex items-start gap-3 border-b border-slate-100 bg-blue-50/60 px-4 py-3">
+        <Lightbulb size={18} className="mt-0.5 shrink-0 text-sel" aria-hidden />
+        <div className="min-w-0">
+          <h3 className="font-semibold">{advice.title}</h3>
+          <ul className="mt-1 flex flex-col gap-0.5 text-[13px] text-slate-700">
+            {advice.summary.map((s) => (
+              <li key={s} className={clsx(s.startsWith('แนะนำ') && 'font-semibold text-ink')}>
+                {s}
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+      <ul className="divide-y divide-slate-100">
+        {advice.options.map((o) => (
+          <li key={o.key} className={clsx('grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 px-4 py-2.5 text-[13px]', o.recommended && 'bg-green-50/60')}>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="font-medium">{o.label}</span>
+                {o.current && <span className="rounded-full bg-navy-900 px-2 py-px text-[11px] text-white">ที่เลือกอยู่</span>}
+                {o.recommended && <span className="rounded-full bg-ok px-2 py-px text-[11px] text-white">แนะนำ</span>}
+              </div>
+              <div className="text-xs text-muted">{o.note}</div>
+            </div>
+            <div className="flex items-center gap-2">
+              <StatusBadge status={o.status} />
+              <span className={clsx('num w-12 text-right font-semibold', o.ratio > 1 ? 'text-fail' : o.ratio >= 0.9 ? 'text-warn' : 'text-ok')}>{o.ratio > 9.99 ? '>9.99' : o.ratio.toFixed(2)}</span>
+            </div>
+          </li>
+        ))}
+      </ul>
+      <p className="border-t border-slate-100 px-4 py-2 text-xs text-muted">ตรวจด้วยหน้าตัดไม้และวัสดุเดียวกับที่เลือก — เปลี่ยนรูปแบบได้ที่ “การยึดเคร่า” / “การวางไทร์” ในแผงด้านซ้าย</p>
+    </section>
+  )
+}
+
 export function ResultsPanel({ result, height, layout }: { result: DesignResult; height: number; layout: { label: string; value: string }[] }) {
   const [showPressure, setShowPressure] = useState(false)
   const vertical = result.loadKind === 'vertical'
@@ -117,6 +157,8 @@ export function ResultsPanel({ result, height, layout }: { result: DesignResult;
           ))}
         </ul>
       )}
+
+      {result.advice && <AdviceCard advice={result.advice} />}
 
       <div className="card overflow-hidden">
         <button type="button" onClick={() => setShowPressure(!showPressure)} aria-expanded={showPressure} className="flex w-full items-center gap-2 px-4 py-3 text-left font-semibold hover:bg-slate-50">

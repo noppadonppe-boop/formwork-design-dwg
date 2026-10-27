@@ -7,7 +7,7 @@ import { fmtVal } from '@/components/design/ResultsPanel'
 import type { AnyDesign } from '@/data/elements'
 import { elementHeight, elementSize, QUANTITY_LABEL, TYPE_LABEL } from '@/data/elements'
 import type { Criteria, ElementData, Project } from '@/data/types'
-import { type ComponentResult, FOOTING_SUPPORT_LABEL, getMaterial, getSection, getTie, type ShoreParams, type Status, type Trace } from '@/engine'
+import { type ComponentResult, FOOTING_BRACE_AT_LABEL, FOOTING_SUPPORT_LABEL, FOOTING_TIE_LAYOUT_LABEL, getMaterial, getSection, getTie, type ShoreParams, type Status, type Trace } from '@/engine'
 import { Drawing } from './Drawing'
 import { elementViews } from './views'
 
@@ -153,15 +153,26 @@ function members(el: ElementData): MemberRow[] {
         { role: 'แผ่นผิวข้างแบบ', materialId: i.sheathing.materialId, note: deckNote(i.sheathing) },
         { role: 'เคร่า', sectionId: i.stud.sectionId, materialId: i.stud.materialId },
         ...(i.support === 'braced' ? [{ role: 'ค้ำยันทแยง', sectionId: i.brace.sectionId, materialId: i.brace.materialId }] : []),
-        ...(i.support === 'tied' ? [{ role: 'คานรับเคร่า', sectionId: i.wale.sectionId, materialId: i.wale.materialId, note: i.wale.count === 2 ? 'คู่' : 'เดี่ยว' }] : []),
+        ...(i.support === 'tied' || i.brace.at === 'wale' ? [{ role: 'คานรับเคร่า', sectionId: i.wale.sectionId, materialId: i.wale.materialId, note: `${i.wale.count === 2 ? 'คู่' : 'เดี่ยว'} รอบฐาน` }] : []),
         ...(i.support !== 'tied' ? [{ role: 'หลักยึด', sectionId: i.stake.sectionId, materialId: 'timber-yang' }] : []),
       ]
     }
   }
 }
 
+function footingCriteria(el: Extract<ElementData, { type: 'footing' }>, run: AnyDesign): [string, ReactNode][] {
+  const i = el.input
+  const lay = run.type === 'footing' ? run.design.layout : undefined
+  const rows: [string, ReactNode][] = [['การยึดเคร่า', FOOTING_SUPPORT_LABEL[i.support]]]
+  if (i.support === 'braced') rows.push(['ตำแหน่งค้ำยัน', FOOTING_BRACE_AT_LABEL[i.brace.at ?? 'stud']])
+  if (i.support === 'tied')
+    rows.push(['การวางไทร์', `${FOOTING_TIE_LAYOUT_LABEL[lay?.tieLayout ?? 'short']}${(i.tie.layout ?? 'auto') === 'auto' ? ' (เลือกอัตโนมัติ)' : ''}`])
+  if (i.support !== 'tied') rows.push(['ดินรับแรงแบกทาน', `${i.soilBearing.toLocaleString()} กก./ม.²`])
+  return rows
+}
+
 /** Criteria rows that depend on the element type. */
-function criteriaRows(el: ElementData): [string, ReactNode][] {
+function criteriaRows(el: ElementData, run: AnyDesign): [string, ReactNode][] {
   if (el.type === 'slab' || el.type === 'beam') {
     const l = el.input.loads
     return [
@@ -176,13 +187,13 @@ function criteriaRows(el: ElementData): [string, ReactNode][] {
     ['แรงดันด้านข้าง', PRESSURE_LABEL[p.method] ?? p.method],
     ['อัตราเท R / อุณหภูมิ T', `${p.R} ม./ชม. · ${p.T} °C`],
     ['Slump', `${p.slump} ซม.`],
-    ...(el.type === 'footing' ? ([['การยึดเคร่า', FOOTING_SUPPORT_LABEL[el.input.support]]] as [string, ReactNode][]) : ([['แรงลม', `${el.input.brace.wind} กก./ม.²`]] as [string, ReactNode][])),
+    ...(el.type === 'footing' ? footingCriteria(el, run) : ([['แรงลม', `${el.input.brace.wind} กก./ม.²`]] as [string, ReactNode][])),
   ]
 }
 
 function tieNote(el: ElementData): string {
   const id = el.type === 'wall' || el.type === 'column' || el.type === 'footing' || (el.type === 'beam' && el.input.tie.enabled) ? el.input.tie.tieId : undefined
-  if (!id || (el.type === 'column' && !el.input.tie.enabled) || (el.type === 'footing' && el.input.support !== 'tied')) return ''
+  if (!id || (el.type === 'column' && !el.input.tie.enabled) || (el.type === 'footing' && (el.input.support !== 'tied' || el.input.tie.layout === 'none'))) return ''
   const t = getTie(id)
   return ` · Form tie: ${t.name} (SWL ${t.swl.toLocaleString()} กก.)`
 }
@@ -269,12 +280,13 @@ export function ElementReport({ project, criteria, el, run, opts, designer }: { 
             ))}
           </ul>
         )}
+        {d.advice && <AdviceTable advice={d.advice} />}
       </Section>
 
       <Section n={sec()} title="เกณฑ์การออกแบบและวัสดุ">
         <InfoGrid
           rows={[
-            ...criteriaRows(el),
+            ...criteriaRows(el, run),
             ...(el.type === 'slab' || el.type === 'beam' ? [] : ([['หน่วยน้ำหนักคอนกรีต γ', `${criteria.gamma.toLocaleString()} กก./ม.³`]] as [string, ReactNode][])),
             ['การแอ่นตัวที่ยอมให้', `L/${criteria.deflectionRatio}${criteria.deflectionAbsMm ? ` ≤ ${criteria.deflectionAbsMm} มม.` : ''}`],
             ['ตรวจแรงเฉือนไม้', criteria.checkTimberShear ? 'ตรวจ (สมการ 5.13, l − 2d)' : 'ไม่ตรวจ'],
@@ -413,6 +425,45 @@ export function Signatures({ designer }: { designer: string }) {
           <div className="text-slate-500">วันที่ ......../......../........</div>
         </div>
       ))}
+    </div>
+  )
+}
+
+function AdviceTable({ advice }: { advice: NonNullable<AnyDesign['design']['advice']> }) {
+  return (
+    <div className="mt-3 break-inside-avoid">
+      <p className="mb-1 text-[11px] font-semibold">{advice.title}</p>
+      <ul className="mb-1 list-disc pl-5 text-[10.5px]">
+        {advice.summary.map((x) => (
+          <li key={x} className={clsx(x.startsWith('แนะนำ') && 'font-semibold')}>
+            {x}
+          </li>
+        ))}
+      </ul>
+      <table className="w-full border-collapse text-[10.5px]">
+        <thead>
+          <tr>
+            <th className={th}>รูปแบบ</th>
+            <th className={th}>ปริมาณ / หมายเหตุ</th>
+            <th className={clsx(th, 'text-right')}>Ratio สูงสุด</th>
+            <th className={clsx(th, 'text-center')}>ผล</th>
+          </tr>
+        </thead>
+        <tbody>
+          {advice.options.map((o) => (
+            <tr key={o.key} className={clsx(o.recommended && 'bg-green-50')}>
+              <td className={td}>
+                {o.label}
+                {o.current && <b> (ที่ใช้)</b>}
+                {o.recommended && <b className="text-ok"> ★ แนะนำ</b>}
+              </td>
+              <td className={td}>{o.note}</td>
+              <td className={clsx(td, 'num text-right')}>{o.ratio > 9.99 ? '>9.99' : o.ratio.toFixed(2)}</td>
+              <td className={clsx(td, 'text-center font-bold', o.status === 'fail' ? 'text-fail' : 'text-ok')}>{OKNG[o.status]}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   )
 }

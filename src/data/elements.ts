@@ -118,7 +118,8 @@ export type AnyDesign =
   | { type: 'beam'; design: BeamDesign }
   | { type: 'footing'; design: FootingDesign }
 
-export function runDesign(el: ElementData, c: Criteria): AnyDesign {
+/** `advise` adds the side-by-side arrangement check (footings) — the design pages, not the optimizer. */
+export function runDesign(el: ElementData, c: Criteria, opts: { advise?: boolean } = {}): AnyDesign {
   switch (el.type) {
     case 'wall':
       return { type: 'wall', design: designWall(withCriteria(el.input, c)) }
@@ -129,7 +130,7 @@ export function runDesign(el: ElementData, c: Criteria): AnyDesign {
     case 'beam':
       return { type: 'beam', design: designBeam(withCriteria(el.input, c)) }
     case 'footing':
-      return { type: 'footing', design: designFooting(withCriteria(el.input, c)) }
+      return { type: 'footing', design: designFooting(withCriteria(el.input, c), opts) }
   }
 }
 
@@ -212,7 +213,9 @@ export function layoutSummary(r: AnyDesign): { label: string; value: string }[] 
       return [
         { label: 'เคร่า @', value: `${r.design.layout.studSpacing} ซม.` },
         ...(r.design.layout.supportSpacing ? [{ label: 'จุดค้ำ @', value: `${r.design.layout.supportSpacing} ซม.` }] : []),
-        ...(r.design.layout.waleSpacing ? [{ label: 'คานรับเคร่า @', value: `${r.design.layout.waleSpacing}` }, { label: 'ไทร์ @', value: `${r.design.layout.tieSpacing} ซม.` }] : []),
+        ...(r.design.layout.braceAlong ? [{ label: 'ค้ำยัน @', value: `${r.design.layout.braceAlong} ซม.` }] : []),
+        ...(r.design.layout.tieLayout ? [{ label: 'คานรับเคร่า @', value: `${r.design.layout.waleSpacing}` }] : []),
+        ...(r.design.layout.tieLayout ? [{ label: 'ไทร์', value: r.design.layout.tieSpacing ? `@${r.design.layout.tieSpacing} ซม. · ${r.design.quantities.ties} ตัว` : 'ไม่ใช้' }] : []),
       ]
   }
 }
