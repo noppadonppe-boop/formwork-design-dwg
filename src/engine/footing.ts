@@ -11,7 +11,7 @@ import { getMaterial, getTie } from './materials'
 import { BEAM_COEF, type CheckRow, checkBeam, columnCapacity, combinedTensionBending, type DeflectionCriteria, maxSpan, type MemberInput, type Support } from './member'
 import { lateralPressure } from './pressure'
 import { getSection, multiple } from './sections'
-import { type DeckSheathing, deckSection } from './slab'
+import { type DeckSheathing, deckSection, deckThicknessM } from './slab'
 import { Trace } from './trace'
 import { floorTo, fmt, pressureToLineLoad } from './units'
 import { designWall } from './wall'
@@ -190,7 +190,14 @@ export function designFooting(inp: FootingInput, opts: { advise?: boolean } = {}
   let ties = 0
   const nStuds = studsAround(inp.lengthX, inp.lengthY, a)
   const wSt = pressureToLineLoad(p, a / 100)
-  const ring = (count: number) => 2 * (inp.lengthX + inp.lengthY + 0.6) * inp.wale.count * count
+  // wale length per level as drawn: long sides run past the corners, short sides butt between them
+  const ring = (count: number) => {
+    const lap = deckThicknessM(inp.sheathing) + stSec.H / 100
+    const long = Math.max(inp.lengthX, inp.lengthY)
+    const short = Math.min(inp.lengthX, inp.lengthY)
+    const perLevel = 2 * (long + 2 * (lap + getSection(inp.wale.sectionId).H / 100 + 0.1)) + 2 * (short + 2 * lap)
+    return perLevel * inp.wale.count * count
+  }
   const waleMember = { section: multiple(getSection(inp.wale.sectionId), inp.wale.count), material: getMaterial(inp.wale.materialId) }
 
   if (inp.support === 'cantilever') {

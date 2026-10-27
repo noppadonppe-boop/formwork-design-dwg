@@ -312,10 +312,14 @@ export function footingModel(inp: FootingInput, d: FootingDesign): FormModel {
       parts.push({ id: `stud-${fi}-${i}`, group: 'stud', kind: sKind, shape: 'box', ...box(f, u, rStud, (yStud0 + H) / 2, sb, H - yStud0, sd) })
       if (inp.support === 'braced') parts.push({ id: `kick-${fi}-${i}`, group: 'stake', kind: 'timber', shape: 'box', ...box(f, u, r0 + cm(stake.H) / 2, (0.15 - embed) / 2, cm(stake.B), 0.15 + embed, cm(stake.H)) })
     })
-    // wales run round the footing, lapping past the corners
+    // wales round the footing at the same levels: the long-side wales run through past the corners,
+    // the short-side wales butt against their inner face (corner detail, Fig 8.11) — no clash
+    const span = fi < 2 ? Lx : Ly
+    const through = fi < 2 ? Lx >= Ly : Ly > Lx
+    const waleLen = through ? span + 2 * (tSh + sd + wd + 0.1) : span + 2 * (tSh + sd)
     waleLevels.forEach((y, i) =>
       pairOffsets(inp.wale.count, wb).forEach((o, k) =>
-        parts.push({ id: `wale-${fi}-${i}-${k}`, group: 'wale', kind: kindOf(inp.wale.materialId), shape: 'box', ...box(f, 0, r0 + wd / 2, y + o, 2 * f.half + 2 * (sd + wd) + 0.2, wb, wd) }),
+        parts.push({ id: `wale-${fi}-${i}-${k}`, group: 'wale', kind: kindOf(inp.wale.materialId), shape: 'box', ...box(f, 0, r0 + wd / 2, y + o, waleLen, wb, wd) }),
       ),
     )
     if (inp.support === 'braced') {

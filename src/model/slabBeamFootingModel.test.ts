@@ -54,6 +54,20 @@ describe('footing model', () => {
     const tie = m.parts.find((p) => p.group === 'tie')!
     expect(tie.shape === 'bar' && tie.from[0] === tie.to[0]).toBe(true) // runs along z (Ly is shorter)
   })
+  it('corner wales do not clash: short sides butt between the long sides; length matches the quantity', () => {
+    for (const [Lx, Ly] of [[5, 2], [2, 5], [2.4, 2.4]]) {
+      const inp = { ...DEFAULT_FOOTING, lengthX: Lx, lengthY: Ly, height: 2, support: 'tied' as const }
+      const d = designFooting(inp)
+      const wales = footingModel(inp, d).parts.filter((p) => p.group === 'wale' && p.shape === 'box')
+      const lo = (p: (typeof wales)[number], k: number) => (p.shape === 'box' ? p.center[k] - p.size[k] / 2 : 0)
+      const hi = (p: (typeof wales)[number], k: number) => (p.shape === 'box' ? p.center[k] + p.size[k] / 2 : 0)
+      for (const a of wales)
+        for (const b of wales)
+          if (a !== b) expect([0, 1, 2].every((k) => lo(a, k) < hi(b, k) - 1e-6 && lo(b, k) < hi(a, k) - 1e-6)).toBe(false)
+      const total = wales.reduce((s, p) => s + (p.shape === 'box' ? Math.max(p.size[0], p.size[2]) : 0), 0)
+      expect(total).toBeCloseTo(d.quantities.waleLength, 6)
+    }
+  })
   it('model ties match the design count for every tie layout', () => {
     for (const layout of ['none', 'short', 'both'] as const) {
       const inp = { ...DEFAULT_FOOTING, support: 'tied' as const, tie: { ...DEFAULT_FOOTING.tie, layout } }
