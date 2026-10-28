@@ -18,7 +18,7 @@ import {
 } from './design'
 import { CONCRETE_NAIL_SWL, getMaterial, getTie } from './materials'
 import { BEAM_COEF, type CheckRow, checkBeam, combinedTensionBending, type DeflectionCriteria, maxSpan, type Support } from './member'
-import { type ColumnShape, columnSection, columnShapeOf, cutYokeNetCm, isLegShape, legBox, type LegLayout, legLayout, legOutline, legStudFaces, polygonBox, polygonDims, RATED_PRESSURE, requiredTies, SHAPE_NAME, STAVE_WIDTH } from './planShape'
+import { type ColumnShape, columnSection, columnShapeOf, cutYokeNetCm, isLegShape, legBox, type LegLayout, legLayout, legOutline, legStudFaces, legTieForces, legTiesPerLevel as legTiesPerLevelOf, polygonBox, polygonDims, RATED_PRESSURE, requiredTies, SHAPE_NAME, STAVE_WIDTH } from './planShape'
 import { lateralPressure } from './pressure'
 import { board, getSection, multiple, plywoodStrip, rect, type Section } from './sections'
 import { Trace } from './trace'
@@ -135,33 +135,33 @@ function yokeRows(name: string, span: number, support: Support, T: number, w: nu
 /**
  * Yokes along the faces of an L/T/U at spacing s (cm), leg by leg: each leg works like a rectangular column of
  * thickness t whose root is held by the tie at the inner corner — long yokes span L/n (n spans with extra ties) in
- * tension w·t/2 from the end yoke; the end yoke spans t in tension w·(L/n)/2. The outer yokes also span the corners
- * of the core (c) in tension from the perpendicular corner span (w·cp/2).
+ * tension w·t/2 from the end yoke; the end yoke spans t/n (ties along the leg) in tension w·(L/n)/2. The outer yokes also span the corners
+ * of the core (c/n, split by ties across the section) in tension from the perpendicular corner span (w·cp/2).
  */
-function checkLegYokes(p: number, s: number, lay: LegLayout, n: number, yoke: { section: Section; material: ReturnType<typeof getMaterial> }, trace?: Trace, defl?: DeflectionCriteria): YokeCheck {
+export function checkLegYokes(p: number, s: number, lay: LegLayout, n: number, yoke: { section: Section; material: ReturnType<typeof getMaterial> }, trace?: Trace, defl?: DeflectionCriteria, member = 'คานรัด'): YokeCheck {
   const w = pressureToLineLoad(p, s / 100)
   const support: Support = n >= 3 ? 'continuous' : 'simple'
   const rows: CheckRow[] = []
-  trace?.add({ label: 'น้ำหนักแผ่บนคานรัด w = P × ระยะคานรัด', expr: `${fmt(p)} × ${(s / 100).toFixed(2)} / 100`, value: w, unit: 'กก./ซม.' })
+  trace?.add({ label: `น้ำหนักแผ่บน${member} w = P × ระยะ${member}`, expr: `${fmt(p)} × ${(s / 100).toFixed(2)} / 100`, value: w, unit: 'กก./ซม.' })
   for (const leg of lay.legs) {
     const span = (leg.L * 100) / n
     const t = leg.t * 100
-    rows.push(...yokeRows(`${leg.name}: คานรัดหน้ายาว`, span, support, leg.far === 'free' ? (w * t) / 2 : 0, w, yoke, trace, defl))
-    if (leg.far === 'free') rows.push(...yokeRows(`${leg.name}: คานรัดปลายขา`, t, 'simple', (w * span) / 2, w, yoke, trace, defl))
+    rows.push(...yokeRows(`${leg.name}: ${member}หน้ายาว`, span, support, leg.far === 'free' ? (w * t) / 2 : 0, w, yoke, trace, defl))
+    if (leg.far === 'free') rows.push(...yokeRows(`${leg.name}: ${member}ปลายขา`, t / n, support, (w * span) / 2, w, yoke, trace, defl))
   }
-  lay.core.forEach((k, i) => rows.push(...yokeRows(`คานรัดหน้านอกที่มุม ${i + 1}`, k.c * 100, 'simple', (w * k.cp * 100) / 2, w, yoke, trace, defl)))
+  lay.core.forEach((k, i) => rows.push(...yokeRows(`${member}หน้านอกที่มุม ${i + 1}`, (k.c * 100) / n, support, (w * k.cp * 100) / 2, w, yoke, trace, defl)))
   return { rows, ratio: Math.max(...rows.map((r) => r.ratio)) }
 }
 
 /** Ring of yokes round a regular n-gon at spacing s (cm): each member spans a face a, simply supported at the corners, in tension T = w·F/2. */
-function checkRingYokes(p: number, s: number, aCm: number, fCm: number, n: number, yoke: { section: Section; material: ReturnType<typeof getMaterial> }, trace?: Trace, defl?: DeflectionCriteria): YokeCheck {
+export function checkRingYokes(p: number, s: number, aCm: number, fCm: number, n: number, yoke: { section: Section; material: ReturnType<typeof getMaterial> }, trace?: Trace, defl?: DeflectionCriteria, member = 'คานรัด'): YokeCheck {
   const w = pressureToLineLoad(p, s / 100)
   const c = BEAM_COEF.simple
-  const name = `คานรัดวงแหวน ${n} ด้าน`
+  const name = `${member}วงแหวน ${n} ด้าน`
   const T = (w * fCm) / 2
   const M = c.m * w * aCm * aCm
   const ct = combinedTensionBending(yoke.section, yoke.material, T, M)
-  trace?.add({ label: 'น้ำหนักแผ่บนคานรัด w = P × ระยะคานรัด', expr: `${fmt(p)} × ${(s / 100).toFixed(2)} / 100`, value: w, unit: 'กก./ซม.' })
+  trace?.add({ label: `น้ำหนักแผ่บน${member} w = P × ระยะ${member}`, expr: `${fmt(p)} × ${(s / 100).toFixed(2)} / 100`, value: w, unit: 'กก./ซม.' })
   trace?.add({ label: `${name}: แรงดึง T = w × F / 2`, expr: `F = ${fCm.toFixed(0)} ซม.`, value: T, unit: 'กก.' })
   trace?.add({ label: `${name}: M = ${c.mLabel} (ช่วง a ${aCm.toFixed(0)} ซม.)`, value: M, unit: 'กก.-ซม.' })
   trace?.add({ label: `${name}: σ = T/A ± M/S`, expr: `${ct.ft.toFixed(1)} ± ${ct.fb.toFixed(1)} → ดึง ${ct.tension.toFixed(1)} ≤ ${ct.Ft}, อัด ${ct.compression.toFixed(1)} ≤ ${ct.Fc}`, value: ct.ratio, status: ct.ratio <= 1 ? 'ok' : 'fail' })
@@ -320,20 +320,15 @@ export function designColumn(inp: ColumnInput): ColumnDesign {
     const tie = getTie(inp.tie.tieId)
     const tTi = new Trace()
     const rows: CheckRow[] = []
-    for (const g of lay.legs) {
-      const span = g.L / legSpans
-      const roots = g.far === 'tied' ? 2 : 1
-      const T = tTi.add({ label: `แรงดึงไทร์มุมใน (${g.name}) = P × s × (ช่วง/2 + ช่วงมุม/2)`, expr: `${fmt(p)} × ${(s / 100).toFixed(2)} × (${(span / 2).toFixed(2)} + ${(g.c / 2).toFixed(2)})`, value: p * (s / 100) * (span / 2 + g.c / 2), unit: 'กก.' })
-      rows.push({ item: `ไทร์มุมใน (${g.name})`, demand: T, capacity: tie.swl, ratio: T / tie.swl, unit: 'กก.', ref: tie.ref })
-      if (legSpans > 1) {
-        const Ti = tTi.add({ label: `แรงดึงไทร์กลางขา (${g.name}) = P × s × ช่วง`, value: p * (s / 100) * span, unit: 'กก.' })
-        rows.push({ item: `ไทร์กลางขา (${g.name})`, demand: Ti, capacity: tie.swl, ratio: Ti / tie.swl, unit: 'กก.', ref: tie.ref })
-      }
-      legTiesPerLevel += roots + legSpans - 1
+    for (const f of legTieForces(lay, legSpans, p, s)) {
+      const what = f.kind === 'root' ? 'ไทร์มุมใน' : f.kind === 'leg' ? 'ไทร์กลางขา' : f.kind === 'core' ? 'ไทร์ผ่านมุม' : 'ไทร์ผ่านปลายขา'
+      const T = tTi.add({ label: `แรงดึง${what} (${f.name}) = P × s × ${f.kind === 'root' ? '(ช่วงขา/2 + ช่วงมุม/2)' : 'ช่วง'}`, value: f.T, unit: 'กก.' })
+      rows.push({ item: `${what} (${f.name})`, demand: T, capacity: tie.swl, ratio: T / tie.swl, unit: 'กก.', ref: tie.ref })
     }
+    legTiesPerLevel = legTiesPerLevelOf(leg, legSpans)
     const req = requiredTies(leg)
     const extra = legTiesPerLevel - req
-    components.push(component('tie', 'เหล็กยึดรั้ง (Form tie)', `${tie.name} มุมใน ${req} แถว${extra ? ` + กลางขา ${extra} แถว` : ''} (บังคับ)`, rows, tTi))
+    components.push(component('tie', 'เหล็กยึดรั้ง (Form tie)', `${tie.name} มุมใน ${req} แถว${extra ? ` + แบ่งช่วง ${extra} แถว` : ''} (บังคับ)`, rows, tTi))
   }
 
   // base nails (Ex 9.1 step 4): H = p × (s/2) × face width per side

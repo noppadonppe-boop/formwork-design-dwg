@@ -20,7 +20,7 @@ describe('round column model', () => {
   const c = column({ kind: 'circle', system: 'stave' }, { yoke: withRoundForm(newElement('column', DEFAULT_CRITERIA, []).input as ColumnInput).yoke, sheathing: { type: 'board', materialId: 'timber-yang', thicknessCm: 2.5 } })
 
   it('concrete volume is πD²/4 × H (to the 36-gon)', () => {
-    expect(concreteVolume(c.model)).toBeCloseTo((Math.PI * 0.36 * 3) / 4, 2)
+    expect(concreteVolume(c.model)).toBeCloseTo((Math.PI * 0.36 * 3) / 4, 6)
   })
 
   it('one stave per design stave, a square frame of 4 cut-out yoke boards per level', () => {
@@ -96,6 +96,37 @@ describe('L / T / U column model', () => {
     const t = (spans: number) => column({ kind: 'T', bf: 0.9, tf: 0.25, tw: 0.25, d: 0.8, yoke: 'tied' }, { b: 0.9, h: 0.8, tie: { enabled: true, tieId: 'tie-3/8', spans } })
     const one = t(1)
     expect(one.model.parts.filter((p) => p.id.startsWith('tie-0-')).length).toBe(3)
-    expect(t(2).model.parts.filter((p) => p.id.startsWith('tie-0-')).length).toBe(6)
+    // + 1 along each of the 3 legs, 1 across the core, 1 through each of the 2 end faces (both flange ends share one)
+    expect(t(2).model.parts.filter((p) => p.id.startsWith('tie-0-')).length).toBe(9)
+  })
+})
+
+describe('shaped footing model', () => {
+  function footing(patch: Partial<Extract<ElementData, { type: 'footing' }>['input']>) {
+    const el = newElement('footing', DEFAULT_CRITERIA, []) as Extract<ElementData, { type: 'footing' }>
+    el.input = { ...el.input, height: 1, ...patch }
+    const run = runDesign(el, DEFAULT_CRITERIA)
+    if (run.type !== 'footing') throw new Error()
+    return { el, run, ...elementBom(el, run) }
+  }
+
+  it('round: concrete πD²/4 × H, one stud per design stud, braces and stakes at every stud', () => {
+    const f = footing({ lengthX: 4, lengthY: 4, shape: { kind: 'circle' }, support: 'braced' })
+    expect(concreteVolume(f.model)).toBeCloseTo((Math.PI * 16 * 1) / 4, 6)
+    expect(f.model.parts.filter((p) => p.id.startsWith('stud-')).length).toBe(f.run.design.quantities.studs)
+    expect(f.model.parts.filter((p) => p.id.startsWith('stake-')).length).toBe(f.run.design.quantities.studs)
+  })
+
+  it('octagon tied: wales on all 8 faces at every level, no ties', () => {
+    const f = footing({ lengthX: 3, lengthY: 3, shape: { kind: 'polygon', n: 8 }, support: 'tied' })
+    const levels = f.run.design.layout.waleLevels.length
+    expect(f.model.parts.filter((p) => p.id.startsWith('wale-')).length).toBe(8 * levels * f.el.input.wale.count)
+    expect(f.model.parts.some((p) => p.id.startsWith('tie-'))).toBe(false)
+  })
+
+  it('L tied: the ties and their plates match the design', () => {
+    const f = footing({ lengthX: 4.5, lengthY: 4, shape: { kind: 'L', a: 4.5, b: 4, ta: 1.5, tb: 1.5, yoke: 'tied' }, support: 'tied' })
+    expect(f.model.parts.filter((p) => p.id.startsWith('tie-')).length).toBe(f.run.design.quantities.ties)
+    expect(line(f.lines, 'เหล็กประกับไทร์')!.qty).toBe(2 * f.run.design.quantities.ties)
   })
 })

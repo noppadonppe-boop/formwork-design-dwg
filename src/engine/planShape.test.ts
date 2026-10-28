@@ -1,9 +1,11 @@
 // Round, hexagonal and octagonal columns (planShape.ts + the shape paths of designColumn).
 import { describe, expect, it } from 'vitest'
 import { designColumn, type ColumnInput } from './column'
+import type { ComponentResult } from './design'
+import { DEFAULT_FOOTING, designFooting, type FootingInput } from './footing'
 import { DEFAULT_BRACE } from './design'
 import { getMaterial } from './materials'
-import { type ColumnShape, columnSection, plywoodBendRadius, polygonBox, polygonDims, polygonFaces, requiredTies } from './planShape'
+import { type ColumnShape, columnSection, plywoodBendRadius, polygonBox, polygonDims, polygonFaces, legTiesPerLevel, requiredTies } from './planShape'
 import { multiple, timber } from './sections'
 
 const base: ColumnInput = {
@@ -17,7 +19,7 @@ const base: ColumnInput = {
   tie: { enabled: true, tieId: 'tie-3/8', spans: 2 },
   brace: { ...DEFAULT_BRACE, heightM: 3.0, perSide: 2, sides: 4 },
 }
-const comp = (d: ReturnType<typeof designColumn>, key: string) => d.components.find((c) => c.key === key)
+const comp = (d: { components: ComponentResult[] }, key: string) => d.components.find((c) => c.key === key)
 
 describe('polygon geometry', () => {
   it('side a = F·tan(π/n), circumradius R = F / 2cos(π/n)', () => {
@@ -187,10 +189,11 @@ describe('L / T / U columns', () => {
     expect(d.quantities.plywoodArea).toBeCloseTo(3.2 * 3.5, 6)
   })
 
-  it('more ties along the legs split them and add their own rows', () => {
+  it('more ties split the legs and the corner spans of the core, each with its own row', () => {
     const d = designColumn({ ...L, tie: { ...L.tie, spans: 2 } })
-    expect(comp(d, 'tie')!.rows).toHaveLength(4)
-    expect(d.quantities.ties).toBe(d.layout.yokeLevels.length * 4)
+    // 2 at the inner corners, 1 along each leg, 1 across each of the 2 corner spans, 1 through each of the 2 leg ends
+    expect(comp(d, 'tie')!.rows).toHaveLength(8)
+    expect(d.quantities.ties).toBe(d.layout.yokeLevels.length * 8)
   })
 
   it('in a box of yokes: the rectangle of its box, one filler box', () => {
@@ -217,5 +220,57 @@ describe('L / T / U columns', () => {
     expect(d.quantities.yokes).toBe(d.layout.yokeLevels.length * 8 * 2)
     expect(comp(d, 'yoke')!.maxRatio).toBeLessThanOrEqual(1)
     expect(comp(d, 'tie')!.maxRatio).toBeLessThanOrEqual(1)
+  })
+})
+
+describe('footing shapes', () => {
+  const F0: FootingInput = { ...DEFAULT_FOOTING, lengthX: 4, lengthY: 4, height: 1.0 }
+
+  it('an explicit rectangle gives the same result as no shape', () => {
+    for (const support of ['cantilever', 'braced', 'tied'] as const) {
+      const a = designFooting({ ...F0, lengthY: 3, support })
+      const b = designFooting({ ...F0, lengthY: 3, support, shape: { kind: 'rect' } })
+      expect(JSON.stringify(b.components.map((c) => c.rows))).toBe(JSON.stringify(a.components.map((c) => c.rows)))
+      expect(b.quantities).toEqual(a.quantities)
+    }
+  })
+
+  it('round: form area πD·H, studs round the circle, no wales — tied falls back to braces at every stud', () => {
+    const d = designFooting({ ...F0, shape: { kind: 'circle' }, support: 'tied' })
+    expect(d.quantities.plywoodArea).toBeCloseTo(Math.PI * 4 * 1.0, 6)
+    expect(d.quantities.studs).toBe(Math.ceil((Math.PI * 400) / d.layout.studSpacing - 1e-9))
+    expect(d.quantities.waleLength).toBe(0)
+    expect(d.warnings.some((w) => w.includes('ฐานรากกลมไม่มีคานรับเคร่าตรง'))).toBe(true)
+    // 15 mm plywood bends to R ≥ 2.4 m, the footing's radius is 2.0 m
+    expect(d.warnings.some((w) => w.includes('ดัดโค้งที่รัศมี 2.00 ม. ไม่ได้'))).toBe(true)
+  })
+
+  it('octagon tied: a ring of wales along the faces, no ties', () => {
+    const d = designFooting({ ...F0, lengthX: 3, lengthY: 3, shape: { kind: 'polygon', n: 8 }, support: 'tied' })
+    const wale = comp(d, 'wale')!
+    expect(wale.rows[0].item).toContain('คานรับเคร่าวงแหวน 8 ด้าน')
+    expect(comp(d, 'tie')).toBeUndefined()
+    expect(d.quantities.ties).toBe(0)
+    expect(d.quantities.plywoodArea).toBeCloseTo(8 * polygonDims(8, 3).a * 1.0, 6)
+  })
+
+  it('L tied: wales along the faces with inner-corner ties and their plates', () => {
+    const shape = { kind: 'L', a: 4.5, b: 4, ta: 1.5, tb: 1.5, yoke: 'tied' } as const
+    const d = designFooting({ ...F0, lengthX: 4.5, lengthY: 4, shape, support: 'tied' })
+    const tie = comp(d, 'tie')!
+    const n = d.layout.legSpans!
+    expect(tie.rows.filter((r) => r.item.startsWith('ไทร์มุมใน'))).toHaveLength(2)
+    expect(d.quantities.ties).toBe(d.layout.waleLevels.length * legTiesPerLevel(shape, n))
+    expect(comp(d, 'wale')!.maxRatio).toBeLessThanOrEqual(1)
+    expect(tie.maxRatio).toBeLessThanOrEqual(1)
+    expect(d.layout.tiePlate).toBeDefined()
+    expect(d.quantities.plywoodArea).toBeCloseTo(2 * (4.5 + 4) * 1.0, 6)
+  })
+
+  it('advice lists one tied arrangement for an L, none for a round footing', () => {
+    const L = designFooting({ ...F0, lengthX: 4.5, lengthY: 4, shape: { kind: 'L', a: 4.5, b: 4, ta: 1.5, tb: 1.5, yoke: 'tied' } }, { advise: true })
+    expect(L.advice!.options.map((o) => o.key)).toEqual(['tied-none', 'cantilever', 'braced-wale', 'braced-stud'])
+    const C = designFooting({ ...F0, shape: { kind: 'circle' } }, { advise: true })
+    expect(C.advice!.options.map((o) => o.key)).toEqual(['cantilever', 'braced-stud'])
   })
 })

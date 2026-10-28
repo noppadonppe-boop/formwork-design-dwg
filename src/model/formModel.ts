@@ -13,6 +13,7 @@ import {
   legLayout,
   legOutline,
   legTies,
+  coreTies,
   type MaterialKind,
   polygonBox,
   polygonDims,
@@ -121,6 +122,9 @@ export function regularPlan(n: number, R: number): [number, number][] {
     return [R * Math.cos(a), R * Math.sin(a)] as [number, number]
   })
 }
+
+/** Plan of a circle of radius r as an n-gon of the same area (so concrete volumes come out exact). */
+export const roundPlan = (n: number, r: number) => regularPlan(n, r * Math.sqrt((2 * Math.PI) / (n * Math.sin((2 * Math.PI) / n))))
 
 export function bounds(parts: Part[]): FormModel['bounds'] {
   const min: Vec3 = [Infinity, Infinity, Infinity]
@@ -382,7 +386,7 @@ function shapedColumnModel(inp: ColumnInput, d: ColumnDesign, shape: Exclude<Col
 
   if (shape.kind === 'circle') {
     const r = F / 2
-    parts.push({ id: 'concrete', group: 'concrete', kind: 'concrete', shape: 'box', center: [0, H / 2, 0], size: [F, H, F], plan: regularPlan(36, r) })
+    parts.push({ id: 'concrete', group: 'concrete', kind: 'concrete', shape: 'box', center: [0, H / 2, 0], size: [F, H, F], plan: roundPlan(36, r) })
     if (shape.system === 'stave') {
       const N = d.layout.staves ?? 24
       const w = 2 * (r + ply / 2) * Math.tan(Math.PI / N)
@@ -534,15 +538,19 @@ function shapedColumnModel(inp: ColumnInput, d: ColumnDesign, shape: Exclude<Col
             parts.push(bolt(`bolt-${i}-${k}`, [c[0], y - 0.02, c[1]], [c[0], y + 2 * pairH + 0.02, c[1]]))
           }
         })
-        // ties through every leg at the inner corner(s), more along the legs
-        legLayout(shape).legs.forEach((g, gi) =>
-          legTies(g, Math.max(1, Math.round(inp.tie.spans)), Math.min(o + yd, g.L / 3)).forEach((u, ti) => {
-            const p0: [number, number] = [g.o[0] - bx / 2 + g.dir[0] * u, g.o[1] - bz / 2 + g.dir[1] * u]
-            const xt = o + yd + 0.05
-            const lift = Math.abs(g.across[0]) < 1e-9 ? pairH : 0
-            parts.push(bolt(`tie-${i}-${gi}-${ti}`, [p0[0] - g.across[0] * xt, y + lift, p0[1] - g.across[1] * xt], [p0[0] + g.across[0] * (g.t + xt), y + lift, p0[1] + g.across[1] * (g.t + xt)]))
-          }),
-        )
+        // ties through every leg at the inner corner(s), along the legs and across the core
+        const nSp = Math.max(1, Math.round(inp.tie.spans))
+        const lay = legLayout(shape)
+        const runs = [
+          ...lay.legs.flatMap((g) => legTies(g, nSp, Math.min(o + yd, g.L / 3)).map((u) => ({ o: g.o, dir: g.dir, across: g.across, len: g.t, u }))),
+          ...[...lay.core, ...lay.ends].flatMap((k) => coreTies(k, nSp).map((u) => ({ o: k.o, dir: k.dir, across: k.across, len: k.len, u }))),
+        ]
+        runs.forEach((g, ti) => {
+          const p0: [number, number] = [g.o[0] - bx / 2 + g.dir[0] * g.u, g.o[1] - bz / 2 + g.dir[1] * g.u]
+          const xt = o + yd + 0.05
+          const lift = Math.abs(g.across[0]) < 1e-9 ? pairH : 0
+          parts.push(bolt(`tie-${i}-${ti}`, [p0[0] - g.across[0] * xt, y + lift, p0[1] - g.across[1] * xt], [p0[0] + g.across[0] * (g.len + xt), y + lift, p0[1] + g.across[1] * (g.len + xt)]))
+        })
       })
       xOut = bx / 2 + o + yd
       zOut = bz / 2 + o + yd

@@ -7,7 +7,7 @@ import { fmtVal } from '@/components/design/ResultsPanel'
 import type { AnyDesign } from '@/data/elements'
 import { elementHeight, elementSize, QUANTITY_LABEL, TYPE_LABEL } from '@/data/elements'
 import type { Criteria, ElementData, Project } from '@/data/types'
-import { beamBracing, beamCrossJoist, beamHasRunners, beamRunnerFlat, beamStringer, columnShapeOf, columnShapeSystem, isLegShape, columnSizeText, columnTieSpans, type ComponentResult, footingSystemLabel, getMaterial, getSection, getTie, type ShoreParams, type Status, type Trace } from '@/engine'
+import { beamBracing, beamCrossJoist, beamHasRunners, beamRunnerFlat, beamStringer, columnShapeOf, columnShapeSystem, footingShapeOf, isLegShape, columnSizeText, columnTieSpans, type ComponentResult, footingSystemLabel, getMaterial, getSection, getTie, type ShoreParams, type Status, type Trace } from '@/engine'
 import { Drawing } from './Drawing'
 import { elementViews } from './views'
 
@@ -227,7 +227,7 @@ function criteriaRows(el: ElementData, run: AnyDesign): [string, ReactNode][] {
 
 function tieNote(el: ElementData): string {
   const id = el.type === 'wall' || el.type === 'column' || el.type === 'footing' || (el.type === 'beam' && el.input.tie.enabled) ? el.input.tie.tieId : undefined
-  if (!id || (el.type === 'column' && !columnBolted(el.input)) || (el.type === 'footing' && (el.input.support !== 'tied' || el.input.tie.layout === 'none'))) return ''
+  if (!id || (el.type === 'column' && !columnBolted(el.input)) || (el.type === 'footing' && (el.input.support !== 'tied' || (footingShapeOf(el.input).kind === 'rect' ? el.input.tie.layout === 'none' : !isLegShape(footingShapeOf(el.input)))))) return ''
   const t = getTie(id)
   return ` · Form tie: ${t.name} (SWL ${t.swl.toLocaleString()} กก.)`
 }

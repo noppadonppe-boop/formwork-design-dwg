@@ -6,6 +6,10 @@
 //   tied       — studs continuous over wales running round the footing (Ex 10.2, 10.3). The wales work
 //                like column yokes (§9.4, Ex 9.1): bending + axial tension from the perpendicular side,
 //                spanning corner to corner (no ties) or continuous over ties across one or both directions.
+// Plan shapes (planShape.ts): the studs, braces and stakes work per metre of face whatever the shape; round and
+// polygonal footings keep D / F in lengthX = lengthY. Tied wales: a polygon's ring along its faces (M = w·a²/8,
+// T = w·F/2, no ties); an L/T/U's wales along the faces with ties through each leg at the inner corners (as the
+// L/T/U column). A round footing is formed in plywood bent to its radius on cantilever or braced studs only.
 import { type AdviceOption, component, type ComponentResult, DEFAULT_BRACE, type DesignAdvice, type DesignResult, governingLabel, pickModule, type PressureParams, statusOf, STUD_MODULES, summarize, TIE_MODULES } from './design'
 import { getMaterial, getTie, type Material } from './materials'
 import { BEAM_COEF, type CheckRow, checkBeam, columnCapacity, combinedTensionBending, type DeflectionCriteria, maxSpan, type MemberInput, type Support } from './member'
@@ -14,6 +18,8 @@ import { getSection, multiple, type Section } from './sections'
 import { type DeckSheathing, deckSection, deckThicknessM } from './slab'
 import { Trace } from './trace'
 import { floorTo, fmt, pressureToLineLoad } from './units'
+import { checkLegYokes, checkRingYokes } from './column'
+import { type FootingShape, footingPlan, footingShapeOf, isLegShape, legLayout, legTieForces, legTiesPerLevel, plywoodBendRadius, polygonDims, SHAPE_NAME, studsOnFaces } from './planShape'
 import { designWall } from './wall'
 
 export type FootingSupport = 'cantilever' | 'braced' | 'tied'
@@ -31,9 +37,11 @@ export type FootingWaleCorner = 'cross' | 'butt'
 export type FootingWaleShift = 'auto' | 'down' | 'up'
 
 export interface FootingInput {
-  /** plan size, m */
+  /** plan size, m — round: D; hexagon / octagon: F (lengthY = lengthX); L/T/U: its box */
   lengthX: number
   lengthY: number
+  /** plan shape; absent = rectangle lengthX × lengthY */
+  shape?: FootingShape
   /** footing depth = side form height, m */
   height: number
   pressure: PressureParams
@@ -76,6 +84,8 @@ export interface FootingLayout {
   waleShift?: number
   /** steel bearing plate at each tie end: width along the wale × height, cm; thickness, mm */
   tiePlate?: { wCm: number; hCm: number; tMm: number }
+  /** L/T/U tied: spans each leg is split into by its ties (1 = inner-corner ties only) */
+  legSpans?: number
 }
 
 export interface FootingDesign extends DesignResult {
@@ -102,6 +112,9 @@ export const DEFAULT_FOOTING: FootingInput = {
 export const FOOTING_SUPPORT_LABEL: Record<FootingSupport, string> = { cantilever: 'เคร่าปลายยื่น (ตอกลงดิน)', braced: 'ค้ำยันทแยงลงหลัก', tied: 'คานรับเคร่ารอบฐาน (+ Form tie)' }
 /** The arrangement actually designed, in full — for reports and drawings (the support label alone is generic). */
 export function footingSystemLabel(inp: FootingInput, d?: FootingDesign): string {
+  const shape = footingShapeOf(inp)
+  if (inp.support === 'tied' && shape.kind === 'polygon') return 'คานรับเคร่ารัดรอบฐาน (วงแหวนตามรูป ไม่ใช้ไทร์)'
+  if (inp.support === 'tied' && isLegShape(shape)) return `คานรับเคร่าตามหน้า + Form tie มุมใน${(d?.layout.legSpans ?? 1) > 1 ? ` และกลางขา` : ''}`
   if (inp.support === 'cantilever') return 'เคร่าปลายยื่น (ตอกลงดิน)'
   if (inp.support === 'braced') return inp.brace.at === 'wale' ? 'ค้ำยันทแยงผ่านคานรับเคร่าลงหลัก' : 'ค้ำยันทแยงทุกเคร่าลงหลัก'
   const lay = d?.layout.tieLayout
@@ -217,15 +230,28 @@ export function tiePlate(T: number, wale: Section, mat: Material, count: 1 | 2, 
 }
 
 export function designFooting(inp: FootingInput, opts: { advise?: boolean } = {}): FootingDesign {
+  const shape = footingShapeOf(inp)
+  const plan = footingPlan(inp)
+  const rect = shape.kind === 'rect'
+  const warnings: string[] = []
+  // a round form has no straight wales: cantilever studs, or braces at every stud
+  if (plan.round && (inp.support === 'tied' || (inp.support === 'braced' && inp.brace.at === 'wale'))) {
+    warnings.push('ฐานรากกลมไม่มีคานรับเคร่าตรง ใช้ค้ำยันทุกเคร่าแทน')
+    inp = { ...inp, support: 'braced', brace: { ...inp.brace, at: 'stud' } }
+  }
+  if (plan.round && inp.sheathing.type === 'plywood') {
+    const need = plywoodBendRadius(inp.sheathing.thicknessMm)
+    const R = inp.lengthX / 2
+    if (R < need) warnings.push(`ไม้อัด ${inp.sheathing.thicknessMm} มม. ดัดโค้งที่รัศมี ${R.toFixed(2)} ม. ไม่ได้ (ต้อง ≥ ${need} ม.) — ใช้ไม้อัดบางลงซ้อน 2 ชั้น หรือไม้กระดานแนวตั้ง`)
+  }
   const H = inp.height
-  const d = Math.min(inp.lengthX, inp.lengthY)
+  const d = plan.d
   const pres = lateralPressure({ ...inp.pressure, element: 'wall', H, d })
   const p = pres.Pmax
   const defl = inp.deflection
   const timberShear = inp.checkTimberShear ?? true
   const shearOn = (materialId: string) => getMaterial(materialId).kind === 'steel' || timberShear
   const components: ComponentResult[] = []
-  const warnings: string[] = []
 
   // 1) sheathing → stud spacing
   const tSh = new Trace()
@@ -253,13 +279,21 @@ export function designFooting(inp: FootingInput, opts: { advise?: boolean } = {}
   let stakes = 0
   let waleLength = 0
   let ties = 0
-  const nStuds = studsAround(inp.lengthX, inp.lengthY, a)
+  const nStuds = studsOnFaces(plan.faces, a, plan.round)
   const wSt = pressureToLineLoad(p, a / 100)
   // wales round the footing: corner detail, short-side offset and the drawn length
   const corner: FootingWaleCorner = inp.wale.corner ?? 'cross'
   const placeWales = (levels: number[]) => {
     const lap = deckThicknessM(inp.sheathing) + stSec.H / 100
     const wd = getSection(inp.wale.sectionId).H / 100
+    if (!rect) {
+      // along every face, butted at the corners
+      waleLength = plan.faces.reduce((t, f) => t + f + 2 * (lap + wd), 0) * inp.wale.count * levels.length
+      layout.waleCorner = 'butt'
+      layout.waleShift = 0
+      warnings.push('มุมคานรับเคร่า: คานแต่ละหน้าต่อชนที่มุม ยึดด้วยไม้ประกับ/เหล็กประกับและสลักเกลียว')
+      return
+    }
     const long = Math.max(inp.lengthX, inp.lengthY)
     const short = Math.min(inp.lengthX, inp.lengthY)
     const run = (L: number) => L + 2 * (lap + wd + 0.1)
@@ -383,7 +417,7 @@ export function designFooting(inp: FootingInput, opts: { advise?: boolean } = {}
       const cap = capAt(y, tb)
       brRows.push({ item: `ค้ำยันระดับ +${y.toFixed(2)} ม.`, demand: F, capacity: cap, ratio: F / cap, unit: 'กก.', ref: 'สมการ 5.15' })
     })
-    const nBraceLines = viaWale ? studsAround(inp.lengthX, inp.lengthY, along) : nStuds
+    const nBraceLines = viaWale ? studsOnFaces(plan.faces, along, plan.round) : nStuds
     components.push(component('brace', 'ค้ำยันทแยง (Braces)', `${bs.label} (${bm.name}) ${viaWale ? `@${along} ซม. ตามคานรับเคร่า` : 'ทุกเคร่า'} ${levels.length} ระดับ มุม ${inp.brace.angleDeg}°`, brRows, tb))
     braces = nBraceLines * levels.length
 
@@ -405,7 +439,7 @@ export function designFooting(inp: FootingInput, opts: { advise?: boolean } = {}
     const w = designWall({
       thickness: d,
       height: H,
-      length: 2 * (inp.lengthX + inp.lengthY),
+      length: plan.perimeter,
       pressure: inp.pressure,
       sheathing: { materialId: 'ply-apa1', thicknessMm: 15 },
       stud: { ...inp.stud, spacingCm: a },
@@ -420,88 +454,148 @@ export function designFooting(inp: FootingInput, opts: { advise?: boolean } = {}
     components.push(studComp)
     const s0 = w.layout.waleSpacing
 
-    // 3) wales round the footing (§9.4 yokes) — pick the tie layout, tie spacing and, like column
-    //    yokes, close the wales up in 5 cm steps (down to 25 cm) until they pass
-    const longCm = Math.max(inp.lengthX, inp.lengthY) * 100
-    const shortCm = Math.min(inp.lengthX, inp.lengthY) * 100
-    const tieMax = w.layout.tieSpacing // wale continuous over ties + tie capacity (wall method)
-    const spacings = inp.tie.spacingCm !== undefined ? [inp.tie.spacingCm] : [...TIE_MODULES.filter((m) => m <= tieMax).reverse(), ...(TIE_MODULES.some((m) => m <= tieMax) ? [] : [tieMax])]
     const waleSteps: number[] = []
     if (inp.wale.spacingCm !== undefined) waleSteps.push(s0)
     else for (let x = s0; x >= Math.min(25, s0); x -= 5) waleSteps.push(x)
-    const best = (lay: Ring['layout'], closeUp = true): Ring & { s: number } => {
-      for (const s of closeUp ? waleSteps : [s0])
-        for (const sp of lay === 'none' ? [undefined] : spacings) {
-          const r = checkRing(p, s, longCm, shortCm, lay, sp, waleMember, defl)
-          if (r.ratio <= 1) return { ...r, s }
-        }
-      return { ...checkRing(p, s0, longCm, shortCm, lay, lay === 'none' ? undefined : spacings[0], waleMember, defl), s: s0 }
-    }
-    const want = inp.tie.layout ?? 'auto'
-    let pick: Ring & { s: number }
-    if (want === 'auto') {
-      // no ties (closing the wales up if needed), then ties at the stud-governed wale spacing, then both
-      const tries = [best('none'), best('short', false), best('both', false), best('short'), best('both')]
-      pick = tries.find((r) => r.ratio <= 1) ?? tries.reduce((x, y) => (y.ratio < x.ratio ? y : x))
-    } else pick = best(want)
-    const s = pick.s
-    const levels: number[] = []
-    for (let z = inp.wale.bottomOffsetM; z < H - 0.05; z += s / 100) levels.push(Math.round(z * 1000) / 1000)
-    layout.waleLevels = levels
-    layout.waleSpacing = s
-    if (s !== s0 && studComp.spacing) studComp.spacing = { ...studComp.spacing, value: s }
-
-    const tWa = new Trace()
-    if (s !== s0) tWa.add({ label: 'ลดระยะคานรับเคร่าจนคานรับเคร่าผ่าน (แบบคานรัดเสา §9.4)', expr: `${s0} → ${s}`, value: s, unit: 'ซม.' })
-    tWa.add({ label: `การวางไทร์: ${FOOTING_TIE_LAYOUT_LABEL[pick.layout]}` })
-    const rc = checkRing(p, s, longCm, shortCm, pick.layout, pick.tieSp, waleMember, defl, tWa)
-    tWa.add({ label: 'แรงดึงที่รอยต่อมุมคานรับเคร่า', value: rc.corner, unit: 'กก.', ref: 'รูป 8.11' })
-    components.push(
-      component(
-        'wale',
-        'คานรับเคร่ารอบฐาน (Wales)',
-        `${waleMember.section.label} (${waleMember.material.name}) @${s} ซม. · ${FOOTING_TIE_LAYOUT_LABEL[pick.layout]}`,
-        rc.rows,
-        tWa,
-        pick.layout === 'none'
-          ? undefined
-          : { label: 'ระยะไทร์', value: pick.tieSp!, max: tieMax, governing: 'ดัด + ดึง และกำลังไทร์', fixed: inp.tie.spacingCm !== undefined },
-      ),
-    )
-    warnings.push(`ยึดมุมคานรับเคร่าให้รับแรงดึงได้ไม่น้อยกว่า ${fmt(rc.corner)} กก. ต่อมุมต่อระดับ (รูป 8.11)`)
-
-    // 4) form ties through the long faces (and the short faces when both ways)
-    if (pick.layout !== 'none') {
+    if (shape.kind === 'polygon') {
+      // 3) a ring of wales along the faces, corner to corner: M = w·a²/8, T = w·F/2 — no ties
+      const aCm = polygonDims(shape.n, inp.lengthX).a * 100
+      const fCm = inp.lengthX * 100
+      const ring = (sp: number, t?: Trace) => checkRingYokes(p, sp, aCm, fCm, shape.n, waleMember, t, defl, 'คานรับเคร่า')
+      const s = waleSteps.find((x) => ring(x).ratio <= 1) ?? waleSteps[waleSteps.length - 1]
+      const levels: number[] = []
+      for (let z = inp.wale.bottomOffsetM; z < H - 0.05; z += s / 100) levels.push(Math.round(z * 1000) / 1000)
+      layout.waleLevels = levels
+      layout.waleSpacing = s
+      if (s !== s0 && studComp.spacing) studComp.spacing = { ...studComp.spacing, value: s }
+      const tWa = new Trace()
+      if (s !== s0) tWa.add({ label: 'ลดระยะคานรับเคร่าจนคานรับเคร่าผ่าน (แบบคานรัดเสา §9.4)', expr: `${s0} → ${s}`, value: s, unit: 'ซม.' })
+      const rr = ring(s, tWa)
+      components.push(component('wale', 'คานรับเคร่ารอบฐาน (Wales)', `${waleMember.section.label} (${waleMember.material.name}) @${s} ซม. · วงแหวน${SHAPE_NAME[shape.n]} ไม่ใช้ไทร์`, rr.rows, tWa))
+      warnings.push(`ยึดมุมคานรับเคร่าให้รับแรงดึงได้ไม่น้อยกว่า ${fmt((pressureToLineLoad(p, s / 100) * fCm) / 2)} กก. ต่อมุมต่อระดับ`)
+      layout.tieLayout = 'none'
+      placeWales(levels)
+    } else if (isLegShape(shape)) {
+      // 3) wales along the faces of an L/T/U, ties through every leg at the inner corners (as the L/T/U column):
+      //    the fewest ties along the legs that pass, closing the wales up if they do not
+      const lay = legLayout(shape)
       const tie = getTie(inp.tie.tieId)
+      const forces = (sp: number, n: number) => legTieForces(lay, n, p, sp)
+      const ok = (sp: number, n: number) => checkLegYokes(p, sp, lay, n, waleMember, undefined, defl, 'คานรับเคร่า').ratio <= 1 && Math.max(...forces(sp, n).map((f) => f.T)) <= tie.swl
+      let s = s0
+      let n = 1
+      search: for (const x of waleSteps)
+        for (const k of [1, 2, 3, 4])
+          if (ok(x, k)) {
+            s = x
+            n = k
+            break search
+          }
+      const levels: number[] = []
+      for (let z = inp.wale.bottomOffsetM; z < H - 0.05; z += s / 100) levels.push(Math.round(z * 1000) / 1000)
+      layout.waleLevels = levels
+      layout.waleSpacing = s
+      layout.legSpans = n
+      if (s !== s0 && studComp.spacing) studComp.spacing = { ...studComp.spacing, value: s }
+      const tWa = new Trace()
+      if (s !== s0) tWa.add({ label: 'ลดระยะคานรับเคร่าจนคานรับเคร่าผ่าน (แบบคานรัดเสา §9.4)', expr: `${s0} → ${s}`, value: s, unit: 'ซม.' })
+      const rl = checkLegYokes(p, s, lay, n, waleMember, tWa, defl, 'คานรับเคร่า')
+      components.push(component('wale', 'คานรับเคร่ารอบฐาน (Wales)', `${waleMember.section.label} (${waleMember.material.name}) @${s} ซม. · ตามหน้า${n > 1 ? ` แบ่งขาละ ${n} ช่วง` : ''}`, rl.rows, tWa))
+      // 4) the ties and their bearing plates
       const tTi = new Trace()
-      const rows: CheckRow[] = []
-      const TL = tTi.add({ label: 'ไทร์ผ่านด้านยาว: T = P × ระยะคานรับเคร่า × ระยะไทร์', expr: `${fmt(p)} × ${(s / 100).toFixed(2)} × ${(rc.segL / 100).toFixed(2)}`, value: (p * s * rc.segL) / 1e4, unit: 'กก.', ref: 'รูป 8.4' })
-      rows.push({ item: 'แรงดึง (ไทร์ผ่านด้านยาว)', demand: TL, capacity: tie.swl, ratio: TL / tie.swl, unit: 'กก.', ref: tie.ref })
-      let T = TL
-      if (pick.layout === 'both') {
-        const TS = tTi.add({ label: 'ไทร์ผ่านด้านสั้น', expr: `${fmt(p)} × ${(s / 100).toFixed(2)} × ${(rc.segS / 100).toFixed(2)}`, value: (p * s * rc.segS) / 1e4, unit: 'กก.' })
-        rows.push({ item: 'แรงดึง (ไทร์ผ่านด้านสั้น)', demand: TS, capacity: tie.swl, ratio: TS / tie.swl, unit: 'กก.', ref: tie.ref })
-        T = Math.max(T, TS)
-      }
-      // steel bearing plate at each tie end, across the wale set
-      const plate = tiePlate(T, getSection(inp.wale.sectionId), waleMember.material, inp.wale.count, tTi)
+      const rows: CheckRow[] = forces(s, n).map((f) => {
+        const what = f.kind === 'root' ? 'ไทร์มุมใน' : f.kind === 'leg' ? 'ไทร์กลางขา' : f.kind === 'core' ? 'ไทร์ผ่านมุม' : 'ไทร์ผ่านปลายขา'
+        const T = tTi.add({ label: `แรงดึง${what} (${f.name})`, value: f.T, unit: 'กก.' })
+        return { item: `${what} (${f.name})`, demand: T, capacity: tie.swl, ratio: T / tie.swl, unit: 'กก.', ref: tie.ref }
+      })
+      const plate = tiePlate(Math.max(...rows.map((r) => r.demand)), getSection(inp.wale.sectionId), waleMember.material, inp.wale.count, tTi)
       rows.push(...plate.rows)
       layout.tiePlate = { wCm: plate.wCm, hCm: plate.hCm, tMm: plate.tMm }
-      components.push(component('tie', 'เหล็กยึดรั้ง (Form tie) + เหล็กประกับ', `${tie.name} SWL ${fmt(tie.swl)} กก. · ${rc.nL + rc.nS} ตัว/ระดับ · เหล็กประกับ ${plate.wCm}×${plate.hCm} ซม. หนา ${plate.tMm} มม.`, rows, tTi))
+      const perLevel = legTiesPerLevel(shape, n)
+      components.push(component('tie', 'เหล็กยึดรั้ง (Form tie) + เหล็กประกับ', `${tie.name} SWL ${fmt(tie.swl)} กก. · ไทร์ ${perLevel} ตัว/ระดับ · เหล็กประกับ ${plate.wCm}×${plate.hCm} ซม. หนา ${plate.tMm} มม.`, rows, tTi))
+      placeWales(levels)
+      ties = levels.length * perLevel
+    } else {
+      // 3) wales round the footing (§9.4 yokes) — pick the tie layout, tie spacing and, like column
+      //    yokes, close the wales up in 5 cm steps (down to 25 cm) until they pass
+      const longCm = Math.max(inp.lengthX, inp.lengthY) * 100
+      const shortCm = Math.min(inp.lengthX, inp.lengthY) * 100
+      const tieMax = w.layout.tieSpacing // wale continuous over ties + tie capacity (wall method)
+      const spacings = inp.tie.spacingCm !== undefined ? [inp.tie.spacingCm] : [...TIE_MODULES.filter((m) => m <= tieMax).reverse(), ...(TIE_MODULES.some((m) => m <= tieMax) ? [] : [tieMax])]
+      const best = (lay: Ring['layout'], closeUp = true): Ring & { s: number } => {
+        for (const s of closeUp ? waleSteps : [s0])
+          for (const sp of lay === 'none' ? [undefined] : spacings) {
+            const r = checkRing(p, s, longCm, shortCm, lay, sp, waleMember, defl)
+            if (r.ratio <= 1) return { ...r, s }
+          }
+        return { ...checkRing(p, s0, longCm, shortCm, lay, lay === 'none' ? undefined : spacings[0], waleMember, defl), s: s0 }
+      }
+      const want = inp.tie.layout ?? 'auto'
+      let pick: Ring & { s: number }
+      if (want === 'auto') {
+        // no ties (closing the wales up if needed), then ties at the stud-governed wale spacing, then both
+        const tries = [best('none'), best('short', false), best('both', false), best('short'), best('both')]
+        pick = tries.find((r) => r.ratio <= 1) ?? tries.reduce((x, y) => (y.ratio < x.ratio ? y : x))
+      } else pick = best(want)
+      const s = pick.s
+      const levels: number[] = []
+      for (let z = inp.wale.bottomOffsetM; z < H - 0.05; z += s / 100) levels.push(Math.round(z * 1000) / 1000)
+      layout.waleLevels = levels
+      layout.waleSpacing = s
+      if (s !== s0 && studComp.spacing) studComp.spacing = { ...studComp.spacing, value: s }
+
+      const tWa = new Trace()
+      if (s !== s0) tWa.add({ label: 'ลดระยะคานรับเคร่าจนคานรับเคร่าผ่าน (แบบคานรัดเสา §9.4)', expr: `${s0} → ${s}`, value: s, unit: 'ซม.' })
+      tWa.add({ label: `การวางไทร์: ${FOOTING_TIE_LAYOUT_LABEL[pick.layout]}` })
+      const rc = checkRing(p, s, longCm, shortCm, pick.layout, pick.tieSp, waleMember, defl, tWa)
+      tWa.add({ label: 'แรงดึงที่รอยต่อมุมคานรับเคร่า', value: rc.corner, unit: 'กก.', ref: 'รูป 8.11' })
+      components.push(
+        component(
+          'wale',
+          'คานรับเคร่ารอบฐาน (Wales)',
+          `${waleMember.section.label} (${waleMember.material.name}) @${s} ซม. · ${FOOTING_TIE_LAYOUT_LABEL[pick.layout]}`,
+          rc.rows,
+          tWa,
+          pick.layout === 'none'
+            ? undefined
+            : { label: 'ระยะไทร์', value: pick.tieSp!, max: tieMax, governing: 'ดัด + ดึง และกำลังไทร์', fixed: inp.tie.spacingCm !== undefined },
+        ),
+      )
+      warnings.push(`ยึดมุมคานรับเคร่าให้รับแรงดึงได้ไม่น้อยกว่า ${fmt(rc.corner)} กก. ต่อมุมต่อระดับ (รูป 8.11)`)
+
+      // 4) form ties through the long faces (and the short faces when both ways)
+      if (pick.layout !== 'none') {
+        const tie = getTie(inp.tie.tieId)
+        const tTi = new Trace()
+        const rows: CheckRow[] = []
+        const TL = tTi.add({ label: 'ไทร์ผ่านด้านยาว: T = P × ระยะคานรับเคร่า × ระยะไทร์', expr: `${fmt(p)} × ${(s / 100).toFixed(2)} × ${(rc.segL / 100).toFixed(2)}`, value: (p * s * rc.segL) / 1e4, unit: 'กก.', ref: 'รูป 8.4' })
+        rows.push({ item: 'แรงดึง (ไทร์ผ่านด้านยาว)', demand: TL, capacity: tie.swl, ratio: TL / tie.swl, unit: 'กก.', ref: tie.ref })
+        let T = TL
+        if (pick.layout === 'both') {
+          const TS = tTi.add({ label: 'ไทร์ผ่านด้านสั้น', expr: `${fmt(p)} × ${(s / 100).toFixed(2)} × ${(rc.segS / 100).toFixed(2)}`, value: (p * s * rc.segS) / 1e4, unit: 'กก.' })
+          rows.push({ item: 'แรงดึง (ไทร์ผ่านด้านสั้น)', demand: TS, capacity: tie.swl, ratio: TS / tie.swl, unit: 'กก.', ref: tie.ref })
+          T = Math.max(T, TS)
+        }
+        // steel bearing plate at each tie end, across the wale set
+        const plate = tiePlate(T, getSection(inp.wale.sectionId), waleMember.material, inp.wale.count, tTi)
+        rows.push(...plate.rows)
+        layout.tiePlate = { wCm: plate.wCm, hCm: plate.hCm, tMm: plate.tMm }
+        components.push(component('tie', 'เหล็กยึดรั้ง (Form tie) + เหล็กประกับ', `${tie.name} SWL ${fmt(tie.swl)} กก. · ${rc.nL + rc.nS} ตัว/ระดับ · เหล็กประกับ ${plate.wCm}×${plate.hCm} ซม. หนา ${plate.tMm} มม.`, rows, tTi))
+      }
+      layout.tieLayout = pick.layout
+      layout.tieSpacing = pick.tieSp
+      layout.tiesLong = rc.nL
+      layout.tiesShort = rc.nS
+      placeWales(levels)
+      ties = levels.length * (rc.nL + rc.nS)
     }
-    layout.tieLayout = pick.layout
-    layout.tieSpacing = pick.tieSp
-    layout.tiesLong = rc.nL
-    layout.tiesShort = rc.nS
-    placeWales(levels)
-    ties = levels.length * (rc.nL + rc.nS)
   }
 
   const design: FootingDesign = {
     ...summarize(pres, components, warnings),
     layout,
     quantities: {
-      plywoodArea: 2 * (inp.lengthX + inp.lengthY) * H,
+      plywoodArea: plan.perimeter * H,
       studs: nStuds,
       studLength: nStuds * (H + (inp.support === 'cantilever' ? inp.stake.embedM : 0.1)),
       braces,
@@ -537,7 +631,7 @@ export const footingVariant = (key: string) => VARIANTS.find((v) => v.key === ke
 
 /** Key of the arrangement a design actually uses. */
 export function footingVariantKey(inp: FootingInput, d: FootingDesign): string {
-  if (inp.support === 'tied') return `tied-${d.layout.tieLayout ?? 'short'}`
+  if (inp.support === 'tied') return footingShapeOf(inp).kind === 'rect' ? `tied-${d.layout.tieLayout ?? 'short'}` : 'tied-none'
   if (inp.support === 'braced') return `braced-${inp.brace.at ?? 'stud'}`
   return 'cantilever'
 }
@@ -549,7 +643,12 @@ export function footingVariantKey(inp: FootingInput, d: FootingDesign): string {
 export function footingAdvice(inp: FootingInput, current: FootingDesign): DesignAdvice {
   const soft = inp.soilBearing < SOFT_SOIL
   const cur = footingVariantKey(inp, current)
-  const runs = VARIANTS.map((v) => ({ v, d: v.key === cur ? current : designFooting(v.patch(inp)) }))
+  // other shapes: one tied arrangement (a polygon's ring, an L/T/U's inner-corner ties); none for a round footing
+  const shape = footingShapeOf(inp)
+  const variants = VARIANTS.filter((v) => shape.kind === 'rect' || (shape.kind === 'circle' ? v.key === 'cantilever' || v.key === 'braced-stud' : v.key !== 'tied-short' && v.key !== 'tied-both')).map((v) =>
+    v.key === 'tied-none' && shape.kind !== 'rect' ? { ...v, label: shape.kind === 'polygon' ? 'คานรับเคร่ารัดรอบ (วงแหวนตามรูป)' : 'คานรับเคร่าตามหน้า + ไทร์มุมใน' } : v,
+  )
+  const runs = variants.map((v) => ({ v, d: v.key === cur ? current : designFooting(v.patch(inp)) }))
   const usable = (r: (typeof runs)[number]) => r.d.maxRatio <= 1 && !(r.v.soil && soft) && !(r.v.key === 'cantilever' && inp.height > 0.6)
   const rec = runs.find(usable)
   const options: AdviceOption[] = runs.map(({ v, d }) => {
@@ -567,7 +666,9 @@ export function footingAdvice(inp: FootingInput, current: FootingDesign): Design
 
   const by = (k: string) => runs.find((r) => r.v.key === k)!.d
   const summary: string[] = []
-  if (by('tied-none').maxRatio <= 1) summary.push(`ไม่จำเป็นต้องใช้ Form tie — คานรับเคร่ารัดรอบฐานรับแรงดันได้เอง (ratio ${by('tied-none').maxRatio.toFixed(2)})`)
+  if (shape.kind !== 'rect') {
+    if (shape.kind !== 'circle') summary.push(`${variants.find((v) => v.key === 'tied-none')!.label}: ratio ${by('tied-none').maxRatio.toFixed(2)}`)
+  } else if (by('tied-none').maxRatio <= 1) summary.push(`ไม่จำเป็นต้องใช้ Form tie — คานรับเคร่ารัดรอบฐานรับแรงดันได้เอง (ratio ${by('tied-none').maxRatio.toFixed(2)})`)
   else if (by('tied-short').maxRatio <= 1) summary.push(`ถ้าใช้คานรับเคร่ารอบฐาน ต้องใช้ Form tie ขวางด้านสั้น ${by('tied-short').quantities.ties} ตัว (คานรัดรอบอย่างเดียว ratio ${by('tied-none').maxRatio.toFixed(2)} ไม่ผ่าน)`)
   else if (by('tied-both').maxRatio <= 1) summary.push(`ถ้าใช้คานรับเคร่ารอบฐาน ต้องใช้ Form tie ทั้งสองทิศทาง ${by('tied-both').quantities.ties} ตัว`)
   else summary.push('คานรับเคร่ารอบฐานยังไม่ผ่านแม้ใช้ไทร์สองทิศทาง — เพิ่มขนาดคานรับเคร่า/ใช้คานคู่ หรือใช้ไทร์ที่รับแรงได้มากขึ้น')

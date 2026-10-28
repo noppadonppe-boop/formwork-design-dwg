@@ -915,7 +915,7 @@ export function ManualPage() {
                 ['กลม', 'ท่อกระดาษ', 'แรงดัน ≤ ค่าที่ผู้ผลิตรับรอง'],
                 ['หก/แปดเหลี่ยม', 'กรอบคานรัดสี่เหลี่ยม + ไม้อุดมุม (ค่าเริ่มต้น)', 'เหมือนเสาสี่เหลี่ยมขนาดเท่ากรอบ (แปดเหลี่ยม F × F, หกเหลี่ยม 2R × F) ใช้ไทร์ได้'],
                 ['หก/แปดเหลี่ยม', 'คานรัดวงแหวนตามรูป', 'แต่ละด้านช่วง a: M = wa²/8 ร่วมกับแรงดึง T = wF/2 · ไม่ใช้ไทร์'],
-                ['ตัว L / T / U', 'คานรัดตามทุกหน้า + Form tie ที่มุมใน (ค่าเริ่มต้น)', 'แยกเป็นขาสี่เหลี่ยม แต่ละขาเหมือนเสาสี่เหลี่ยมที่โคนยึดด้วยไทร์ · ไทร์มุมในบังคับ L 2, T 3, U 4 แถว · แบ่งขาด้วยไทร์เพิ่มได้ · ตัว U ตรวจช่องในว่าวางแบบในสองฝั่งได้'],
+                ['ตัว L / T / U', 'คานรัดตามทุกหน้า + Form tie ที่มุมใน (ค่าเริ่มต้น)', 'แยกเป็นขาสี่เหลี่ยม แต่ละขาเหมือนเสาสี่เหลี่ยมที่โคนยึดด้วยไทร์ · ไทร์มุมในบังคับ L 2, T 3, U 4 แถว · แบ่งช่วงด้วยไทร์เพิ่มได้ (ตามขา ผ่านมุม และผ่านปลายขา) · ตัว U ตรวจช่องในว่าวางแบบในสองฝั่งได้'],
                 ['ตัว L / T / U', 'กรอบคานรัดสี่เหลี่ยม + กล่องไม้อุดที่มุมเว้า (รูป 9.2)', 'เหมือนเสาสี่เหลี่ยมขนาดเท่ากรอบ ใช้ไทร์ได้ · เหมาะกับเสาเล็กที่มุมเว้าไม่ใหญ่'],
               ],
               [
@@ -924,7 +924,7 @@ export function ManualPage() {
                 ['Round', 'Cardboard tube', 'Pressure ≤ maker rating'],
                 ['Hexagon/octagon', 'Box of yokes + corner fillers (default)', 'As a rectangular column the size of the box (octagon F × F, hexagon 2R × F); ties allowed'],
                 ['Hexagon/octagon', 'Ring of yokes along the faces', 'Each face spans a: M = wa²/8 with tension T = wF/2 · no ties'],
-                ['L / T / U', 'Yokes along every face + form ties at the inner corners (default)', 'Split into rectangular legs, each like a rectangular column held at its root by the tie · inner-corner ties required: L 2, T 3, U 4 rows · more ties may split the legs · a U checks there is room for the inner forms'],
+                ['L / T / U', 'Yokes along every face + form ties at the inner corners (default)', 'Split into rectangular legs, each like a rectangular column held at its root by the tie · inner-corner ties required: L 2, T 3, U 4 rows · more ties may split the legs, the corner spans and the end faces · a U checks there is room for the inner forms'],
                 ['L / T / U', 'Rectangular box of yokes + filler boxes in the re-entrant corners (Fig 9.2)', 'As a rectangular column the size of the box; ties allowed · suits small columns with small re-entrant corners'],
               ],
               [
@@ -933,7 +933,7 @@ export function ManualPage() {
                 ['圆形', '纸管模板', '压力 ≤ 厂家额定值'],
                 ['六/八边形', '矩形柱箍框 + 角部填块(默认)', '按与框同尺寸的矩形柱计算(八边形 F × F,六边形 2R × F),可用对拉螺栓'],
                 ['六/八边形', '沿边环形柱箍', '每边跨度 a:M = wa²/8 并受拉 T = wF/2 · 不用对拉螺栓'],
-                ['L / T / U 形', '沿各面柱箍 + 内角对拉螺栓(默认)', '拆分为矩形肢,每肢按根部由对拉螺栓固定的矩形柱计算 · 内角螺栓必需:L 2、T 3、U 4 排 · 可加螺栓分跨 · U 形验算内模空间'],
+                ['L / T / U 形', '沿各面柱箍 + 内角对拉螺栓(默认)', '拆分为矩形肢,每肢按根部由对拉螺栓固定的矩形柱计算 · 内角螺栓必需:L 2、T 3、U 4 排 · 可加螺栓沿肢、穿过角部及肢端分跨 · U 形验算内模空间'],
                 ['L / T / U 形', '矩形柱箍框 + 凹角填充木箱(图 9.2)', '按与框同尺寸的矩形柱计算,可用对拉螺栓 · 适合凹角较小的小柱'],
               ],
             )}
@@ -1122,6 +1122,42 @@ export function ManualPage() {
               </p>
             </div>
           </div>
+          <p>
+            {L(
+              <>
+                <b>รูปแปลนฐานราก</b> เลือกได้ 7 แบบเหมือนเสา เคร่า ค้ำยัน และหลัก คิดต่อความยาวหน้า จึงใช้ได้กับทุกรูป (จำนวนตามเส้นรอบรูป) ส่วนที่ต่างกันคือคานรับเคร่ารอบฐาน:
+              </>,
+              <>
+                <b>Footing plan</b>: the same seven shapes as a column. Studs, braces and stakes work per metre of face, so they suit every shape (counted round the perimeter); what differs is the wales:
+              </>,
+              <>
+                <b>基础平面形状</b> 与柱相同共 7 种。竖楞、斜撑和木桩按每米面长计算,适用于所有形状(按周长计数);不同之处在于围檩:
+              </>,
+            )}
+          </p>
+          <Table
+            head={L(['รูป', 'คานรับเคร่ารอบฐาน (+ ไทร์)', 'หมายเหตุ'], ['Shape', 'Wales round the footing (+ ties)', 'Note'], ['形状', '基础周边围檩(+ 对拉螺栓)', '说明'])}
+            rows={L(
+              [
+                ['สี่เหลี่ยม', 'เหมือนเดิม: ไม่ใช้ไทร์ / ขวางด้านสั้น / สองทิศทาง', 'มุมคานวางไขว้หรือตัดชน'],
+                ['กลม', 'ใช้ไม่ได้ (ไม่มีคานรับเคร่าตรง)', 'เคร่าปลายยื่นหรือค้ำยันทุกเคร่า · ไม้อัดดัดโค้ง 9 มม. R ≥ 0.9 ม., 12 มม. R ≥ 1.8 ม.'],
+                ['หก/แปดเหลี่ยม', 'วงแหวนตามหน้า M = wa²/8, T = wF/2 ไม่ใช้ไทร์', 'ต่อมุมด้วยเหล็กประกับ'],
+                ['ตัว L / T / U', 'คานตามทุกหน้า + ไทร์มุมใน (L 2, T 3, U 4 แถว) ระบบเพิ่มไทร์กลางขาเองถ้าจำเป็น', 'แต่ละขาคิดเหมือนเสาสี่เหลี่ยม · เหล็กประกับที่ปลายไทร์'],
+              ],
+              [
+                ['Rectangle', 'As before: no ties / across the short side / both ways', 'Wale corners crossed or butted'],
+                ['Round', 'Not used (no straight wales)', 'Cantilever studs or braces at every stud · plywood bends to R ≥ 0.9 m at 9 mm, 1.8 m at 12 mm'],
+                ['Hexagon/octagon', 'Ring along the faces M = wa²/8, T = wF/2, no ties', 'Corners joined with steel plates'],
+                ['L / T / U', 'Wales on every face + inner-corner ties (L 2, T 3, U 4 rows); ties along the legs added when needed', 'Each leg as a rectangular column · bearing plates at the tie ends'],
+              ],
+              [
+                ['矩形', '同前:不用螺栓 / 横穿短边 / 双向', '围檩角部交叉或对接'],
+                ['圆形', '不适用(无直围檩)', '悬臂竖楞或每根竖楞设斜撑 · 胶合板 9 mm 可弯至 R ≥ 0.9 m,12 mm 至 1.8 m'],
+                ['六/八边形', '沿面环形 M = wa²/8, T = wF/2,不用螺栓', '角部用钢夹板连接'],
+                ['L / T / U 形', '各面围檩 + 内角螺栓(L 2、T 3、U 4 排),需要时自动增加肢中部螺栓', '每肢按矩形柱计算 · 螺栓端部设钢垫板'],
+              ],
+            )}
+          />
 
           <H3 id="th-materials">{L('ค่าวัสดุที่ใช้ (กก./ซม.²)', 'Material values (kg/cm²)', '材料参数 (kg/cm²)')}</H3>
           <Table

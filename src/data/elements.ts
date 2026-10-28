@@ -6,6 +6,7 @@ import {
   type ColumnDesign,
   type ColumnInput,
   columnSizeText,
+  footingSizeText,
   DEFAULT_BEAM,
   DEFAULT_BRACE,
   DEFAULT_COLUMN,
@@ -153,7 +154,7 @@ export function elementSize(el: ElementData): string {
     case 'beam':
       return `${(el.input.b * 100).toFixed(0)}×${(el.input.h * 100).toFixed(0)} ซม. · L ${el.input.length.toFixed(2)} ม. · ${BEAM_TYPE_LABEL[el.input.type]}`
     case 'footing':
-      return `${el.input.lengthX.toFixed(2)}×${el.input.lengthY.toFixed(2)} ม. · H ${el.input.height.toFixed(2)} ม.`
+      return `${footingSizeText(el.input)} · H ${el.input.height.toFixed(2)} ม.`
   }
 }
 

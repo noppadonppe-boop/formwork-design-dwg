@@ -32,7 +32,7 @@ export type ColumnShape =
   | { kind: 'U'; b: number; d: number; t: number; tb: number; yoke: LegYoke }
 
 export type LegShape = Extract<ColumnShape, { kind: 'L' | 'T' | 'U' }>
-export const isLegShape = (s: ColumnShape): s is LegShape => s.kind === 'L' || s.kind === 'T' || s.kind === 'U'
+export const isLegShape = (s: { kind: string }): s is LegShape => s.kind === 'L' || s.kind === 'T' || s.kind === 'U'
 
 export const RECT_SHAPE: ColumnShape = { kind: 'rect' }
 export const columnShapeOf = (inp: { shape?: ColumnShape }): ColumnShape => inp.shape ?? RECT_SHAPE
@@ -122,10 +122,26 @@ export interface Leg {
   across: P2
 }
 
+/**
+ * Outer-yoke span at a corner of the core, from the corner (o, on the outer face) along `dir` to the root tie: span c,
+ * the perpendicular span cp giving its tension. Split into n spans like the legs, its extra ties run `across` the
+ * whole section (length len).
+ */
+export interface CoreSpan {
+  c: number
+  cp: number
+  o: P2
+  dir: P2
+  across: P2
+  len: number
+}
+
 export interface LegLayout {
   legs: Leg[]
-  /** outer-yoke spans at the corners of the core: span c, with the perpendicular span cp giving the tension */
-  core: { c: number; cp: number }[]
+  core: CoreSpan[]
+  /** end faces of the free legs (width c = the leg's thickness), split like the rest by ties running along the
+   * legs through the whole section — a T's two flange ends share theirs */
+  ends: CoreSpan[]
   /** box mode: filler boxes in the re-entrant corners [x, z, w (x), d (z)] in box coordinates, m */
   fillers: [number, number, number, number][]
   /** U: clear width between the legs, m */
@@ -141,8 +157,12 @@ export function legLayout(s: LegShape): LegLayout {
           { name: 'ขาแนว b', t: s.tb, L: s.b - s.ta, far: 'free', c: s.ta, o: [0, s.ta], dir: [0, 1], across: [1, 0] },
         ],
         core: [
-          { c: s.tb, cp: s.ta },
-          { c: s.ta, cp: s.tb },
+          { c: s.tb, cp: s.ta, o: [0, 0], dir: [1, 0], across: [0, 1], len: s.b },
+          { c: s.ta, cp: s.tb, o: [0, 0], dir: [0, 1], across: [1, 0], len: s.a },
+        ],
+        ends: [
+          { c: s.ta, cp: 0, o: [s.a, 0], dir: [0, 1], across: [-1, 0], len: s.a },
+          { c: s.tb, cp: 0, o: [0, s.b], dir: [1, 0], across: [0, -1], len: s.b },
         ],
         fillers: [[s.tb, s.ta, s.a - s.tb, s.b - s.ta]],
       }
@@ -155,7 +175,11 @@ export function legLayout(s: LegShape): LegLayout {
           { name: 'ปีกขวา', t: s.tf, L: l, far: 'free', c: s.tw, o: [r, 0], dir: [1, 0], across: [0, 1] },
           { name: 'เอว', t: s.tw, L: s.d - s.tf, far: 'free', c: 0, o: [l, s.tf], dir: [0, 1], across: [1, 0] },
         ],
-        core: [{ c: s.tw, cp: s.tf }],
+        core: [{ c: s.tw, cp: s.tf, o: [l, 0], dir: [1, 0], across: [0, 1], len: s.d }],
+        ends: [
+          { c: s.tf, cp: 0, o: [s.bf, 0], dir: [0, 1], across: [-1, 0], len: s.bf },
+          { c: s.tw, cp: 0, o: [l, s.d], dir: [1, 0], across: [0, -1], len: s.d },
+        ],
         fillers: [
           [0, s.tf, l, s.d - s.tf],
           [r, s.tf, l, s.d - s.tf],
@@ -170,8 +194,14 @@ export function legLayout(s: LegShape): LegLayout {
           { name: 'ท้อง', t: s.tb, L: s.b - 2 * s.t, far: 'tied', c: s.t, o: [s.t, s.d - s.tb], dir: [1, 0], across: [0, 1] },
         ],
         core: [
-          { c: s.t, cp: s.tb },
-          { c: s.tb, cp: s.t },
+          { c: s.t, cp: s.tb, o: [0, s.d], dir: [1, 0], across: [0, -1], len: s.d },
+          { c: s.t, cp: s.tb, o: [s.b, s.d], dir: [-1, 0], across: [0, -1], len: s.d },
+          { c: s.tb, cp: s.t, o: [0, s.d], dir: [0, -1], across: [1, 0], len: s.b },
+          { c: s.tb, cp: s.t, o: [s.b, s.d], dir: [0, -1], across: [-1, 0], len: s.b },
+        ],
+        ends: [
+          { c: s.t, cp: 0, o: [0, 0], dir: [1, 0], across: [0, 1], len: s.d },
+          { c: s.t, cp: 0, o: [s.b - s.t, 0], dir: [1, 0], across: [0, 1], len: s.d },
         ],
         fillers: [[s.t, 0, s.b - 2 * s.t, s.d - s.tb]],
         gap: s.b - 2 * s.t,
@@ -186,6 +216,30 @@ export function legTies(leg: Leg, n: number, delta: number): number[] {
   for (let k = 1; k < n; k++) out.push((leg.L * k) / n)
   if (leg.far === 'tied') out.push(leg.L - delta)
   return out
+}
+
+/** Ties splitting a core span or an end face into n spans, as distances along it from its start. */
+export const coreTies = (k: CoreSpan, n: number) => Array.from({ length: n - 1 }, (_, i) => (k.c * (i + 1)) / n)
+
+/** Ties per level through an L/T/U whose legs and core spans are split into n spans. */
+export const legTiesPerLevel = (s: LegShape, n: number) => {
+  const lay = legLayout(s)
+  return lay.legs.reduce((t, g) => t + (g.far === 'tied' ? 2 : 1) + n - 1, 0) + (lay.core.length + lay.ends.length) * (n - 1)
+}
+
+/** Tie forces of an L/T/U split into n spans at pressure p (kg/m²) and yoke / wale spacing s (cm): the root tie
+ * of each leg takes half a leg span and half a core span, the ties along a leg a leg span, those across the core
+ * a core span, those through an end face an end span. */
+export function legTieForces(lay: LegLayout, n: number, p: number, s: number): { name: string; kind: 'root' | 'leg' | 'core' | 'end'; T: number }[] {
+  const ps = p * (s / 100)
+  return [
+    ...lay.legs.flatMap((g) => [
+      { name: g.name, kind: 'root' as const, T: ps * (g.L / n / 2 + g.c / n / 2) },
+      ...(n > 1 ? [{ name: g.name, kind: 'leg' as const, T: ps * (g.L / n) }] : []),
+    ]),
+    ...(n > 1 ? lay.core.map((k, i) => ({ name: `มุม ${i + 1}`, kind: 'core' as const, T: ps * (k.c / n) })) : []),
+    ...(n > 1 ? lay.ends.map((k, i) => ({ name: `ปลายขา ${i + 1}`, kind: 'end' as const, T: ps * (k.c / n) })) : []),
+  ]
 }
 
 /** Face lengths of an L/T/U, m; `outerOnly`: just the faces on its box (the others backed by filler boxes). */
@@ -219,6 +273,53 @@ export function columnSection(inp: { b: number; h: number; shape?: ColumnShape }
     return { area: (s.n * a * inp.b) / 4, perimeter: s.n * a, d: inp.b }
   }
   return { area: inp.b * inp.h, perimeter: 2 * (inp.b + inp.h), d: Math.min(inp.b, inp.h) }
+}
+
+// ---------------------------------------------------------------- footings
+
+/**
+ * Plan shape of a footing. Round and polygonal footings keep their one size in lengthX = lengthY (D or F); an
+ * L/T/U keeps its sizes in the shape (its `yoke` is not used: the wales run along the faces with ties at the inner
+ * corners). A round footing is formed in plywood bent to its large radius, held by cantilever or braced studs.
+ */
+export type FootingShape = { kind: 'rect' } | { kind: 'circle' } | { kind: 'polygon'; n: 6 | 8 } | LegShape
+
+export const footingShapeOf = (inp: { shape?: FootingShape }): FootingShape => inp.shape ?? { kind: 'rect' }
+
+/** Faces of a footing's side form, m (one closed face round a circle), least plan dimension d and plan area. */
+export function footingPlan(inp: { lengthX: number; lengthY: number; shape?: FootingShape }): { faces: number[]; round: boolean; perimeter: number; d: number; area: number } {
+  const s = footingShapeOf(inp)
+  if (s.kind === 'circle') return { faces: [Math.PI * inp.lengthX], round: true, perimeter: Math.PI * inp.lengthX, d: inp.lengthX, area: (Math.PI * inp.lengthX ** 2) / 4 }
+  if (s.kind === 'polygon') {
+    const { a } = polygonDims(s.n, inp.lengthX)
+    return { faces: Array(s.n).fill(a), round: false, perimeter: s.n * a, d: inp.lengthX, area: (s.n * a * inp.lengthX) / 4 }
+  }
+  if (isLegShape(s)) {
+    const q = legOutline(s)
+    const faces = q.map((p, k) => Math.hypot(q[(k + 1) % q.length][0] - p[0], q[(k + 1) % q.length][1] - p[1]))
+    return { faces, round: false, perimeter: loop(q), d: Math.min(...legLayout(s).legs.map((l) => l.t)), area: shoelace(q) }
+  }
+  const { lengthX: x, lengthY: y } = inp
+  return { faces: [x, y, x, y], round: false, perimeter: 2 * (x + y), d: Math.min(x, y), area: x * y }
+}
+
+/** Studs (or braces) round the faces at spacing ≤ aCm: both ends of every straight face, evenly round a circle. */
+export function studsOnFaces(faces: number[], aCm: number, round: boolean): number {
+  if (round) return Math.ceil((faces[0] * 100) / aCm - 1e-9)
+  return faces.reduce((n, f) => n + Math.ceil((f * 100) / aCm) + 1, 0)
+}
+
+/** "กลม Ø4.00 ม." / "แปดเหลี่ยม F 4.50 ม." / "ตัว L 4.50×4.00 ม." / "2.40×2.40 ม." */
+export function footingSizeText(inp: { lengthX: number; lengthY: number; shape?: FootingShape }): string {
+  const s = footingShapeOf(inp)
+  const m = (v: number) => v.toFixed(2)
+  if (s.kind === 'circle') return `กลม Ø${m(inp.lengthX)} ม.`
+  if (s.kind === 'polygon') return `${SHAPE_NAME[s.n]} F ${m(inp.lengthX)} ม.`
+  if (isLegShape(s)) {
+    const [x, z] = legBox(s)
+    return `${SHAPE_NAME[s.kind]} ${m(x)}×${m(z)} ม.`
+  }
+  return `${m(inp.lengthX)}×${m(inp.lengthY)} ม.`
 }
 
 export const SHAPE_NAME: Record<string, string> = { rect: 'สี่เหลี่ยม', circle: 'กลม', 6: 'หกเหลี่ยม', 8: 'แปดเหลี่ยม', L: 'ตัว L', T: 'ตัว T', U: 'ตัว U' }

@@ -11,15 +11,25 @@ import {
   deckThicknessM,
   type FootingDesign,
   type FootingInput,
+  type FootingShape,
+  footingShapeOf,
   getMaterial,
   getSection,
+  isLegShape,
+  legBox,
+  legLayout,
+  legOutline,
+  legTies,
+  coreTies,
   type MaterialKind,
+  polygonBox,
+  polygonDims,
   type ShoreParams,
   type SlabDesign,
   type SlabInput,
   spread,
 } from '@/engine'
-import { bounds, cm, type FormModel, type Handle, type HandleKey, pairOffsets, type Part, round3, sheets, snap, type Vec3 } from './formModel'
+import { bounds, cm, type FormModel, type Handle, type HandleKey, pairOffsets, type Part, regularPlan, round3, roundPlan, sheets, snap, type Vec3, yawFacing } from './formModel'
 
 const kindOf = (materialId: string): MaterialKind => getMaterial(materialId).kind
 
@@ -398,8 +408,149 @@ export function applyBeamHandle(inp: BeamInput, key: HandleKey, value: number): 
 
 // ---------------------------------------------------------------- footing
 
+/**
+ * Round, polygonal or L/T/U footing, centred on the origin: the side form face by face round its outline — plywood,
+ * studs, stakes and braces at every stud (or along the wales), wales along the faces mitred at the corners, and an
+ * L/T/U's ties through the legs at the inner corners. A round form is drawn in short straight panels.
+ */
+function shapedFootingModel(inp: FootingInput, d: FootingDesign, shape: Exclude<FootingShape, { kind: 'rect' }>): FormModel {
+  const parts: Part[] = []
+  const { lengthX: Lx, height: H } = inp
+  const tSh = deckThicknessM(inp.sheathing)
+  const shKind = inp.sheathing.type === 'plywood' ? 'plywood' : 'timber'
+  const stud = getSection(inp.stud.sectionId)
+  const sKind = kindOf(inp.stud.materialId)
+  const sb = cm(stud.B)
+  const sd = cm(stud.H)
+  const a = d.layout.studSpacing / 100
+  const embed = inp.stake.embedM
+  const yStud0 = inp.support === 'cantilever' ? -embed : 0
+  const round = shape.kind === 'circle'
+  const [bx, bz] = isLegShape(shape) ? legBox(shape) : shape.kind === 'polygon' ? polygonBox(shape.n, Lx) : [Lx, Lx]
+  const q: [number, number][] = isLegShape(shape)
+    ? legOutline(shape).map(([x, z]) => [x - bx / 2, z - bz / 2])
+    : shape.kind === 'polygon'
+      ? regularPlan(shape.n, polygonDims(shape.n, Lx).R)
+      : roundPlan(Math.max(24, Math.ceil((Math.PI * Lx) / 0.4)), Lx / 2)
+
+  if (inp.leanM > 0) parts.push({ id: 'lean', group: 'concrete', kind: 'concrete', shape: 'box', center: [0, -inp.leanM / 2, 0], size: [bx + 0.4, inp.leanM, bz + 0.4] })
+  parts.push({ id: 'concrete', group: 'concrete', kind: 'concrete', shape: 'box', center: [0, H / 2, 0], size: [bx, H, bz], plan: q })
+
+  const n = q.length
+  const area2 = q.reduce((s, p, k) => s + p[0] * q[(k + 1) % n][1] - q[(k + 1) % n][0] * p[1], 0)
+  const edges = q.map((p, k) => {
+    const b = q[(k + 1) % n]
+    const L = Math.hypot(b[0] - p[0], b[1] - p[1])
+    const dir: [number, number] = [(b[0] - p[0]) / L, (b[1] - p[1]) / L]
+    const nn: [number, number] = area2 > 0 ? [dir[1], -dir[0]] : [-dir[1], dir[0]]
+    return { a: p, L, dir, n: nn, phi: Math.atan2(nn[1], nn[0]) }
+  })
+  // tan of half the turn at each corner: + convex, − re-entrant — an offset line is mitred by off·tan(θ/2)
+  const tanHalf = edges.map((e, k) => {
+    const p = edges[(k - 1 + n) % n].dir
+    const turn = Math.atan2(p[0] * e.dir[1] - p[1] * e.dir[0], p[0] * e.dir[0] + p[1] * e.dir[1])
+    return Math.tan(turn / 2) * Math.sign(area2)
+  })
+  const pt = (e: (typeof edges)[number], u: number, off: number): [number, number] => [e.a[0] + e.dir[0] * u + e.n[0] * off, e.a[1] + e.dir[1] * u + e.n[1] * off]
+  /** box along edge k, `off` out from the face, mitred at both corners at that offset */
+  const along = (id: string, group: Part['group'], kind: Part['kind'], k: number, off: number, y: number, h: number, t: number): Part => {
+    const e = edges[k]
+    const eA = off * tanHalf[k]
+    const eB = off * tanHalf[(k + 1) % n]
+    const c = pt(e, (e.L + eB - eA) / 2, off)
+    return { id, group, kind, shape: 'box', center: [c[0], y, c[1]], size: [e.L + eA + eB, h, t], yaw: yawFacing(e.phi) }
+  }
+
+  const th = (inp.brace.angleDeg * Math.PI) / 180
+  const br = getSection(inp.brace.sectionId)
+  const stake = getSection(inp.stake.sectionId)
+  const levels = d.layout.braceLevels
+  const viaWale = inp.support === 'braced' && inp.brace.at === 'wale'
+  const w = getSection(inp.wale.sectionId)
+  const wb = cm(w.B)
+  const wd = cm(w.H)
+  const waleLevels = inp.support === 'tied' || viaWale ? d.layout.waleLevels : []
+  const r0 = tSh + sd
+  const at = (c: [number, number], y: number): Vec3 => [c[0], y, c[1]]
+  /** stud, its toe stake and its braces at u along edge e */
+  const studAt = (id: string, e: (typeof edges)[number], u: number) => {
+    const c = pt(e, u, tSh + sd / 2)
+    parts.push({ id: `stud-${id}`, group: 'stud', kind: sKind, shape: 'box', center: at(c, (yStud0 + H) / 2), size: [sb, H - yStud0, sd], yaw: yawFacing(e.phi) })
+    if (inp.support === 'braced') parts.push({ id: `kick-${id}`, group: 'stake', kind: 'timber', shape: 'box', center: at(pt(e, u, r0 + cm(stake.H) / 2), (0.15 - embed) / 2), size: [cm(stake.B), 0.15 + embed, cm(stake.H)], yaw: yawFacing(e.phi) })
+  }
+  const bracesAt = (id: string, e: (typeof edges)[number], u: number) => {
+    const rb = viaWale ? r0 + wd : r0
+    levels.forEach((y, k) => {
+      const run = y / Math.tan(th)
+      parts.push({ id: `brace-${id}-${k}`, group: 'brace', kind: kindOf(inp.brace.materialId), shape: 'bar', from: at(pt(e, u, rb), y), to: at(pt(e, u, rb + run), 0), b: cm(br.B), d: cm(br.H) })
+    })
+    const run = (levels[0] ?? H) / Math.tan(th)
+    parts.push({ id: `stake-${id}`, group: 'stake', kind: 'timber', shape: 'box', center: at(pt(e, u, rb + run + 0.05), (0.2 - embed) / 2), size: [cm(stake.B), 0.2 + embed, cm(stake.H)], yaw: yawFacing(e.phi) })
+  }
+
+  edges.forEach((_, k) => parts.push(along(`ply-${k}`, 'sheathing', shKind, k, tSh / 2, H / 2, H, tSh)))
+  if (round) {
+    // studs evenly round the circle, each on the panel it falls on
+    const P = Math.PI * Lx
+    const m = Math.ceil(P / a - 1e-9)
+    for (let i = 0; i < m; i++) {
+      const k = Math.min(n - 1, Math.floor((i / m) * n))
+      const u = edges[k].L / 2
+      studAt(`${i}`, edges[k], u)
+      if (inp.support === 'braced') bracesAt(`${i}`, edges[k], u)
+    }
+  } else
+    edges.forEach((e, k) => {
+      // studs at both ends of every face (clear of the studs on the next face at an inner corner)
+      const mA = tanHalf[k] > 0 ? sb / 2 : r0 + sb / 2
+      const mB = tanHalf[(k + 1) % n] > 0 ? sb / 2 : r0 + sb / 2
+      const avail = Math.max(e.L - mA - mB, 0)
+      const us = spread(avail, a).map((u) => u + mA)
+      us.forEach((u, i) => studAt(`${k}-${i}`, e, u))
+      waleLevels.forEach((y, i) => pairOffsets(inp.wale.count, wb).forEach((o, j) => parts.push(along(`wale-${k}-${i}-${j}`, 'wale', kindOf(inp.wale.materialId), k, r0 + wd / 2, y + o, wb, wd))))
+      if (inp.support === 'braced') {
+        const ub = viaWale && d.layout.braceAlong ? spread(avail, d.layout.braceAlong / 100).map((u) => u + mA) : us
+        ub.forEach((u, i) => bracesAt(`${k}-${i}`, e, u))
+      }
+    })
+
+  if (inp.support === 'tied' && isLegShape(shape)) {
+    // ties through every leg at the inner corner(s), along the legs and across the core; a bearing plate at both ends
+    const tp = d.layout.tiePlate
+    const reach = tSh + sd + wd + 0.06
+    const nSp = d.layout.legSpans ?? 1
+    const lay = legLayout(shape)
+    const runs = [
+      ...lay.legs.flatMap((g) => legTies(g, nSp, Math.min(r0 + wd, g.L / 3)).map((u) => ({ o: g.o, dir: g.dir, across: g.across, len: g.t, u }))),
+      ...[...lay.core, ...lay.ends].flatMap((k) => coreTies(k, nSp).map((u) => ({ o: k.o, dir: k.dir, across: k.across, len: k.len, u }))),
+    ]
+    runs.forEach((g, ti) => {
+      const p0: [number, number] = [g.o[0] - bx / 2 + g.dir[0] * g.u, g.o[1] - bz / 2 + g.dir[1] * g.u]
+      const ends: [number, number][] = [
+        [p0[0] - g.across[0] * reach, p0[1] - g.across[1] * reach],
+        [p0[0] + g.across[0] * (g.len + reach), p0[1] + g.across[1] * (g.len + reach)],
+      ]
+      d.layout.waleLevels.forEach((y, i) => {
+        parts.push({ id: `tie-${i}-${ti}`, group: 'tie', kind: 'tie', shape: 'bar', from: at(ends[0], y), to: at(ends[1], y), b: 0.014, d: 0.014, round: true })
+        if (tp)
+          ends.forEach((c, s) => {
+            const back = s ? -0.06 + tp.tMm / 2000 : 0.06 - tp.tMm / 2000
+            parts.push({ id: `tieplate-${i}-${ti}-${s ? 'b' : 'a'}`, group: 'tie', kind: 'steel', shape: 'box', center: at([c[0] + g.across[0] * back, c[1] + g.across[1] * back], y), size: [tp.wCm / 100, tp.hCm / 100, tp.tMm / 1000], yaw: yawFacing(Math.atan2(g.across[1], g.across[0])) })
+          })
+      })
+    })
+  }
+
+  const handles: Handle[] = [{ key: 'height', label: 'ความลึกฐาน H', position: [0, H + 0.2, 0], axis: [0, 1, 0], value: H, min: 0.2, max: 6, step: 0.05 }]
+  // one size to drag on a round / polygonal footing; an L/T/U is sized in the form
+  if (!isLegShape(shape)) handles.push({ key: 'lengthX', label: round ? 'เส้นผ่านศูนย์กลาง D' : 'ระยะข้ามด้านแบน F', position: [bx / 2, H + 0.05, 0], axis: [1, 0, 0], value: Lx / 2, min: 0.25, max: 15, step: 0.025 })
+  return { parts, handles, bounds: bounds(parts) }
+}
+
 /** Footing centred on the origin, base at y = 0 on lean concrete. */
 export function footingModel(inp: FootingInput, d: FootingDesign): FormModel {
+  const shape = footingShapeOf(inp)
+  if (shape.kind !== 'rect') return shapedFootingModel(inp, d, shape)
   const parts: Part[] = []
   const { lengthX: Lx, lengthY: Ly, height: H } = inp
   const tSh = deckThicknessM(inp.sheathing)
@@ -524,10 +675,14 @@ export function applyFootingHandle(inp: FootingInput, key: HandleKey, value: num
   switch (key) {
     case 'height':
       return { ...inp, height: round3(snap(value, 0.05)) }
-    case 'lengthX':
-      return { ...inp, lengthX: round3(snap(value * 2, 0.05)) }
+    case 'lengthX': {
+      // round / polygonal: one size; an L/T/U keeps its sizes in the shape
+      const k = footingShapeOf(inp).kind
+      const v = round3(snap(value * 2, 0.05))
+      return k === 'rect' ? { ...inp, lengthX: v } : k === 'circle' || k === 'polygon' ? { ...inp, lengthX: v, lengthY: v } : inp
+    }
     case 'lengthY':
-      return { ...inp, lengthY: round3(snap(value * 2, 0.05)) }
+      return footingShapeOf(inp).kind === 'rect' ? { ...inp, lengthY: round3(snap(value * 2, 0.05)) } : inp
     case 'studSpacing':
       return { ...inp, stud: { ...inp.stud, spacingCm: cmv } }
     case 'supportSpacing':

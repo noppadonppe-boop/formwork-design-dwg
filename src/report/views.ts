@@ -1,7 +1,7 @@
 // Orthographic views of each element type with their dimension chains — shared by the calc report and the shop drawings.
 import type { AnyDesign } from '@/data/elements'
 import type { ElementData } from '@/data/types'
-import { BEAM_TYPE_LABEL, columnShapeOf, columnTieSpans, footingSystemLabel, isLegShape, legBox, legOutline, polygonBox, SHAPE_NAME } from '@/engine'
+import { BEAM_TYPE_LABEL, columnShapeOf, columnTieSpans, footingShapeOf, footingSystemLabel, isLegShape, legBox, legOutline, polygonBox, SHAPE_NAME } from '@/engine'
 import { elementModel } from '@/model/elementModel'
 import type { FormModel } from '@/model/formModel'
 import { chain, corners, type Dim } from './Drawing'
@@ -121,14 +121,30 @@ export function elementViews(el: ElementData, run: AnyDesign): { a: DrawingSpec;
   const i = (el as Extract<ElementData, { type: 'footing' }>).input
   const d = (run as Extract<AnyDesign, { type: 'footing' }>).design
   const xMax = m.bounds.max[0]
-  const plan: Dim[] = [
-    { dir: 'h', a: -i.lengthX / 2, b: i.lengthX / 2, at: m.bounds.max[2] + 0.25, text: `${i.lengthX.toFixed(2)} ม.` },
-    { dir: 'v', a: -i.lengthY / 2, b: i.lengthY / 2, at: -xMax - 0.25, text: `${i.lengthY.toFixed(2)} ม.` },
-  ]
+  const fs = footingShapeOf(i)
+  const zMax = m.bounds.max[2]
+  // an L/T/U: the steps of its outline along x and down z; round / polygonal: D or F
+  const [fx, fz] = isLegShape(fs) ? legBox(fs) : fs.kind === 'polygon' ? polygonBox(fs.n, i.lengthX) : [i.lengthX, i.lengthY]
+  const steps = (k: 0 | 1) => (isLegShape(fs) ? [...new Set(legOutline(fs).map((q) => Math.round(q[k] * 1000) / 1000))].sort((a, b) => a - b).map((v) => v - (k ? fz : fx) / 2) : [])
+  const plan: Dim[] = isLegShape(fs)
+    ? [
+        ...chain('h', steps(0), zMax + 0.25),
+        { dir: 'h', a: -fx / 2, b: fx / 2, at: zMax + 0.55, text: `${fx.toFixed(2)} ม.` },
+        ...chain('v', steps(1).map((z) => -z), -xMax - 0.25),
+        { dir: 'v', a: -fz / 2, b: fz / 2, at: -xMax - 0.55, text: `${fz.toFixed(2)} ม.` },
+      ]
+    : fs.kind === 'circle'
+      ? [{ dir: 'h', a: -fx / 2, b: fx / 2, at: zMax + 0.25, text: `Ø ${fx.toFixed(2)} ม.` }]
+      : fs.kind === 'polygon'
+        ? [{ dir: 'v', a: -fz / 2, b: fz / 2, at: -xMax - 0.25, text: `F = ${fz.toFixed(2)} ม.` }]
+        : [
+            { dir: 'h', a: -i.lengthX / 2, b: i.lengthX / 2, at: zMax + 0.25, text: `${i.lengthX.toFixed(2)} ม.` },
+            { dir: 'v', a: -i.lengthY / 2, b: i.lengthY / 2, at: -xMax - 0.25, text: `${i.lengthY.toFixed(2)} ม.` },
+          ]
   const levels = i.support === 'tied' ? d.layout.waleLevels : d.layout.braceLevels
   const sec: Dim[] = [...chain('v', [0, ...[...levels].sort((p, q) => p - q), i.height], -xMax - 0.25)]
   return {
-    a: { model: m, view: 'top', dims: plan, title: 'แปลนแบบหล่อฐานราก (Plan)' },
+    a: { model: m, view: 'top', dims: plan, title: `แปลนแบบหล่อฐานราก${fs.kind === 'rect' ? '' : SHAPE_NAME[fs.kind === 'polygon' ? fs.n : fs.kind]} (Plan)` },
     b: { model: m, view: 'front', dims: sec, title: `รูปด้านฐานราก — ${footingSystemLabel(i, d)} (ระยะ ซม.)` },
   }
 }

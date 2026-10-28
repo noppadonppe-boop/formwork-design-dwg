@@ -60,6 +60,14 @@ const VARIANTS: [Types.ElementType, Patch][] = [
   ['footing', (i) => ({ ...i, support: 'tied', wale: { ...i.wale, shift: 'down', bottomOffsetM: 0.05 } })],
   ['footing', (i) => ({ ...i, support: 'tied', tie: { ...i.tie, layout: 'short' } })],
   ['footing', (i) => ({ ...i, support: 'tied', height: 5, lengthX: 10, lengthY: 8 })],
+  ...(['cantilever', 'braced', 'tied'] as const).flatMap((sup): [Types.ElementType, Patch][] => [
+    ['footing', (i) => ({ ...i, support: sup, lengthX: 4, lengthY: 4, shape: { kind: 'circle' } })],
+    ['footing', (i) => ({ ...i, support: sup, lengthX: 3, lengthY: 3, shape: { kind: 'polygon', n: 8 } })],
+    ['footing', (i) => ({ ...i, support: sup, lengthX: 4.5, lengthY: 4, shape: { kind: 'L', a: 4.5, b: 4, ta: 1.5, tb: 1.5, yoke: 'tied' } })],
+    ['footing', (i) => ({ ...i, support: sup, lengthX: 5, lengthY: 4.2, shape: { kind: 'T', bf: 5, tf: 1.5, tw: 1.6, d: 4.2, yoke: 'tied' } })],
+    ['footing', (i) => ({ ...i, support: sup, lengthX: 5.2, lengthY: 4, shape: { kind: 'U', b: 5.2, d: 4, t: 1.5, tb: 1.5, yoke: 'tied' } })],
+  ]),
+  ['footing', (i) => ({ ...i, support: 'braced', brace: { ...i.brace, at: 'wale' }, lengthX: 3, lengthY: 3, shape: { kind: 'polygon', n: 6 } })],
 ]
 
 const SOURCES = [

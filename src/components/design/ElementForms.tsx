@@ -46,6 +46,8 @@ import {
   type FootingWaleShift,
   type FootingTieLayout,
   type FootingInput,
+  type FootingShape,
+  footingShapeOf,
   PLYWOOD,
   PLYWOOD_THICKNESS,
   type PressureParams,
@@ -249,23 +251,27 @@ function withShape(i: ColumnInput, key: ShapeKey): ColumnInput {
 }
 
 /** Size fields of an L/T/U, cm; a thickness stays at least 5 cm short of the size it lies across. */
-function LegFields({ s, onChange }: { s: LegShape; onChange: (s: LegShape) => void }) {
-  const f = (label: string, key: string, value: number, max: number) => (
-    <NumField key={key} label={label} unit="ซม." scale={100} value={value} min={10} max={Math.max(10, max * 100)} onChange={(v) => v && onChange({ ...s, [key]: v } as LegShape)} />
-  )
+function LegFields({ s, onChange, metres }: { s: LegShape; onChange: (s: LegShape) => void; metres?: boolean }) {
+  const top = metres ? 30 : 6
+  const f = (label: string, key: string, value: number, max: number) =>
+    metres ? (
+      <NumField key={key} label={label} unit="ม." value={value} min={0.1} max={Math.max(0.1, max)} onChange={(v) => v && onChange({ ...s, [key]: v } as LegShape)} />
+    ) : (
+      <NumField key={key} label={label} unit="ซม." scale={100} value={value} min={10} max={Math.max(10, max * 100)} onChange={(v) => v && onChange({ ...s, [key]: v } as LegShape)} />
+    )
   switch (s.kind) {
     case 'L':
-      return [f('ยาวรวม a', 'a', s.a, 6), f('ยาวรวม b', 'b', s.b, 6), f('ขาหนา ta', 'ta', s.ta, s.b - 0.05), f('ขาหนา tb', 'tb', s.tb, s.a - 0.05)]
+      return [f('ยาวรวม a', 'a', s.a, top), f('ยาวรวม b', 'b', s.b, top), f('ขาหนา ta', 'ta', s.ta, s.b - 0.05), f('ขาหนา tb', 'tb', s.tb, s.a - 0.05)]
     case 'T':
-      return [f('ปีกกว้าง bf', 'bf', s.bf, 6), f('ปีกหนา tf', 'tf', s.tf, s.d - 0.05), f('เอวหนา tw', 'tw', s.tw, s.bf - 0.1), f('ลึกรวม d', 'd', s.d, 6)]
+      return [f('ปีกกว้าง bf', 'bf', s.bf, top), f('ปีกหนา tf', 'tf', s.tf, s.d - 0.05), f('เอวหนา tw', 'tw', s.tw, s.bf - 0.1), f('ลึกรวม d', 'd', s.d, top)]
     case 'U':
-      return [f('กว้าง b', 'b', s.b, 6), f('ลึก d', 'd', s.d, 6), f('ขาหนา t', 't', s.t, (s.b - 0.05) / 2), f('ท้องหนา tb', 'tb', s.tb, s.d - 0.05)]
+      return [f('กว้าง b', 'b', s.b, top), f('ลึก d', 'd', s.d, top), f('ขาหนา t', 't', s.t, (s.b - 0.05) / 2), f('ท้องหนา tb', 'tb', s.tb, s.d - 0.05)]
   }
 }
 
-function ShapePicker({ value, onChange }: { value: ShapeKey; onChange: (k: ShapeKey) => void }) {
+function ShapePicker({ value, onChange, label = 'รูปหน้าตัดเสา' }: { value: ShapeKey; onChange: (k: ShapeKey) => void; label?: string }) {
   return (
-    <div role="radiogroup" aria-label="รูปหน้าตัดเสา" className="grid grid-cols-4 gap-1.5">
+    <div role="radiogroup" aria-label={label} className="grid grid-cols-4 gap-1.5">
       {SHAPE_OPTIONS.map((o) => {
         const on = o.key === value
         return (
@@ -884,15 +890,65 @@ function BeamFields({ inp, set }: { inp: BeamInput; set: (fn: (i: BeamInput) => 
 
 // ---------------------------------------------------------------- footing
 
+/** Starting sizes of an L/T/U footing, m. */
+const LEG_FOOTING: Record<'L' | 'T' | 'U', LegShape> = {
+  L: { kind: 'L', a: 4.5, b: 4.0, ta: 1.5, tb: 1.5, yoke: 'tied' },
+  T: { kind: 'T', bf: 5.0, tf: 1.5, tw: 1.6, d: 4.2, yoke: 'tied' },
+  U: { kind: 'U', b: 5.2, d: 4.0, t: 1.5, tb: 1.5, yoke: 'tied' },
+}
+
+const footingKey = (s: FootingShape): ShapeKey => (s.kind === 'polygon' ? (s.n === 6 ? 'hex' : 'oct') : s.kind)
+
+/** Footing input on an L/T/U: lengthX × lengthY kept as its box. */
+function withFootingLeg(i: FootingInput, s: LegShape): FootingInput {
+  const [x, y] = legBox(s)
+  return { ...i, lengthX: x, lengthY: y, shape: s }
+}
+
+/** Footing switched to another plan shape: one size for round / polygonal; a round one is braced at every stud. */
+function withFootingShape(i: FootingInput, key: ShapeKey): FootingInput {
+  const was = footingShapeOf(i)
+  if (key === 'rect') {
+    const { shape: _s, ...rest } = i
+    return rest
+  }
+  if (key === 'L' || key === 'T' || key === 'U') return withFootingLeg(i, LEG_FOOTING[key])
+  const size = was.kind === 'rect' ? Math.min(i.lengthX, i.lengthY) : isLegShape(was) ? 4 : i.lengthX
+  if (key === 'circle') {
+    const flat = i.support === 'tied' || (i.support === 'braced' && i.brace.at === 'wale')
+    return { ...i, lengthX: size, lengthY: size, shape: { kind: 'circle' }, ...(flat ? { support: 'braced' as const, brace: { ...i.brace, at: 'stud' as const } } : {}) }
+  }
+  return { ...i, lengthX: size, lengthY: size, shape: { kind: 'polygon', n: key === 'hex' ? 6 : 8 } }
+}
+
 function FootingFields({ inp, set }: { inp: FootingInput; set: (fn: (i: FootingInput) => FootingInput) => void }) {
+  const shape = footingShapeOf(inp)
+  const rect = shape.kind === 'rect'
+  const round = shape.kind === 'circle'
+  const leg = isLegShape(shape) ? shape : undefined
+  const setSize = (v: number | undefined) => v && set((i) => ({ ...i, lengthX: v, lengthY: v }))
   return (
     <>
       <Group title="ขนาดฐานราก" part="concrete">
+        <ShapePicker label="รูปแปลนฐานราก" value={footingKey(shape)} onChange={(k) => set((i) => withFootingShape(i, k))} />
         <div className="fields3">
-          <NumField label="ยาว X" unit="ม." value={inp.lengthX} min={0.2} max={30} onChange={(v) => v && set((i) => ({ ...i, lengthX: v }))} />
-          <NumField label="ยาว Y" unit="ม." value={inp.lengthY} min={0.2} max={30} onChange={(v) => v && set((i) => ({ ...i, lengthY: v }))} />
+          {leg ? (
+            <LegFields metres s={leg} onChange={(s) => set((i) => withFootingLeg(i, s))} />
+          ) : rect ? (
+            <>
+              <NumField label="ยาว X" unit="ม." value={inp.lengthX} min={0.2} max={30} onChange={(v) => v && set((i) => ({ ...i, lengthX: v }))} />
+              <NumField label="ยาว Y" unit="ม." value={inp.lengthY} min={0.2} max={30} onChange={(v) => v && set((i) => ({ ...i, lengthY: v }))} />
+            </>
+          ) : round ? (
+            <NumField label="เส้นผ่านศูนย์กลาง D" unit="ม." value={inp.lengthX} min={0.5} max={30} onChange={setSize} />
+          ) : (
+            <NumField label="ระยะข้ามด้านแบน F" unit="ม." value={inp.lengthX} min={0.5} max={30} hint={`ยาวด้าน a = ${polygonDims(shape.kind === 'polygon' ? shape.n : 8, inp.lengthX).a.toFixed(2)} ม.`} onChange={setSize} />
+          )}
           <NumField label="ลึก H" unit="ม." value={inp.height} min={0.2} max={6} onChange={(v) => v && set((i) => ({ ...i, height: v }))} />
         </div>
+        {round && <p className="text-xs text-slate-500">แผ่นผิวดัดโค้งตามรัศมี (ไม้อัด 9 มม. R ≥ 0.9 ม., 12 มม. R ≥ 1.8 ม.) ยึดด้วยเคร่าปลายยื่นหรือค้ำยันทุกเคร่า — คานรับเคร่าตรงใช้กับรูปกลมไม่ได้</p>}
+        {shape.kind === 'polygon' && <p className="text-xs text-slate-500">คานรับเคร่ารอบฐานเป็นวงแหวนตามหน้า ต่อมุมด้วยเหล็กประกับ ไม่ใช้ Form tie</p>}
+        {leg && <p className="text-xs text-slate-500">คานรับเคร่ารอบฐานวิ่งตามทุกหน้า มี Form tie ผ่านแต่ละขาที่มุมใน {requiredTies(leg)} แถว (บังคับ) ระบบเพิ่มไทร์กลางขาให้เองถ้าจำเป็น</p>}
       </Group>
       <PressureGroup p={inp.pressure} onChange={(p) => set((i) => ({ ...i, pressure: p }))} />
       <Group title="แผ่นผิวข้างแบบ" part="sheathing">
@@ -901,7 +957,9 @@ function FootingFields({ inp, set }: { inp: FootingInput; set: (fn: (i: FootingI
       <Group title="เคร่า (Studs)" part="stud">
         <Field label="การยึดเคร่า (§10.4)">
           <Select value={inp.support} onChange={(e) => set((i) => ({ ...i, support: e.target.value as FootingInput['support'] }))}>
-            {Object.entries(FOOTING_SUPPORT_LABEL).map(([k, l]) => (
+            {Object.entries(FOOTING_SUPPORT_LABEL)
+              .filter(([k]) => !round || k !== 'tied')
+              .map(([k, l]) => (
               <option key={k} value={k}>
                 {l}
               </option>
@@ -918,7 +976,7 @@ function FootingFields({ inp, set }: { inp: FootingInput; set: (fn: (i: FootingI
             <Segmented
               label="ตำแหน่งค้ำยัน"
               value={inp.brace.at ?? 'stud'}
-              options={(['stud', 'wale'] as const).map((k) => ({ value: k, label: FOOTING_BRACE_AT_LABEL[k] }))}
+              options={(round ? (['stud'] as const) : (['stud', 'wale'] as const)).map((k) => ({ value: k, label: FOOTING_BRACE_AT_LABEL[k] }))}
               onChange={(v) => set((i) => ({ ...i, brace: { ...i.brace, at: v } }))}
             />
           </div>
@@ -938,6 +996,7 @@ function FootingFields({ inp, set }: { inp: FootingInput; set: (fn: (i: FootingI
           <MemberPicker label="คานรับเคร่า" sectionId={inp.wale.sectionId} materialId={inp.wale.materialId} onChange={(v) => set((i) => ({ ...i, wale: { ...i.wale, ...v } }))} />
           <div className="grid grid-cols-3 gap-2">
             <Segmented label="ต่อชุด" value={String(inp.wale.count) as '1' | '2'} options={[{ value: '1', label: 'เดี่ยว' }, { value: '2', label: 'คู่' }]} onChange={(v) => set((i) => ({ ...i, wale: { ...i.wale, count: Number(v) as 1 | 2 } }))} />
+            {rect && (
             <Field label="มุมคาน" className="col-span-2">
               <Select value={inp.wale.corner ?? 'cross'} onChange={(e) => set((i) => ({ ...i, wale: { ...i.wale, corner: e.target.value as FootingWaleCorner } }))}>
                 {Object.entries(FOOTING_WALE_CORNER_LABEL).map(([k, l]) => (
@@ -947,7 +1006,8 @@ function FootingFields({ inp, set }: { inp: FootingInput; set: (fn: (i: FootingI
                 ))}
               </Select>
             </Field>
-            {(inp.wale.corner ?? 'cross') === 'cross' && (
+            )}
+            {rect && (inp.wale.corner ?? 'cross') === 'cross' && (
               <Field label="คานด้านสั้น" hint="อัตโนมัติ: เลื่อนลงถ้าคานล่างยังห่างฐาน ≥ 3 ซม.">
                 <Select value={inp.wale.shift ?? 'auto'} onChange={(e) => set((i) => ({ ...i, wale: { ...i.wale, shift: e.target.value as FootingWaleShift } }))}>
                   {Object.entries(FOOTING_WALE_SHIFT_LABEL).map(([k, l]) => (
@@ -967,7 +1027,12 @@ function FootingFields({ inp, set }: { inp: FootingInput; set: (fn: (i: FootingI
           </div>
         </Group>
       )}
-      {inp.support === 'tied' && (
+      {inp.support === 'tied' && leg && (
+        <Group title="Form tie" part="tie">
+          <TieSelect value={inp.tie.tieId} onChange={(v) => set((i) => ({ ...i, tie: { ...i.tie, tieId: v } }))} />
+        </Group>
+      )}
+      {inp.support === 'tied' && rect && (
         <Group title="Form tie" part="tie">
           <Field label="การวางไทร์">
             <Select value={inp.tie.layout ?? 'auto'} onChange={(e) => set((i) => ({ ...i, tie: { ...i.tie, layout: e.target.value as FootingTieLayout } }))}>
