@@ -6,11 +6,11 @@ import clsx from 'clsx'
 import { BookOpen, Languages, Lightbulb, TriangleAlert } from 'lucide-react'
 import { type ReactNode, useEffect, useState } from 'react'
 import { PressureDiagram } from '@/components/design/PressureDiagram'
-import { BeamSectionFigure, BucklingFigure, ColumnShapesFigure, ContinuousBeamFigure, Figure, FootingFigure, LoadPathFigure, SlabSystemFigure, TieAreaFigure, WallSectionFigure } from '@/components/manual/Figures'
+import { AssemblyPlanFigure, BeamSectionFigure, BucklingFigure, ColumnShapesFigure, ContinuousBeamFigure, FaceLayoutFigure, Figure, FootingFigure, LoadPathFigure, PanelAnatomyFigure, SlabSystemFigure, TieAreaFigure, WallSectionFigure } from '@/components/manual/Figures'
 import { RatioBar, StatusBadge } from '@/components/ui'
 import { REPORT_LANG_LABEL } from '@/data/types'
 import { fmt, MATERIALS, TIES } from '@/engine'
-import { type ManualLang, ManualLangContext, pick, storedManualLang, storeManualLang } from '@/i18n/manual'
+import { type ManualLang, ManualLangContext, pick, storedManualLang, storeManualLang, useL } from '@/i18n/manual'
 import { HTML_LANG, useTranslatedDom } from '@/i18n/report'
 
 type Lfn = ReturnType<typeof pick>
@@ -27,6 +27,7 @@ const toc = (L: Lfn): [string, string, [string, string][]?][] => [
       ['step-results', L('4. อ่านผลการคำนวณ', '4. Reading the results', '4. 查看计算结果')],
       ['step-optimizer', L('5. Optimizer', '5. Optimizer', '5. 优化器')],
       ['step-output', L('6. รายการคำนวณ · Shop drawing · BOM', '6. Calculation report · Shop drawing · BOM', '6. 计算书 · 加工图 · 材料表')],
+      ['step-assembly', L('7. Form Assembly', '7. Form Assembly', '7. 模板组装 (Form Assembly)')],
     ],
   ],
   [
@@ -63,6 +64,14 @@ function H3({ id, children }: { id: string; children: ReactNode }) {
     <h3 id={id} className="scroll-mt-6 pt-2 text-lg font-semibold">
       {children}
     </h3>
+  )
+}
+
+function H4({ id, children }: { id: string; children: ReactNode }) {
+  return (
+    <h4 id={id} className="scroll-mt-6 pt-1 text-[16px] font-semibold text-ink">
+      {children}
+    </h4>
   )
 }
 
@@ -184,8 +193,8 @@ export function ManualPage() {
       ['ออกแบบใน 3D', 'คลิกแก้ชิ้นส่วน ลากจุดสีส้มปรับขนาด/ระยะ'],
       ['ตรวจผลการคำนวณ', 'ทุกรายการต้องผ่าน (Ratio ≤ 1.00)'],
       ['Optimizer', 'หาแบบที่ถูกที่สุดที่ยังผ่าน'],
-      ['รายการคำนวณ (PDF)', 'ส่งตรวจ / อนุมัติ'],
-      ['Shop drawing + BOM', 'ส่งหน้างานและฝ่ายจัดซื้อ'],
+      ['รายการคำนวณ · Shop drawing · BOM', 'ส่งตรวจ/อนุมัติ หน้างาน และฝ่ายจัดซื้อ'],
+      ['Form Assembly', 'ทำแผงสำเร็จรูปพร้อมรหัส แล้วจัดแผงเป็นชุดแบบหล่อ'],
     ],
     [
       ['Create a project', 'Project data, client, contractor'],
@@ -194,8 +203,8 @@ export function ManualPage() {
       ['Design in 3D', 'Click a part to edit it, drag the orange handles to resize / respace'],
       ['Check the results', 'Every check must pass (ratio ≤ 1.00)'],
       ['Optimizer', 'Find the cheapest design that still passes'],
-      ['Calculation report (PDF)', 'For review / approval'],
-      ['Shop drawing + BOM', 'For site and purchasing'],
+      ['Calculation report · Shop drawing · BOM', 'For review/approval, site and purchasing'],
+      ['Form Assembly', 'Make coded stock panels and lay them out as form sets'],
     ],
     [
       ['创建项目', '项目信息、业主、承包商'],
@@ -204,8 +213,8 @@ export function ManualPage() {
       ['3D 设计', '点击构件修改,拖动橙色控制点调整尺寸/间距'],
       ['检查计算结果', '所有项目必须满足(比值 ≤ 1.00)'],
       ['优化器', '寻找仍满足要求的最经济方案'],
-      ['计算书 (PDF)', '提交审核 / 批准'],
-      ['加工图 + 材料表', '交付现场与采购部门'],
+      ['计算书 · 加工图 · 材料表', '提交审核/批准,交付现场与采购部门'],
+      ['模板组装', '制作带编号的定型模板,再拼装成整套模板'],
     ],
   )
 
@@ -622,6 +631,8 @@ export function ManualPage() {
               ],
             )}
           />
+
+          <AssemblySection />
 
           {/* ------------------------------------------------------------ theory */}
           <H2 id="theory">{L('ทฤษฎีที่ใช้ในการคำนวณ', 'Theory used in the calculations', '计算理论')}</H2>
@@ -1233,5 +1244,414 @@ export function ManualPage() {
         </article>
       </div>
     </ManualLangContext.Provider>
+  )
+}
+
+/** Step 7 — Form Assembly: stock panels, assemblies on an element's faces, checks, 3D sequence, usage and print. */
+function AssemblySection() {
+  const L = useL()
+  const parts: [string, string][] = L(
+    [
+      ['คลังแผง', 'สร้างแผงสำเร็จรูป ตั้งรหัส ใส่จำนวนสต็อก'],
+      ['ชุดประกอบ', 'เลือกชิ้นงานที่ออกแบบแล้ว ระบบแตกเป็นด้าน ๆ'],
+      ['จัดแผงและตรวจ', 'จัดอัตโนมัติ ปรับเอง ตรวจความยาว ความสูง และ tie'],
+      ['สรุปและพิมพ์', 'แผงพอหรือไม่ วัสดุทำแผง แบบผลิต แบบประกอบ DXF'],
+    ],
+    [
+      ['Panel stock', 'Make prefabricated panels, give them codes, enter the stock'],
+      ['Assemblies', 'Pick a designed element; it is split into faces'],
+      ['Lay out and check', 'Auto layout, adjust by hand, check length, height and ties'],
+      ['Summary and print', 'Enough panels? Panel materials, fabrication and assembly sheets, DXF'],
+    ],
+    [
+      ['模板库', '制作定型模板,设定编号,输入库存数量'],
+      ['组装方案', '选择已设计的构件,系统拆分为各个面'],
+      ['排板与验算', '自动排板、手动调整,验算长度、高度与对拉螺栓'],
+      ['汇总与打印', '模板是否足够、制作材料、加工图、组装图、DXF'],
+    ],
+  )
+  return (
+    <>
+      <H3 id="step-assembly">{L('ขั้นที่ 7 · Form Assembly — แผงแบบหล่อสำเร็จรูปและชุดประกอบ', 'Step 7 · Form Assembly — stock panels and form sets', '第 7 步 · 模板组装 —— 定型模板与整套模板')}</H3>
+      <p>
+        {L(
+          <>
+            Form Assembly ใช้เมื่อหน้างานทำ<b>แผงแบบหล่อสำเร็จรูป</b> (ไม้อัด + เคร่า) ไว้ใช้ซ้ำหลายจุด แทนการตีแบบทีละชิ้น — สร้างแผงไว้ในคลังพร้อมรหัสและจำนวน แล้วนำไปจัดเป็น<b>ชุดประกอบ</b>บนด้านต่าง ๆ ของชิ้นงาน
+            ระบบบอกว่าต้องใช้แผงไหนกี่แผง ตรวจว่าต่อแล้วครบพอดี และพิมพ์แบบผลิตแผงกับแบบประกอบให้หน้างาน เปิดได้จากเมนู <b>Form Assembly</b> ของโครงการ มี 3 แท็บ: คลังแผง · ชุดประกอบ · สรุปการใช้แผงและวัสดุ
+          </>,
+          <>
+            Use Form Assembly when the site builds <b>prefabricated form panels</b> (plywood + studs) to reuse in many places instead of building each form piece by piece — keep the panels in a
+            stock with codes and quantities, then lay them out as <b>assemblies</b> on the faces of an element. The system tells you which panels and how many, checks that they close each face
+            exactly, and prints panel fabrication sheets and assembly drawings for the site. Open it from the project's <b>Form Assembly</b> menu; it has 3 tabs: Panel stock · Assemblies · Panel
+            and material summary.
+          </>,
+          <>
+            当现场制作<b>定型模板</b>(胶合板 + 竖楞)并在多处周转使用,而不是逐件现场支模时,使用模板组装功能 —— 将模板连同编号和数量存入模板库,再在构件的各个面上拼装成<b>组装方案</b>。系统给出所需模板及数量,
+            验算各面是否正好拼满,并打印模板加工图和组装图供现场使用。从项目的 <b>Form Assembly</b> 菜单进入,共 3 个选项卡:模板库 · 组装方案 · 模板与材料汇总。
+          </>,
+        )}
+      </p>
+      <ol className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        {parts.map(([t, d], i) => (
+          <li key={t} className="card flex gap-3 p-3">
+            <span className="num inline-flex size-7 shrink-0 items-center justify-center rounded-full bg-brand text-sm font-semibold text-white">{i + 1}</span>
+            <span>
+              <b className="block text-[14px] text-ink">{t}</b>
+              <span className="text-[13px] text-muted">{d}</span>
+            </span>
+          </li>
+        ))}
+      </ol>
+      <Tip>
+        {L(
+          <>
+            ออกแบบชิ้นงานให้<b>ผ่าน</b>ก่อน (ขั้นที่ 3–4) — ชุดประกอบใช้ระยะคานรับเคร่า/คานรัดและตำแหน่ง Form tie จากผลคำนวณของชิ้นงานนั้น ชิ้นงานที่ทำชุดประกอบได้: ฐานราก · เสาสี่เหลี่ยม (ไม้อัด) ·
+            ผนัง · คาน
+          </>,
+          <>
+            Design the element so it <b>passes</b> first (steps 3–4) — an assembly takes the wale/yoke spacing and form-tie positions from that element's results. Elements that can have an
+            assembly: footings · rectangular columns (plywood) · walls · beams
+          </>,
+          <>
+            请先完成构件设计并使其<b>满足</b>验算(第 3–4 步)—— 组装方案沿用该构件计算结果中的围檩/柱箍间距及对拉螺栓位置。可做组装方案的构件:基础 · 矩形柱(胶合板)· 墙 · 梁
+          </>,
+        )}
+      </Tip>
+
+      <H4 id="asm-panels">{L('7.1 สร้างแผงในคลังแผง', '7.1 Make panels in the panel stock', '7.1 在模板库中创建模板')}</H4>
+      <Steps
+        items={L(
+          [
+            <>
+              แท็บ <b>คลังแผง</b> → กด <b>สร้างแผง</b> — แผงใหม่เริ่มที่ 2.40 × 1.20 ม. (ไม้อัดเต็มแผ่น)
+            </>,
+            <>
+              กรอก <b>กว้าง / สูง</b> หรือกดปุ่มขนาดลัด (2.40×1.20 · 1.20×2.40 · 2.00×1.20 · 0.20×1.20) — <b>รหัสแผง</b>ตั้งให้ตามขนาดเป็นเดซิเมตร เช่น P-2412 ถ้าด้านใดไม่ลงตัวเดซิเมตรใช้เซนติเมตร
+              เช่น F-25x120 และแผงที่ด้านใดด้านหนึ่งแคบกว่า 0.30 ม. ขึ้นต้นด้วย F (แผงเสริม) แก้รหัสเองได้แต่ห้ามซ้ำ
+            </>,
+            <>
+              เลือก <b>ไม้อัด</b> ความหนา และ <b>วางแผ่นไม้อัด</b> — อัตโนมัติจะเลือกทิศที่ใช้แผ่นน้อยและรอยต่อน้อยที่สุด
+            </>,
+            <>
+              <b>เคร่า</b>: เลือกวัสดุ (ไม้ หรือ เหล็ก) หน้าตัด แนวเคร่า (ตั้ง / นอน) และ <b>ระยะเคร่าไม่เกิน</b> — ระบบวางเคร่าใต้รอยต่อไม้อัดทุกแนว แล้วแบ่งช่วงที่เหลือเท่า ๆ กันไม่เกินระยะที่กำหนด
+            </>,
+            <>
+              <b>เคร่าปิดขอบ</b> ซ้าย / ขวา / บน / ล่าง — ด้านที่ไม่ปิดขอบ ไม้อัดจะยื่นเลยเคร่าตัวริมประมาณครึ่งช่วง เพื่อต่อชนกับแผงข้างเคียงที่มีเคร่าปิดขอบ
+            </>,
+            <>
+              <b>ตรวจกับผลคำนวณของชิ้นงาน</b> — เลือกชิ้นงาน ระบบตรวจว่าไม้อัดรับแรงดันคอนกรีตของชิ้นงานนั้นได้ที่ระยะเคร่าจริง และเคร่าไม่ด้อยกว่าที่ออกแบบไว้
+            </>,
+            <>
+              ใส่ <b>จำนวนในสต็อก</b> แล้วกด <b>บันทึก</b> · <b>ทำสำเนา</b> ใช้สร้างแผงขนาดใกล้เคียง · <b>แบบผลิต</b> พิมพ์แบบผลิตแผง A3 พร้อม DXF
+            </>,
+          ],
+          [
+            <>
+              <b>Panel stock</b> tab → press <b>New panel</b> (สร้างแผง) — a new panel starts at 2.40 × 1.20 m (one full plywood sheet)
+            </>,
+            <>
+              Enter the <b>width / height</b> or press a size shortcut (2.40×1.20 · 1.20×2.40 · 2.00×1.20 · 0.20×1.20) — the <b>panel code</b> follows the size in decimetres, e.g. P-2412; a side that is
+              not whole decimetres is written in centimetres, e.g. F-25x120, and a panel narrower than 0.30 m on either side starts with F (filler). You can change the code, but it must be unique
+            </>,
+            <>
+              Choose the <b>plywood</b>, its thickness and the <b>sheet lay</b> — Auto picks the direction with the fewest sheets and joints
+            </>,
+            <>
+              <b>Studs</b>: choose the material (timber or steel), the section, the direction (vertical / horizontal) and the <b>maximum stud spacing</b> — a stud goes under every plywood joint
+              and the rest are spaced equally, no further apart than the limit
+            </>,
+            <>
+              <b>Edge studs</b> left / right / top / bottom — at a side without one the plywood runs about half a spacing past the last stud, to butt against a neighbouring panel that has one
+            </>,
+            <>
+              <b>Check against an element's design</b> — pick an element; the plywood is checked for that element's concrete pressure at the actual stud spacing, and the studs against the
+              designed ones
+            </>,
+            <>
+              Enter the <b>stock quantity</b> and press <b>Save</b> · <b>Duplicate</b> makes a panel of a similar size · <b>Fabrication sheet</b> (แบบผลิต) prints an A3 panel sheet with DXF
+            </>,
+          ],
+          [
+            <>
+              <b>模板库</b> 选项卡 → 点击 <b>新建模板</b>(สร้างแผง)—— 新模板默认 2.40 × 1.20 m(整张胶合板)
+            </>,
+            <>
+              输入 <b>宽 / 高</b> 或点击常用尺寸按钮(2.40×1.20 · 1.20×2.40 · 2.00×1.20 · 0.20×1.20)—— <b>模板编号</b> 按分米尺寸自动生成,如 P-2412;不是整分米的边用厘米表示,如
+              F-25x120;任一边窄于 0.30 m 的模板以 F(补缺模板)开头。编号可修改,但不得重复
+            </>,
+            <>
+              选择 <b>胶合板</b>、厚度及 <b>铺板方向</b> —— “自动”会选择用板最少、拼缝最少的方向
+            </>,
+            <>
+              <b>竖楞</b>:选择材料(木或钢)、截面、方向(竖向 / 横向)及 <b>竖楞最大间距</b> —— 每条胶合板拼缝下均设竖楞,其余等分布置,间距不超过限值
+            </>,
+            <>
+              <b>封边竖楞</b> 左 / 右 / 上 / 下 —— 不封边的一侧,胶合板伸出最外竖楞约半个间距,用于与相邻带封边的模板对接
+            </>,
+            <>
+              <b>按构件计算结果验算</b> —— 选择构件后,系统按实际竖楞间距验算胶合板能否承受该构件的混凝土侧压力,并检查竖楞不弱于设计
+            </>,
+            <>
+              输入 <b>库存数量</b> 并点击 <b>保存</b> · <b>复制</b> 可快速建立尺寸相近的模板 · <b>加工图</b>(แบบผลิต)打印 A3 模板加工图并可下载 DXF
+            </>,
+          ],
+        )}
+      />
+      <Figure
+        title={L('ส่วนประกอบของแผง', 'Parts of a panel', '模板的组成')}
+        caption={L(
+          'หน้าแก้ไขแผงวาดรูปด้านตามค่าที่กรอกจริง พร้อมรายการตัดต่อ 1 แผง ความหนาแผง และน้ำหนักโดยประมาณ (เกิน 55 กก. ระบบเตือนให้ใช้เครื่องยกหรือแบ่งแผงให้เล็กลง)',
+          'The panel editor draws the elevation from your values, with the cut list for one panel, the panel thickness and its approximate weight (above 55 kg it warns to use a hoist or a smaller panel)',
+          '模板编辑页按输入值绘制立面图,并给出单块模板下料表、模板厚度及估计重量(超过 55 kg 时提示使用起重设备或改用较小模板)',
+        )}
+      >
+        <PanelAnatomyFigure />
+      </Figure>
+
+      <H4 id="asm-create">{L('7.2 สร้างชุดประกอบของชิ้นงาน', '7.2 Create an assembly for an element', '7.2 为构件创建组装方案')}</H4>
+      <Steps
+        items={L(
+          [
+            <>
+              แท็บ <b>ชุดประกอบ</b> → กด <b>สร้างชุดประกอบ</b> → เลือก <b>ชิ้นงาน</b> — ระบบแตกชิ้นงานเป็นด้าน A, B, C, D (คาน: ข้างคาน 2 ด้าน + ท้องคาน)
+            </>,
+            <>
+              เลือก <b>ด้านที่วิ่งทะลุมุม</b> (คาน: <b>มุมข้างคานกับท้องคาน</b>) — ด้านที่ทะลุจะยาวเพิ่มเท่าความหนาแผงของอีกด้าน ส่วนอีกคู่ยาวพอดีคอนกรีตและอยู่ระหว่างด้านที่ทะลุ
+            </>,
+            <>
+              เปิด <b>ด้านตรงข้ามเหมือนกัน</b> เมื่อด้านคู่กันใช้แผงชุดเดียวกัน — จัดด้านหนึ่ง อีกด้านจะตามให้ ปิดเมื่อต้องการจัดแยก
+            </>,
+          ],
+          [
+            <>
+              <b>Assemblies</b> tab → press <b>New assembly</b> (สร้างชุดประกอบ) → pick the <b>element</b> — it is split into faces A, B, C, D (beam: two sides + the soffit)
+            </>,
+            <>
+              Choose <b>which faces run through the corners</b> (beam: <b>side / soffit corner</b>) — a through face is longer by the panel thickness of the other faces; the other pair fits the
+              concrete exactly, between the through faces
+            </>,
+            <>
+              Turn on <b>Opposite faces alike</b> when a pair of faces uses the same panels — lay out one and the other follows; turn it off to lay them out separately
+            </>,
+          ],
+          [
+            <>
+              <b>组装方案</b> 选项卡 → 点击 <b>新建组装方案</b>(สร้างชุดประกอบ)→ 选择 <b>构件</b> —— 系统将其拆分为 A、B、C、D 各面(梁:两侧模 + 底模)
+            </>,
+            <>
+              选择 <b>贯通转角的面</b>(梁:<b>侧模与底模的转角</b>)—— 贯通面的长度增加其他面的模板厚度;另一对面与混凝土尺寸相同,夹在贯通面之间
+            </>,
+            <>
+              对面使用相同模板时开启 <b>对面相同</b> —— 排好一面,对面自动跟随;需要分别排板时关闭
+            </>,
+          ],
+        )}
+      />
+      <Figure
+        title={L('การต่อมุม', 'Corner arrangement', '转角拼接')}
+        caption={L(
+          'แปลนเล็กทางซ้ายของหน้าจอแสดงแบบนี้ — คลิกด้านเพื่อเลือก (สีเข้ม = ทะลุมุม)',
+          'The small plan on the left of the screen shows this — click a face to select it (dark = runs through)',
+          '页面左侧的小平面图即为此示意 —— 点击某一面即可选中(深色 = 贯通转角)',
+        )}
+      >
+        <AssemblyPlanFigure />
+      </Figure>
+
+      <H4 id="asm-layout">{L('7.3 จัดแผงในแต่ละด้าน', '7.3 Lay out the panels on each face', '7.3 各面排板')}</H4>
+      <Steps
+        items={L(
+          [
+            <>
+              เลือก <b>แผงเสริมไว้ที่</b> (ตรงกลาง / ซ้าย / ขวา) และ <b>ชั้นบนกลับด้าน (รอยต่อสลับ)</b> แล้วกด <b>จัดอัตโนมัติทุกด้าน</b> — ระบบเลือกแผงจากคลังให้ยาวครบพอดี ใช้จำนวนชั้นน้อยที่สุด
+              และปิดด้านที่สั้นกว่า 0.60 ม. ด้วยแผงเดียว
+            </>,
+            <>
+              ถ้าแผงในคลังต่อได้ไม่พอดี จะมีแถบสีเหลือง “ต้องมีแผง กว้าง × สูง” — กด <b>สร้างแผง … แล้วจัดใหม่</b> ระบบสร้างแผงขนาดนั้นเข้าคลังและจัดทุกด้านที่รอแผงนี้ให้
+            </>,
+            <>
+              ปรับเอง: เลือกแท็บด้าน (A, B, …) → <b>คลิกแผง</b>ในรูปด้าน → คลิกแผงในกล่อง <b>วางแผงจากคลัง</b> เพื่อแทรกถัดจากแผงที่เลือก (ถ้าไม่ได้เลือกแผง จะต่อท้ายชั้นบนสุด) · ปุ่ม
+              <b> เอา … ออก</b> · <b>ลากแผงซ้าย–ขวา</b>เพื่อสลับตำแหน่ง · <b>+ ชั้น</b> / <b>− ชั้นบนสุด</b> · <b>จัดด้านนี้</b> จัดอัตโนมัติเฉพาะด้าน
+            </>,
+            <>
+              ในกล่องวางแผง แผงที่สูงไม่เท่าชั้นนั้นจะเป็นกรอบเส้นประ — แผงในชั้นเดียวกันต้องสูงเท่ากัน
+            </>,
+            <>
+              กด <b>บันทึก</b> เมื่อจัดเสร็จ
+            </>,
+          ],
+          [
+            <>
+              Choose <b>Filler at</b> (middle / left / right) and <b>Reverse the upper course (staggered joints)</b>, then press <b>Auto layout all faces</b> — panels are chosen from the stock to
+              close each face exactly, with the fewest courses; a face shorter than 0.60 m is closed with one panel
+            </>,
+            <>
+              If the stock cannot close a face, an amber bar says “needs a panel W × H” — press <b>Create panel … and lay out again</b>: that panel is added to the stock and every face waiting for it
+              is laid out
+            </>,
+            <>
+              By hand: pick the face tab (A, B, …) → <b>click a panel</b> in the elevation → click a panel in the <b>Place from stock</b> box to insert it after the selected one (with none selected,
+              it goes at the end of the top course) · <b>Remove …</b> · <b>drag a panel left–right</b> to swap · <b>+ Course</b> / <b>− Top course</b> · <b>Lay out this face</b>
+            </>,
+            <>
+              In the place box, panels whose height differs from the course are shown dashed — the panels of one course must be the same height
+            </>,
+            <>
+              Press <b>Save</b> when done
+            </>,
+          ],
+          [
+            <>
+              选择 <b>补缺模板位置</b>(中间 / 左 / 右)及 <b>上层反向(错缝)</b>,然后点击 <b>全部面自动排板</b> —— 系统从模板库中选板使各面正好拼满,层数最少;短于 0.60 m 的面用一块模板封闭
+            </>,
+            <>
+              若库中模板无法正好拼满,会出现黄色提示“需要 宽 × 高 的模板” —— 点击 <b>创建模板 … 并重新排板</b>,系统将该尺寸模板加入模板库,并为所有等待该模板的面重新排板
+            </>,
+            <>
+              手动调整:选择面选项卡(A、B …)→ 在立面图中 <b>点击模板</b> → 在 <b>从模板库放置</b> 框中点击模板,插入到所选模板之后(未选模板时接在最上层末尾)· <b>移除 …</b> · <b>左右拖动模板</b>
+              交换位置 · <b>+ 层</b> / <b>− 最上层</b> · <b>本面排板</b>
+            </>,
+            <>
+              放置框中与该层高度不同的模板以虚线框显示 —— 同一层模板必须等高
+            </>,
+            <>
+              完成后点击 <b>保存</b>
+            </>,
+          ],
+        )}
+      />
+      <Figure
+        title={L('รูปด้าน 2D (จัดแผง)', '2D elevation (layout)', '2D 立面(排板)')}
+        caption={L(
+          'สีเหลือง = แผง · สีส้ม = แผงเสริม · เส้นเขียว = คานรับเคร่า · จุดม่วง = Form tie · จุดแดง = tie ตกใกล้รอยต่อแผง ให้สลับลำดับแผงหรือย้ายแผงเสริม',
+          'Yellow = panel · orange = filler · green line = wale · purple dot = form tie · red dot = a tie near a panel joint: reorder the panels or move the filler',
+          '黄色 = 模板 · 橙色 = 补缺模板 · 绿线 = 围檩 · 紫点 = 对拉螺栓 · 红点 = 螺栓靠近模板拼缝:调整模板顺序或移动补缺模板',
+        )}
+      >
+        <FaceLayoutFigure />
+      </Figure>
+
+      <H4 id="asm-check">{L('7.4 ตรวจผลและดูลำดับการประกอบใน 3D', '7.4 Check the result and play the 3D sequence', '7.4 查看验算结果与 3D 组装顺序')}</H4>
+      <Table
+        head={L(['รายการตรวจ', 'ผ่านเมื่อ'], ['Check', 'Passes when'], ['验算项目', '满足条件'])}
+        rows={L(
+          [
+            [<b>ความยาว</b>, 'แผงในแต่ละชั้นต่อกันยาวเท่าด้านพอดี (ขาด เกิน หรือยื่นเกินมุม = ไม่ผ่าน)'],
+            [<b>ความสูง / ความกว้าง</b>, 'รวมทุกชั้นสูงไม่น้อยกว่าที่ต้องการ · ท้องคานต้องกว้างพอดี · แผงในชั้นเดียวกันสูงเท่ากัน'],
+            [<b>Form tie</b>, 'ไม่มี tie ตกห่างรอยต่อแผงน้อยกว่า 10 ซม.'],
+            [<b>แผงที่ใช้ต่อ 1 ชุด</b>, 'จำนวนที่ใช้ไม่เกินสต็อก (ตัวเลขแดง = ไม่พอ) · จุดสีหน้ารหัส = ผลตรวจแผงนั้นกับชิ้นงาน'],
+            [<b>คานรับเคร่า / คานรัด</b>, 'แสดงความยาวและจำนวนท่อนตามที่ออกแบบไว้ในชิ้นงาน'],
+          ],
+          [
+            [<b>Length</b>, 'The panels of each course add up to the face length exactly (short, long or past the corner = fail)'],
+            [<b>Height / width</b>, 'All courses together are at least the required height · a beam soffit must be the exact width · panels in one course are the same height'],
+            [<b>Form ties</b>, 'No tie is closer than 10 cm to a panel joint'],
+            [<b>Panels per set</b>, 'Quantity used ≤ stock (red number = short) · the dot before the code = that panel checked against the element'],
+            [<b>Wales / yokes</b>, 'Lengths and number of pieces as designed for the element'],
+          ],
+          [
+            [<b>长度</b>, '每层模板拼接后正好等于该面长度(不足、超出或伸出转角 = 不满足)'],
+            [<b>高度 / 宽度</b>, '各层合计不小于所需高度 · 梁底模宽度须精确 · 同一层模板等高'],
+            [<b>对拉螺栓</b>, '无螺栓距模板拼缝小于 10 cm'],
+            [<b>每套所用模板</b>, '用量不超过库存(红色数字 = 不足)· 编号前的圆点 = 该模板按构件验算的结果'],
+            [<b>围檩 / 柱箍</b>, '按构件设计给出长度及根数'],
+          ],
+        )}
+      />
+      <Steps
+        items={L(
+          [
+            <>
+              สลับมุมมองเป็น <b>3D · ลำดับการประกอบ</b> — ปุ่ม เล่น / ขั้นก่อนหน้า / ขั้นถัดไป หรือลากแถบเลื่อน ชิ้นที่เรืองสีน้ำเงินคือชิ้นที่ประกอบในขั้นนั้น
+            </>,
+            <>
+              <b>แยกชิ้น (exploded)</b> ดึงแต่ละด้านออกให้เห็นแผงชัด · คลิกแผงใน 3D แล้วกด <b>ดูในรูปด้าน</b> เพื่อไปแก้ในรูปด้าน 2D
+            </>,
+          ],
+          [
+            <>
+              Switch the view to <b>3D · assembly sequence</b> — play / previous / next, or drag the slider; the part glowing blue is the one placed in that step
+            </>,
+            <>
+              <b>Exploded</b> pulls the faces apart so the panels are clear · click a panel in 3D, then <b>Show in elevation</b> to edit it in the 2D elevation
+            </>,
+          ],
+          [
+            <>
+              将视图切换到 <b>3D · 组装顺序</b> —— 播放 / 上一步 / 下一步,或拖动滑块;发蓝光的构件即该步骤安装的构件
+            </>,
+            <>
+              <b>爆炸视图</b> 将各面拉开以便看清模板 · 在 3D 中点击模板,再点击 <b>在立面中查看</b> 即可在 2D 立面中修改
+            </>,
+          ],
+        )}
+      />
+
+      <H4 id="asm-output">{L('7.5 สรุปการใช้แผงและพิมพ์แบบ', '7.5 Usage summary and printing', '7.5 用量汇总与打印')}</H4>
+      <p>
+        {L(
+          'แท็บ สรุปการใช้แผงและวัสดุ รวมทุกชุดประกอบของโครงการ: แผงแต่ละแบบใช้กี่แผงในแต่ละชุด ชุดที่ใช้มากที่สุด ถ้าตั้งทุกชุดพร้อมกันต้องใช้เท่าไร เทียบกับสต็อก และวัสดุสำหรับทำแผงตามสต็อก (ไม้อัดตามแผนตัด 1.22 × 2.44 และรายการตัดไม้)',
+          'The Panel and material summary tab covers every assembly of the project: how many of each panel each set uses, the largest set, how many if all sets stand at once, against the stock, and the materials to make the stock (plywood by the 1.22 × 2.44 cutting plan and the timber cut list).',
+          '“模板与材料汇总”选项卡汇总项目全部组装方案:每种模板在各套中的用量、用量最多的一套、所有套同时支设时的总用量及与库存的对比,以及按库存制作模板所需材料(按 1.22 × 2.44 裁切图的胶合板及木料下料表)。',
+        )}
+      </p>
+      <Table
+        head={L(['สถานะ', 'ความหมาย', 'ทำอย่างไร'], ['Status', 'Meaning', 'What to do'], ['状态', '含义', '处理方法'])}
+        rows={L(
+          [
+            [<b className="text-ok">พอ</b>, 'สต็อกพอตั้งทุกชุดพร้อมกัน', '—'],
+            [<b className="text-warn">พอเมื่อตั้งทีละชุด</b>, 'พอสำหรับชุดที่ใช้มากที่สุด แต่ไม่พอตั้งทุกชุดพร้อมกัน', 'วางแผนเทคอนกรีตทีละชุดแล้วย้ายแผงไปใช้ต่อ หรือเพิ่มสต็อก'],
+            [<b className="text-fail">ไม่พอ</b>, 'ไม่พอแม้ตั้งชุดเดียว', 'เพิ่มจำนวนในคลังแผง หรือจัดชุดประกอบใหม่ด้วยแผงที่มี'],
+          ],
+          [
+            [<b className="text-ok">Enough</b>, 'The stock can stand every set at once', '—'],
+            [<b className="text-warn">Enough one set at a time</b>, 'Enough for the largest set, not for all sets at once', 'Cast one set at a time and move the panels on, or add stock'],
+            [<b className="text-fail">Short</b>, 'Not enough even for one set', 'Add stock in the panel stock, or lay the assembly out again with the panels you have'],
+          ],
+          [
+            [<b className="text-ok">足够</b>, '库存可同时支设全部各套', '—'],
+            [<b className="text-warn">逐套支设时足够</b>, '满足用量最多的一套,但不足以同时支设全部各套', '按套依次浇筑并周转模板,或增加库存'],
+            [<b className="text-fail">不足</b>, '连一套都不够', '在模板库增加数量,或用现有模板重新排板'],
+          ],
+        )}
+      />
+      <Table
+        head={L(['ปุ่ม', 'อยู่ที่', 'ได้อะไร'], ['Button', 'Where', 'What you get'], ['按钮', '位置', '输出内容'])}
+        rows={L(
+          [
+            [<b>แบบผลิต</b>, 'หน้าแก้ไขแผง', 'แผ่น A3 ของแผงนั้น: รูปด้าน ขนาด ระยะเคร่า รายการตัด วัสดุ'],
+            [<b>แบบประกอบ</b>, 'หน้าชุดประกอบ', 'แผ่น A3 ของชุดนั้น: รูปด้านทุกด้านพร้อมรหัสแผง คานรับเคร่า tie และรายการแผงที่ใช้'],
+            [<b>แบบผลิตแผงทั้งหมด · แบบประกอบทุกชุด · ส่งออก CSV</b>, 'แท็บสรุปการใช้แผงและวัสดุ', 'พิมพ์ทุกแผ่นในครั้งเดียว · ตารางการใช้แผงและวัสดุเป็น CSV'],
+            [<b>DXF</b>, 'เหนือแต่ละแผ่นในหน้าพิมพ์', 'แบบแผ่นนั้นเป็นไฟล์ DXF เปิดใน AutoCAD'],
+          ],
+          [
+            [<b>Fabrication sheet</b>, 'Panel editor', 'An A3 sheet of the panel: elevation, sizes, stud spacing, cut list, materials'],
+            [<b>Assembly sheet</b>, 'Assembly editor', 'An A3 sheet of the set: every face with panel codes, wales, ties and the panels used'],
+            [<b>All panel sheets · All assembly sheets · Export CSV</b>, 'Panel and material summary tab', 'Print every sheet at once · the usage and material tables as CSV'],
+            [<b>DXF</b>, 'Above each sheet on the print page', 'That sheet as a DXF file for AutoCAD'],
+          ],
+          [
+            [<b>加工图</b>, '模板编辑页', '该模板的 A3 图纸:立面、尺寸、竖楞间距、下料表、材料'],
+            [<b>组装图</b>, '组装方案页', '该套的 A3 图纸:各面立面及模板编号、围檩、对拉螺栓及所用模板清单'],
+            [<b>全部模板加工图 · 全部组装图 · 导出 CSV</b>, '模板与材料汇总选项卡', '一次打印全部图纸 · 用量与材料表导出为 CSV'],
+            [<b>DXF</b>, '打印页每张图纸上方', '该图纸的 DXF 文件,可在 AutoCAD 打开'],
+          ],
+        )}
+      />
+      <Tip warn>
+        {L(
+          <>
+            แก้แผงหรือชุดประกอบแล้วต้องกด <b>บันทึก</b> ทุกครั้ง (มีคำว่า “ยังไม่บันทึก” ข้างรหัส) · ถ้าลบแผงที่ชุดประกอบใช้อยู่ ด้านนั้นจะแจ้ง “มีแผงที่ถูกลบออกจากคลังแล้ว” ให้จัดด้านนั้นใหม่
+          </>,
+          <>
+            Press <b>Save</b> after every change to a panel or an assembly (“not saved” shows next to the code) · if you delete a panel an assembly uses, that face reports a panel removed from the
+            stock — lay that face out again
+          </>,
+          <>
+            修改模板或组装方案后须点击 <b>保存</b>(编号旁显示“未保存”)· 若删除了组装方案正在使用的模板,该面会提示有模板已从模板库删除,请重新排板
+          </>,
+        )}
+      </Tip>
+    </>
   )
 }

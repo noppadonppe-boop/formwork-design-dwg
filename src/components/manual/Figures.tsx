@@ -611,3 +611,202 @@ export function LoadPathFigure() {
     </div>
   )
 }
+
+// ---------------------------------------------------------------- Form Assembly
+
+const ASM = {
+  stud: '#0d9488',
+  edge: '#115e59',
+  panel: '#fde68a',
+  panelLine: '#b45309',
+  filler: '#fed7aa',
+  fillerLine: '#c2410c',
+  wale: '#0f766e',
+  tie: '#6d28d9',
+  clash: '#dc2626',
+  through: '#a8a29e',
+  throughLine: '#44403c',
+}
+
+function DimH({ x1, x2, y, label }: { x1: number; x2: number; y: number; label: ReactNode }) {
+  return (
+    <g>
+      <line x1={x1} y1={y} x2={x2} y2={y} stroke={C.ink} />
+      <line x1={x1} y1={y - 6} x2={x1} y2={y + 6} stroke={C.ink} />
+      <line x1={x2} y1={y - 6} x2={x2} y2={y + 6} stroke={C.ink} />
+      <text x={(x1 + x2) / 2} y={y + 18} fontSize="12.5" textAnchor="middle" fill={C.ink}>
+        {label}
+      </text>
+    </g>
+  )
+}
+
+/** A stock panel seen from the stud side: plywood, studs at ≤ the spacing, edge studs, its code and thickness. */
+export function PanelAnatomyFigure() {
+  const L = useL()
+  const k = 130
+  const x0 = 60
+  const y0 = 40
+  const W = 2.4 * k
+  const H = 1.2 * k
+  const b = 0.05 * k
+  const centres = Array.from({ length: 7 }, (_, i) => x0 + (0.025 + (i * 2.35) / 6) * k)
+  const studFill = (i: number) => (i === 0 || i === 6 ? ASM.edge : ASM.stud)
+  const ys = 256
+  return (
+    <svg {...svgProps(600, 300, L('แผงแบบหล่อมองจากด้านเคร่า', 'Form panel seen from the stud side', '从竖楞一侧看的模板单元'))}>
+      <rect x={x0} y={y0} width={W} height={H} fill={C.ply} stroke={C.plyLine} />
+      {centres.map((c, i) => (
+        <rect key={i} x={c - b / 2} y={y0} width={b} height={H} fill={studFill(i)} />
+      ))}
+      <line x1={centres[1]} y1={y0 - 10} x2={centres[2]} y2={y0 - 10} stroke={C.ink} />
+      <line x1={centres[1]} y1={y0 - 15} x2={centres[1]} y2={y0 - 3} stroke={C.ink} />
+      <line x1={centres[2]} y1={y0 - 15} x2={centres[2]} y2={y0 - 3} stroke={C.ink} />
+      <text x={(centres[1] + centres[2]) / 2} y={y0 - 17} fontSize="12" textAnchor="middle" fill={C.ink}>
+        {L('≤ 40 ซม.', '≤ 40 cm', '≤ 40 cm')}
+      </text>
+      <DimH x1={x0} x2={x0 + W} y={y0 + H + 14} label={L('กว้าง 2.40 ม.', 'width 2.40 m', '宽 2.40 m')} />
+      <line x1={x0 - 14} y1={y0} x2={x0 - 14} y2={y0 + H} stroke={C.ink} />
+      <line x1={x0 - 20} y1={y0} x2={x0 - 8} y2={y0} stroke={C.ink} />
+      <line x1={x0 - 20} y1={y0 + H} x2={x0 - 8} y2={y0 + H} stroke={C.ink} />
+      <text x={x0 - 22} y={y0 + H / 2} fontSize="12.5" textAnchor="middle" fill={C.ink} transform={`rotate(-90 ${x0 - 22} ${y0 + H / 2})`}>
+        {L('สูง 1.20 ม.', 'height 1.20 m', '高 1.20 m')}
+      </text>
+      <Callout x={x0 + 0.2 * k} y={y0 + 0.3 * k} tx={410} ty={52}>
+        {L('ไม้อัด 1.22 × 2.44 (เต็มแผ่น)', 'Plywood 1.22 × 2.44 (one sheet)', '胶合板 1.22 × 2.44(整张)')}
+      </Callout>
+      <Callout x={centres[4]} y={y0 + 0.6 * k} tx={410} ty={92}>
+        {L('เคร่า (ไม้ หรือ เหล็ก)', 'Stud (timber or steel)', '竖楞(木或钢)')}
+      </Callout>
+      <Callout x={centres[6]} y={y0 + 0.95 * k} tx={410} ty={132}>
+        {L('เคร่าปิดขอบ', 'Edge stud', '封边竖楞')}
+      </Callout>
+      <g transform="translate(410 160)">
+        <rect width="180" height="40" rx="6" fill={C.ink} />
+        <text x="10" y="17" fontSize="12" fill="#fff" fontWeight="600">
+          {L('รหัสแผง P-2412', 'Panel code P-2412', '模板编号 P-2412')}
+        </text>
+        <text x="10" y="32" fontSize="11" fill="#cbd5e1">
+          {L('= 2.40 × 1.20 ม. (เดซิเมตร)', '= 2.40 × 1.20 m (decimetres)', '= 2.40 × 1.20 m(分米)')}
+        </text>
+      </g>
+      <text x={x0} y={ys - 8} fontSize="12" fill={C.muted}>
+        {L('รูปตัด', 'Section', '剖面')}
+      </text>
+      <rect x={x0} y={ys} width={W} height={4} fill={C.ply} stroke={C.plyLine} strokeWidth="0.8" />
+      {centres.map((c, i) => (
+        <rect key={i} x={c - b / 2} y={ys + 4} width={b} height={10} fill={studFill(i)} />
+      ))}
+      <line x1={x0 + W + 12} y1={ys} x2={x0 + W + 12} y2={ys + 14} stroke={C.ink} />
+      <line x1={x0 + W + 7} y1={ys} x2={x0 + W + 17} y2={ys} stroke={C.ink} />
+      <line x1={x0 + W + 7} y1={ys + 14} x2={x0 + W + 17} y2={ys + 14} stroke={C.ink} />
+      <text x={x0 + W + 20} y={ys + 32} fontSize="12" textAnchor="end" fill={C.ink}>
+        {L('ความหนาแผง = ไม้อัด + ความลึกเคร่า', 'Panel thickness = plywood + stud depth', '模板厚度 = 胶合板 + 竖楞高度')}
+      </text>
+    </svg>
+  )
+}
+
+/** Plans of how the faces meet at the corners: a column/footing (A, C run through) and a beam (sides past the soffit). */
+export function AssemblyPlanFigure() {
+  const L = useL()
+  const t = 14
+  const face = (x: number, y: number, w: number, h: number, through: boolean) => (
+    <rect x={x} y={y} width={w} height={h} fill={through ? ASM.through : ASM.panel} stroke={through ? ASM.throughLine : ASM.panelLine} />
+  )
+  const tag = (x: number, y: number, s: string) => (
+    <text x={x} y={y} fontSize="14" fontWeight="700" textAnchor="middle" fill={C.ink}>
+      {s}
+    </text>
+  )
+  return (
+    <svg {...svgProps(600, 225, L('การต่อมุมของแผงในชุดประกอบ', 'How the panels meet at the corners', '模板在转角处的拼接'))}>
+      <Defs id="ap" />
+      <rect x="110" y="50" width="110" height="110" fill="url(#ap-hatch)" stroke={C.concLine} />
+      {face(110 - t, 50 - t, 110 + 2 * t, t, true)}
+      {face(110 - t, 160, 110 + 2 * t, t, true)}
+      {face(220, 50, t, 110, false)}
+      {face(110 - t, 50, t, 110, false)}
+      {tag(165, 28, 'A')}
+      {tag(250, 110, 'B')}
+      {tag(165, 194, 'C')}
+      {tag(80, 110, 'D')}
+      <text x="165" y="216" fontSize="12" textAnchor="middle" fill={C.muted}>
+        {L('เสา / ฐานราก (แปลน) — A, C ทะลุมุม', 'Column / footing (plan) — A, C run through', '柱 / 基础(平面)—— A、C 贯通转角')}
+      </text>
+      <rect x="420" y="40" width="80" height="120" fill="url(#ap-hatch)" stroke={C.concLine} />
+      {face(420 - t, 40, t, 120 + t, true)}
+      {face(500, 40, t, 120 + t, true)}
+      {face(420, 160, 80, t, false)}
+      <Callout x={420 - t / 2} y={90} tx={350} ty={90}>
+        {L('ข้างคาน', 'Side', '侧模')}
+      </Callout>
+      <Callout x={460} y={160 + t / 2} tx={380} ty={200}>
+        {L('ท้องคาน (กว้างพอดี)', 'Soffit (exact width)', '底模(宽度精确)')}
+      </Callout>
+      <text x="460" y="24" fontSize="12" textAnchor="middle" fill={C.muted}>
+        {L('คาน (รูปตัด) — ข้างคานทะลุมุม', 'Beam (section) — sides run through', '梁(剖面)—— 侧模贯通')}
+      </text>
+    </svg>
+  )
+}
+
+/** One face of an assembly: two courses of stock panels with a filler, joints staggered, wales and form ties. */
+export function FaceLayoutFigure() {
+  const L = useL()
+  const k = 80
+  const x0 = 70
+  const y0 = 20
+  const Y = (m: number) => y0 + (2.4 - m) * k
+  const courses: { h0: number; panels: [string, number, boolean?][] }[] = [
+    { h0: 0, panels: [['P-2412', 2.4], ['F-20x120', 0.2, true], ['P-2412', 2.4]] },
+    { h0: 1.2, panels: [['P-1212', 1.2], ['P-2412', 2.4], ['F-20x120', 0.2, true], ['P-1212', 1.2]] },
+  ]
+  const wales = [0.3, 0.9, 1.5, 2.1]
+  const CLASH = 3.65
+  const ties = (y: number) => (y === 2.1 ? [0.6, 1.8, CLASH, 4.4] : [0.6, 1.8, 3.0, 4.4])
+  return (
+    <svg {...svgProps(680, 260, L('รูปด้านของด้านหนึ่งในชุดประกอบ', 'Elevation of one face of an assembly', '组装中一个面的立面'))}>
+      {courses.map((c, ci) => {
+        let x = 0
+        return c.panels.map(([code, w, filler], i) => {
+          const px = x0 + x * k
+          x += w
+          const cx = px + (w * k) / 2
+          const cy = Y(c.h0 + 0.6)
+          return (
+            <g key={`${ci}-${i}`}>
+              <rect x={px} y={Y(c.h0 + 1.2)} width={w * k} height={1.2 * k} fill={filler ? ASM.filler : ASM.panel} stroke={filler ? ASM.fillerLine : ASM.panelLine} />
+              <text x={cx} y={cy + 4} fontSize={filler ? 9.5 : 12} textAnchor="middle" fill={C.ink} transform={filler ? `rotate(-90 ${cx} ${cy})` : undefined}>
+                {code}
+              </text>
+            </g>
+          )
+        })
+      })}
+      {wales.map((y) => (
+        <line key={y} x1={x0 - 10} y1={Y(y)} x2={x0 + 5 * k + 10} y2={Y(y)} stroke={ASM.wale} strokeWidth="4" />
+      ))}
+      {wales.flatMap((y) => ties(y).map((x) => <circle key={`${y}-${x}`} cx={x0 + x * k} cy={Y(y)} r="4.5" fill={x === CLASH ? ASM.clash : ASM.tie} stroke="#fff" strokeWidth="1.2" />))}
+      <text x={x0 - 16} y={Y(0.6) + 4} fontSize="12" textAnchor="end" fill={C.muted}>
+        {L('ชั้น 1', 'Course 1', '第 1 层')}
+      </text>
+      <text x={x0 - 16} y={Y(1.8) + 4} fontSize="12" textAnchor="end" fill={C.muted}>
+        {L('ชั้น 2', 'Course 2', '第 2 层')}
+      </text>
+      <DimH x1={x0} x2={x0 + 5 * k} y={Y(0) + 14} label={L('ด้าน A ยาว 5.00 ม. = 2.40 + 0.20 + 2.40', 'Face A, 5.00 m = 2.40 + 0.20 + 2.40', '面 A 长 5.00 m = 2.40 + 0.20 + 2.40')} />
+      <Callout x={x0 + 2.5 * k} y={Y(0.12)} tx={500} ty={Y(0.12)}>
+        {L('แผงเสริม', 'Filler panel', '补缺模板')}
+      </Callout>
+      <Callout x={x0 + 5 * k + 6} y={Y(1.5)} tx={500} ty={Y(1.5)}>
+        {L('คานรับเคร่า (ตามที่ออกแบบ)', 'Wale (as designed)', '围檩(按设计)')}
+      </Callout>
+      <Callout x={x0 + 4.4 * k} y={Y(0.9)} tx={500} ty={Y(0.9)}>
+        Form tie
+      </Callout>
+      <Callout x={x0 + CLASH * k} y={Y(2.1)} tx={500} ty={Y(2.4) + 2}>
+        {L('tie ใกล้รอยต่อ < 10 ซม.', 'Tie < 10 cm from a joint', '螺栓距拼缝 < 10 cm')}
+      </Callout>
+    </svg>
+  )
+}
