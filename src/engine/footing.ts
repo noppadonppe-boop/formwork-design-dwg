@@ -100,6 +100,16 @@ export const DEFAULT_FOOTING: FootingInput = {
 }
 
 export const FOOTING_SUPPORT_LABEL: Record<FootingSupport, string> = { cantilever: 'เคร่าปลายยื่น (ตอกลงดิน)', braced: 'ค้ำยันทแยงลงหลัก', tied: 'คานรับเคร่ารอบฐาน (+ Form tie)' }
+/** The arrangement actually designed, in full — for reports and drawings (the support label alone is generic). */
+export function footingSystemLabel(inp: FootingInput, d?: FootingDesign): string {
+  if (inp.support === 'cantilever') return 'เคร่าปลายยื่น (ตอกลงดิน)'
+  if (inp.support === 'braced') return inp.brace.at === 'wale' ? 'ค้ำยันทแยงผ่านคานรับเคร่าลงหลัก' : 'ค้ำยันทแยงทุกเคร่าลงหลัก'
+  const lay = d?.layout.tieLayout
+  if (lay === 'none') return 'คานรับเคร่ารัดรอบฐาน (ไม่ใช้ไทร์)'
+  if (lay === 'short') return 'คานรับเคร่ารอบฐาน + Form tie ขวางด้านสั้น'
+  if (lay === 'both') return 'คานรับเคร่ารอบฐาน + Form tie สองทิศทาง'
+  return FOOTING_SUPPORT_LABEL.tied
+}
 export const FOOTING_TIE_LAYOUT_LABEL: Record<FootingTieLayout, string> = {
   auto: 'อัตโนมัติ — ใช้ไทร์น้อยที่สุดที่ผ่าน',
   none: 'ไม่ใช้ไทร์ — คานรับเคร่ารัดรอบฐาน',
@@ -389,7 +399,7 @@ export function designFooting(inp: FootingInput, opts: { advise?: boolean } = {}
       ], tk),
     )
     stakes = nStuds + nBraceLines
-    warnings.push('ค้ำยันลงดินเหมาะกับดินแข็ง — ดินอ่อนให้ใช้คานรับเคร่ารอบฐาน + Form tie (หมายเหตุตัวอย่าง 10.1)')
+    warnings.push('ค้ำยันและหลักลงดินใช้ได้กับดินแข็งเท่านั้น — ตรวจสภาพดินที่หน้างานให้รับแรงได้ตามที่ออกแบบ (หมายเหตุตัวอย่าง 10.1)')
   } else {
     // 2) studs → wale spacing, exactly as a wall form of thickness d (Ex 10.2, 10.3)
     const w = designWall({
@@ -443,7 +453,7 @@ export function designFooting(inp: FootingInput, opts: { advise?: boolean } = {}
 
     const tWa = new Trace()
     if (s !== s0) tWa.add({ label: 'ลดระยะคานรับเคร่าจนคานรับเคร่าผ่าน (แบบคานรัดเสา §9.4)', expr: `${s0} → ${s}`, value: s, unit: 'ซม.' })
-    if (want === 'auto') tWa.add({ label: `การวางไทร์ (อัตโนมัติ): ${FOOTING_TIE_LAYOUT_LABEL[pick.layout]}` })
+    tWa.add({ label: `การวางไทร์: ${FOOTING_TIE_LAYOUT_LABEL[pick.layout]}` })
     const rc = checkRing(p, s, longCm, shortCm, pick.layout, pick.tieSp, waleMember, defl, tWa)
     tWa.add({ label: 'แรงดึงที่รอยต่อมุมคานรับเคร่า', value: rc.corner, unit: 'กก.', ref: 'รูป 8.11' })
     components.push(

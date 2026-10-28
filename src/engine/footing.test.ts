@@ -1,6 +1,6 @@
 // Book Chapter 10 worked examples 10.1–10.3 (method ก — direct calculation).
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_FOOTING, designFooting, type FootingInput } from './footing'
+import { DEFAULT_FOOTING, designFooting, type FootingInput, footingSystemLabel } from './footing'
 
 const comp = (d: ReturnType<typeof designFooting>, k: string) => d.components.find((x) => x.key === k)!
 
@@ -137,5 +137,15 @@ describe('cantilever studs', () => {
     const d = designFooting({ ...ex101, height: 0.5, support: 'cantilever' })
     expect(comp(d, 'stud').rows).toHaveLength(2)
     expect(comp(d, 'stake').rows[0].demand).toBeGreaterThan(0)
+  })
+})
+
+describe('system label for reports', () => {
+  it('names the arrangement actually designed', () => {
+    const tied = { ...DEFAULT_FOOTING, support: 'tied' as const }
+    expect(footingSystemLabel(tied, designFooting(tied))).toBe('คานรับเคร่ารอบฐาน + Form tie สองทิศทาง')
+    const small = { ...tied, lengthX: 1.2, lengthY: 1.2, height: 0.6 }
+    expect(footingSystemLabel(small, designFooting(small))).toBe('คานรับเคร่ารัดรอบฐาน (ไม่ใช้ไทร์)')
+    expect(footingSystemLabel({ ...DEFAULT_FOOTING, brace: { ...DEFAULT_FOOTING.brace, at: 'wale' } })).toBe('ค้ำยันทแยงผ่านคานรับเคร่าลงหลัก')
   })
 })

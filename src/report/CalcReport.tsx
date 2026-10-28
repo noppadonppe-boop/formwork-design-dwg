@@ -7,7 +7,7 @@ import { fmtVal } from '@/components/design/ResultsPanel'
 import type { AnyDesign } from '@/data/elements'
 import { elementHeight, elementSize, QUANTITY_LABEL, TYPE_LABEL } from '@/data/elements'
 import type { Criteria, ElementData, Project } from '@/data/types'
-import { beamBracing, beamCrossJoist, beamHasRunners, beamRunnerFlat, beamStringer, columnTieSpans, type ComponentResult, FOOTING_BRACE_AT_LABEL, FOOTING_SUPPORT_LABEL, FOOTING_TIE_LAYOUT_LABEL, getMaterial, getSection, getTie, type ShoreParams, type Status, type Trace } from '@/engine'
+import { beamBracing, beamCrossJoist, beamHasRunners, beamRunnerFlat, beamStringer, columnTieSpans, type ComponentResult, footingSystemLabel, getMaterial, getSection, getTie, type ShoreParams, type Status, type Trace } from '@/engine'
 import { Drawing } from './Drawing'
 import { elementViews } from './views'
 
@@ -168,10 +168,8 @@ function members(el: ElementData): MemberRow[] {
 function footingCriteria(el: Extract<ElementData, { type: 'footing' }>, run: AnyDesign): [string, ReactNode][] {
   const i = el.input
   const lay = run.type === 'footing' ? run.design.layout : undefined
-  const rows: [string, ReactNode][] = [['การยึดเคร่า', FOOTING_SUPPORT_LABEL[i.support]]]
-  if (i.support === 'braced') rows.push(['ตำแหน่งค้ำยัน', FOOTING_BRACE_AT_LABEL[i.brace.at ?? 'stud']])
-  if (i.support === 'tied')
-    rows.push(['การวางไทร์', `${FOOTING_TIE_LAYOUT_LABEL[lay?.tieLayout ?? 'short']}${(i.tie.layout ?? 'auto') === 'auto' ? ' (เลือกอัตโนมัติ)' : ''}`])
+  // only the arrangement designed — the comparison with the others stays on the results tab
+  const rows: [string, ReactNode][] = [['ระบบยึดแบบ', footingSystemLabel(i, run.type === 'footing' ? run.design : undefined)]]
   if (lay?.waleCorner)
     rows.push(['มุมคานรับเคร่า', lay.waleCorner === 'butt' ? 'ตัดชน ระดับเดียวกัน' : `วางไขว้ ยาวเต็มท่อน · คานด้านสั้น${(lay.waleShift ?? 0) < 0 ? 'เลื่อนลง' : 'เลื่อนขึ้น'} ${(Math.abs(lay.waleShift ?? 0) * 100).toFixed(1)} ซม.`])
   if (lay?.tiePlate) rows.push(['เหล็กประกับไทร์', `${lay.tiePlate.wCm}×${lay.tiePlate.hCm} ซม. หนา ${lay.tiePlate.tMm} มม. (A36) ปลายไทร์ทุกจุด`])
@@ -298,7 +296,6 @@ export function ElementReport({ project, criteria, el, run, opts, designer }: { 
             ))}
           </ul>
         )}
-        {d.advice && <AdviceTable advice={d.advice} />}
       </Section>
 
       <Section n={sec()} title="เกณฑ์การออกแบบและวัสดุ">
@@ -443,45 +440,6 @@ export function Signatures({ designer }: { designer: string }) {
           <div className="text-slate-500">วันที่ ......../......../........</div>
         </div>
       ))}
-    </div>
-  )
-}
-
-function AdviceTable({ advice }: { advice: NonNullable<AnyDesign['design']['advice']> }) {
-  return (
-    <div className="mt-3 break-inside-avoid">
-      <p className="mb-1 text-[11px] font-semibold">{advice.title}</p>
-      <ul className="mb-1 list-disc pl-5 text-[10.5px]">
-        {advice.summary.map((x) => (
-          <li key={x} className={clsx(x.startsWith('แนะนำ') && 'font-semibold')}>
-            {x}
-          </li>
-        ))}
-      </ul>
-      <table className="w-full border-collapse text-[10.5px]">
-        <thead>
-          <tr>
-            <th className={th}>รูปแบบ</th>
-            <th className={th}>ปริมาณ / หมายเหตุ</th>
-            <th className={clsx(th, 'text-right')}>Ratio สูงสุด</th>
-            <th className={clsx(th, 'text-center')}>ผล</th>
-          </tr>
-        </thead>
-        <tbody>
-          {advice.options.map((o) => (
-            <tr key={o.key} className={clsx(o.recommended && 'bg-green-50')}>
-              <td className={td}>
-                {o.label}
-                {o.current && <b> (ที่ใช้)</b>}
-                {o.recommended && <b className="text-ok"> ★ แนะนำ</b>}
-              </td>
-              <td className={td}>{o.note}</td>
-              <td className={clsx(td, 'num text-right')}>{o.ratio > 9.99 ? '>9.99' : o.ratio.toFixed(2)}</td>
-              <td className={clsx(td, 'text-center font-bold', o.status === 'fail' ? 'text-fail' : 'text-ok')}>{OKNG[o.status]}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
     </div>
   )
 }

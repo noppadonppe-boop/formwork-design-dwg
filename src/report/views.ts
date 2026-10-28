@@ -1,7 +1,7 @@
 // Orthographic views of each element type with their dimension chains — shared by the calc report and the shop drawings.
 import type { AnyDesign } from '@/data/elements'
 import type { ElementData } from '@/data/types'
-import { BEAM_TYPE_LABEL, columnTieSpans, FOOTING_SUPPORT_LABEL } from '@/engine'
+import { BEAM_TYPE_LABEL, columnTieSpans, footingSystemLabel } from '@/engine'
 import { elementModel } from '@/model/elementModel'
 import type { FormModel } from '@/model/formModel'
 import { chain, type Dim } from './Drawing'
@@ -102,7 +102,7 @@ export function elementViews(el: ElementData, run: AnyDesign): { a: DrawingSpec;
   const sec: Dim[] = [...chain('v', [0, ...[...levels].sort((p, q) => p - q), i.height], -xMax - 0.25)]
   return {
     a: { model: m, view: 'top', dims: plan, title: 'แปลนแบบหล่อฐานราก (Plan)' },
-    b: { model: m, view: 'front', dims: sec, title: `รูปด้านฐานราก — ${FOOTING_SUPPORT_LABEL[i.support]} (ระยะ ซม.)` },
+    b: { model: m, view: 'front', dims: sec, title: `รูปด้านฐานราก — ${footingSystemLabel(i, d)} (ระยะ ซม.)` },
   }
 }
 
