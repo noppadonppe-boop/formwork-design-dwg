@@ -1,8 +1,9 @@
 // Form Assembly — assemblies: panels from the stock laid out on the four faces of a footing, with automatic layout,
 // drag-to-reorder, the plan and face elevations, and the checks against the footing design.
 import clsx from 'clsx'
-import { Check, Layers, Loader2, Minus, Plus, Save, Trash2, Wand2, X } from 'lucide-react'
+import { Check, Layers, Loader2, Minus, Plus, Printer, Save, Trash2, Wand2, X } from 'lucide-react'
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { Button, Empty, Field, Modal, Segmented, Select, StatusBadge, Toggle } from '@/components/ui'
 import { isConflict } from '@/data/conflict'
 import { elementSize, runDesign } from '@/data/elements'
@@ -305,17 +306,22 @@ function AssemblyEditor({ assembly, elements, panels, criteria, canEdit, project
             {el.code} ฐานราก · {elementSize(el)} · สูงเท {el.input.height.toFixed(2)} ม.
           </p>
         </div>
-        {canEdit && (
-          <div className="ml-auto flex flex-wrap gap-2">
-            <Button variant="danger" onClick={() => setConfirmDelete(true)}>
-              <Trash2 size={16} /> ลบ
-            </Button>
-            <Button variant="primary" onClick={() => save()} disabled={!draft.code.trim() || state === 'saving' || state === 'conflict' || (!dirty && state !== 'error')}>
-              {state === 'saving' ? <Loader2 size={16} className="animate-spin" /> : state === 'saved' && !dirty ? <Check size={16} /> : <Save size={16} />}
-              {state === 'saved' && !dirty ? 'บันทึกแล้ว' : 'บันทึก'}
-            </Button>
-          </div>
-        )}
+        <div className="ml-auto flex flex-wrap gap-2">
+          <Link to={`/projects/${projectId}/assembly/print?asm=${assembly.id}`} target="_blank" className="inline-flex h-10 items-center gap-2 rounded-lg px-4 text-sm font-medium text-slate-600 hover:bg-slate-100">
+            <Printer size={16} /> แบบประกอบ
+          </Link>
+          {canEdit && (
+            <>
+              <Button variant="danger" onClick={() => setConfirmDelete(true)}>
+                <Trash2 size={16} /> ลบ
+              </Button>
+              <Button variant="primary" onClick={() => save()} disabled={!draft.code.trim() || state === 'saving' || state === 'conflict' || (!dirty && state !== 'error')}>
+                {state === 'saving' ? <Loader2 size={16} className="animate-spin" /> : state === 'saved' && !dirty ? <Check size={16} /> : <Save size={16} />}
+                {state === 'saved' && !dirty ? 'บันทึกแล้ว' : 'บันทึก'}
+              </Button>
+            </>
+          )}
+        </div>
         {state === 'error' && <p className="w-full text-sm text-fail">บันทึกไม่สำเร็จ</p>}
         {(remoteChanged || state === 'conflict') && (
           <div className="flex w-full flex-wrap items-center gap-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-warn ring-1 ring-amber-200" role="alert">

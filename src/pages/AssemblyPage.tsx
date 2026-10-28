@@ -2,11 +2,12 @@
 // code, re-used by any assembly; each is checked against the design of an element of the project.
 // Assemblies (?view=asm) lay the stock panels out on the faces of an element (components/assembly/AssemblyView).
 import clsx from 'clsx'
-import { Check, ChevronLeft, Copy, Layers, Loader2, Plus, Save, Trash2 } from 'lucide-react'
+import { Check, ChevronLeft, Copy, Layers, Loader2, Plus, Printer, Save, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { useAuth } from '@/auth/AuthProvider'
 import { AssemblyView } from '@/components/assembly/AssemblyView'
+import { UsageView } from '@/components/assembly/UsageView'
 import { MEMBER_SWATCH, PanelDrawing } from '@/components/assembly/PanelDrawing'
 import { NumField } from '@/components/design/NumField'
 import { ProjectNav } from '@/components/ProjectNav'
@@ -73,7 +74,7 @@ export function AssemblyPage() {
   const selectedId = params.get('panel') ?? panels?.[0]?.id
   const selected = panels?.find((p) => p.id === selectedId)
   const select = (id: string) => setParams({ panel: id }, { replace: true })
-  const view = params.get('view') === 'asm' ? 'asm' : 'panels'
+  const view = params.get('view') === 'asm' ? 'asm' : params.get('view') === 'use' ? 'use' : 'panels'
 
   if (project === undefined || elements === undefined || panels === undefined || assemblies === undefined)
     return (
@@ -109,7 +110,7 @@ export function AssemblyPage() {
           <p className="text-xs text-muted">
             <span className="num">{project.projectNo}</span> · Rev {project.revision}
           </p>
-          <h1 className="text-2xl font-bold">Form Assembly — {view === 'asm' ? 'ชุดประกอบแบบหล่อ' : 'คลังแผงแบบหล่อ'}</h1>
+          <h1 className="text-2xl font-bold">Form Assembly — {view === 'asm' ? 'ชุดประกอบแบบหล่อ' : view === 'use' ? 'สรุปการใช้แผงและวัสดุ' : 'คลังแผงแบบหล่อ'}</h1>
           <p className="text-sm text-muted">สร้างแผงสำเร็จรูปพร้อมรหัส เก็บเป็นสต็อก แล้วนำไปประกอบเป็นชุดแบบหล่อของชิ้นงานต่าง ๆ</p>
         </div>
         <div className="ml-auto flex gap-2">
@@ -126,16 +127,18 @@ export function AssemblyPage() {
           [
             ['panels', `คลังแผง (${panels.length} แบบ · ${totalStock} แผง)`],
             ['asm', `ชุดประกอบ (${assemblies.length})`],
+            ['use', 'สรุปการใช้แผงและวัสดุ'],
           ] as const
         ).map(([v, label]) => (
-          <button key={v} type="button" role="tab" aria-selected={view === v} onClick={() => setParams(v === 'asm' ? { view: 'asm' } : {}, { replace: true })} className={clsx('h-8 rounded-md px-3', view === v ? 'bg-white font-semibold shadow-sm' : 'text-slate-600 hover:text-ink')}>
+          <button key={v} type="button" role="tab" aria-selected={view === v} onClick={() => setParams(v === 'panels' ? {} : { view: v }, { replace: true })} className={clsx('h-8 rounded-md px-3', view === v ? 'bg-white font-semibold shadow-sm' : 'text-slate-600 hover:text-ink')}>
             {label}
           </button>
         ))}
-        <span className="h-8 px-3 leading-8 text-slate-400" title="เฟส 4">สรุปการใช้แผง — เร็ว ๆ นี้</span>
       </div>
 
-      {view === 'asm' ? (
+      {view === 'use' ? (
+        <UsageView project={project} elements={elements} panels={panels} assemblies={assemblies} criteria={criteria} />
+      ) : view === 'asm' ? (
         <AssemblyView
           projectId={project.id}
           elements={elements}
@@ -314,6 +317,9 @@ function PanelEditor({
         <div className="ml-auto flex flex-wrap gap-2">
           {canEdit && (
             <>
+              <Link to={`/projects/${panel.projectId}/assembly/print?panel=${panel.id}`} target="_blank" className="inline-flex h-10 items-center gap-2 rounded-lg px-4 text-sm font-medium text-slate-600 hover:bg-slate-100">
+                <Printer size={16} /> แบบผลิต
+              </Link>
               <Button variant="ghost" onClick={() => onDuplicate(draft)} title="สร้างแผงใหม่จากแผงนี้">
                 <Copy size={16} /> ทำสำเนา
               </Button>
