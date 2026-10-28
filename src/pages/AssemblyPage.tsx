@@ -10,6 +10,7 @@ import { AssemblyView } from '@/components/assembly/AssemblyView'
 import { UsageView } from '@/components/assembly/UsageView'
 import { MEMBER_SWATCH, PanelDrawing } from '@/components/assembly/PanelDrawing'
 import { NumField } from '@/components/design/NumField'
+import { MemberPicker } from '@/components/design/MemberPicker'
 import { ProjectNav } from '@/components/ProjectNav'
 import { Button, Empty, Field, Modal, Segmented, Select, StatusBadge } from '@/components/ui'
 import { isConflict } from '@/data/conflict'
@@ -17,7 +18,7 @@ import { runDesign, TYPE_LABEL } from '@/data/elements'
 import { useAssemblies, useElements, usePanels, useProject } from '@/data/hooks'
 import { repo, versionOf } from '@/data/repo'
 import { type Criteria, DEFAULT_CRITERIA, DEFAULT_PANEL, type FormElement, type FormPanel, type PanelData, type PanelEdge, type SheetLay, type StudDir } from '@/data/types'
-import { getSection, PLYWOOD, PLYWOOD_THICKNESS, TIMBER, TIMBER_SECTIONS } from '@/engine'
+import { getSection, PLYWOOD, PLYWOOD_THICKNESS } from '@/engine'
 import { EDGE_LABEL, MEMBER_LABEL, type PanelCheck, panelChecks, panelCodeFor, panelLayout, panelRefTypes, panelStatus } from '@/model/panel'
 
 const EDGES: PanelEdge[] = ['left', 'right', 'top', 'bottom']
@@ -421,26 +422,7 @@ function PanelEditor({
             <Segmented<SheetLay> label="วางแผ่นไม้อัด" value={draft.plywood.lay} onChange={(lay) => set({ plywood: { ...draft.plywood, lay } })} options={(['auto', 'long-width', 'long-height'] as const).map((v) => ({ value: v, label: LAY_LABEL[v] }))} />
           </Field>
 
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="เคร่า">
-              <Select value={draft.stud.sectionId} onChange={(e) => set({ stud: { ...draft.stud, sectionId: e.target.value } })}>
-                {TIMBER_SECTIONS.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    ไม้ {s.label}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            <Field label="ชนิดไม้">
-              <Select value={draft.stud.materialId} onChange={(e) => set({ stud: { ...draft.stud, materialId: e.target.value } })}>
-                {TIMBER.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.name}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-          </div>
+          <MemberPicker label="เคร่า" sectionId={draft.stud.sectionId} materialId={draft.stud.materialId} onChange={(v) => set({ stud: { ...draft.stud, ...v } })} />
           <div className="grid grid-cols-2 items-end gap-3">
             <Field label="แนวเคร่า">
               <Segmented<StudDir> label="แนวเคร่า" value={draft.stud.dir} onChange={(dir) => set({ stud: { ...draft.stud, dir } })} options={[{ value: 'vertical', label: 'ตั้ง' }, { value: 'horizontal', label: 'นอน' }]} />
