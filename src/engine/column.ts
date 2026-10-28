@@ -1,5 +1,5 @@
 // Column formwork design — book Chapter 9 (§9.4, Examples 9.1 and 9.3).
-// Load path (plywood): sheathing → vertical studs → yokes (bending + axial tension) [→ ties across the long side]
+// Load path (plywood): sheathing → vertical studs → yokes (bending + axial tension) [→ ties through the long faces, and optionally the short faces]
 // Load path (boards):  boards spanning between yokes → yokes.
 import {
   type BraceParams,
@@ -37,8 +37,8 @@ export interface ColumnInput {
   /** vertical studs — plywood sheathing only */
   stud?: { sectionId: string; materialId: string; spacingCm?: number }
   yoke: { sectionId: string; materialId: string; count: 1 | 2; spacingCm?: number; addCm?: number }
-  /** ties through the long side, splitting the long yokes into `spans` spans */
-  tie: { enabled: boolean; tieId: string; spans: number }
+  /** ties through the long faces, splitting the long yokes into `spans` spans; `shortSpans` > 1 also ties through the short faces */
+  tie: { enabled: boolean; tieId: string; spans: number; shortSpans?: number }
   brace: BraceParams & { perSide: number; sides: 2 | 4 }
   deflection?: DeflectionCriteria
   /** check shear on timber studs (eq 5.13, l − 2d). Default true. */
@@ -69,6 +69,12 @@ export const DEFAULT_COLUMN: ColumnInput = {
   brace: { ...DEFAULT_BRACE, heightM: 3.0, perSide: 2, sides: 4 },
 }
 
+/** Yoke spans per face: long yokes split by ties through the long faces, short yokes by ties through the short faces. */
+export function columnTieSpans(tie: ColumnInput['tie']): { long: number; short: number } {
+  if (!tie.enabled) return { long: 1, short: 1 }
+  return { long: Math.max(Math.round(tie.spans), 1), short: Math.max(Math.round(tie.shortSpans ?? 1), 1) }
+}
+
 interface YokeCheck {
   rows: CheckRow[]
   ratio: number
@@ -77,16 +83,17 @@ interface YokeCheck {
 /** Check both yoke directions at spacing s (cm). Faces in cm. */
 function checkYokes(p: number, s: number, bCm: number, hCm: number, yoke: { section: Section; material: ReturnType<typeof getMaterial> }, tie: ColumnInput['tie'], trace?: Trace, defl?: DeflectionCriteria): YokeCheck {
   const w = pressureToLineLoad(p, s / 100) // kg/cm
-  const spans = tie.enabled ? Math.max(tie.spans, 1) : 1
-  const longSpan = hCm / spans
-  const longSupport: Support = spans >= 3 ? 'continuous' : 'simple'
+  const spans = columnTieSpans(tie)
+  const longSpan = hCm / spans.long
+  const shortSpan = bCm / spans.short
+  const support = (n: number): Support => (n >= 3 ? 'continuous' : 'simple')
   const rows: CheckRow[] = []
   trace?.add({ label: 'น้ำหนักแผ่บนคานรัด w = P × ระยะคานรัด', expr: `${fmt(p)} × ${(s / 100).toFixed(2)} / 100`, value: w, unit: 'กก./ซม.' })
 
   const sides: [string, number, Support, number][] = [
     // [name, span, support, tension from perpendicular yoke reactions]
-    ['คานรัดด้านยาว', longSpan, longSupport, (w * bCm) / 2],
-    ['คานรัดด้านสั้น', bCm, 'simple', (w * longSpan) / 2],
+    ['คานรัดด้านยาว', longSpan, support(spans.long), (w * shortSpan) / 2],
+    ['คานรัดด้านสั้น', shortSpan, support(spans.short), (w * longSpan) / 2],
   ]
   for (const [name, span, support, T] of sides) {
     const c = BEAM_COEF[support]
@@ -192,13 +199,24 @@ export function designColumn(inp: ColumnInput): ColumnDesign {
   const last = components.find((c) => c.key === (inp.sheathing.type === 'plywood' ? 'stud' : 'sheathing'))
   if (last?.spacing && last.spacing.value !== s) last.spacing = { ...last.spacing, value: s }
 
-  // ties
-  if (inp.tie.enabled && inp.tie.spans > 1) {
+  // ties: T = P × yoke spacing × tie spacing along the face it passes through
+  const spans = columnTieSpans(inp.tie)
+  if (spans.long > 1 || spans.short > 1) {
     const tie = getTie(inp.tie.tieId)
     const tTi = new Trace()
-    const seg = hCm / inp.tie.spans
-    const T = tTi.add({ label: 'แรงดึงในไทร์', expr: `${fmt(p)} × ${(s / 100).toFixed(2)} × ${(seg / 100).toFixed(2)}`, value: p * (s / 100) * (seg / 100), unit: 'กก.' })
-    components.push(component('tie', 'เหล็กยึดรั้ง (Form tie)', `${tie.name} ${inp.tie.spans - 1} แถว ผ่านด้านยาว`, [{ item: 'แรงดึง', demand: T, capacity: tie.swl, ratio: T / tie.swl, unit: 'กก.', ref: tie.ref }], tTi))
+    const rows: CheckRow[] = []
+    const dirs: [string, number, number][] = [
+      ['ไทร์ผ่านด้านยาว', hCm, spans.long],
+      ['ไทร์ผ่านด้านสั้น', bCm, spans.short],
+    ]
+    for (const [name, face, n] of dirs) {
+      if (n <= 1) continue
+      const seg = face / n
+      const T = tTi.add({ label: `แรงดึงในไทร์ (${name})`, expr: `${fmt(p)} × ${(s / 100).toFixed(2)} × ${(seg / 100).toFixed(2)}`, value: p * (s / 100) * (seg / 100), unit: 'กก.' })
+      rows.push({ item: `แรงดึง (${name})`, demand: T, capacity: tie.swl, ratio: T / tie.swl, unit: 'กก.', ref: tie.ref })
+    }
+    const layout = [spans.long > 1 ? `${spans.long - 1} แถว ผ่านด้านยาว` : '', spans.short > 1 ? `${spans.short - 1} แถว ผ่านด้านสั้น` : ''].filter(Boolean).join(' + ')
+    components.push(component('tie', 'เหล็กยึดรั้ง (Form tie)', `${tie.name} ${layout}`, rows, tTi))
   }
 
   // base nails (Ex 9.1 step 4): H = p × (s/2) × face width per side
@@ -234,7 +252,7 @@ export function designColumn(inp: ColumnInput): ColumnDesign {
       plywoodArea: (2 * (bCm + hCm) * inp.height) / 100,
       yokes: yokeLevels.length * 4 * inp.yoke.count,
       studs: 2 * (studsPerFace.short + studsPerFace.long),
-      ties: inp.tie.enabled ? yokeLevels.length * Math.max(inp.tie.spans - 1, 0) : 0,
+      ties: yokeLevels.length * (spans.long - 1 + spans.short - 1),
       braces: inp.brace.perSide * inp.brace.sides,
     },
   }

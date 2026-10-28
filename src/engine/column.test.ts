@@ -110,3 +110,34 @@ describe('Example 9.3 — rectangular column 30×120 cm, plywood + studs', () =>
     expect(fixed.components.find((c) => c.key === 'yoke')!.maxRatio).toBeCloseTo(1.0, 1)
   })
 })
+
+describe('ties through both faces', () => {
+  const sq: ColumnInput = { ...ex93, b: 1.0, h: 1.2, tie: { enabled: true, tieId: 'tie-1/2', spans: 3, shortSpans: 2 }, yoke: { ...ex93.yoke, spacingCm: 40 } }
+  const both = designColumn(sq)
+  const longOnly = designColumn({ ...sq, tie: { ...sq.tie, shortSpans: undefined } })
+  const tie = both.components.find((c) => c.key === 'tie')!
+
+  it('checks the tension in each tie direction: T = P × yoke spacing × tie spacing', () => {
+    const P = both.pressure.Pmax
+    expect(tie.rows).toHaveLength(2)
+    expect(tie.rows[0].demand).toBeCloseTo(P * 0.4 * 0.4, 3)
+    expect(tie.rows[1].demand).toBeCloseTo(P * 0.4 * 0.5, 3)
+    expect(tie.spec).toContain('2 แถว ผ่านด้านยาว + 1 แถว ผ่านด้านสั้น')
+  })
+
+  it('short ties shorten the short-yoke span and lower the yoke ratio', () => {
+    const yr = (d: typeof both) => d.components.find((c) => c.key === 'yoke')!.maxRatio
+    expect(yr(both)).toBeLessThan(yr(longOnly))
+  })
+
+  it('counts ties in both directions per yoke level', () => {
+    expect(both.quantities.ties).toBe(both.layout.yokeLevels.length * (2 + 1))
+    expect(longOnly.quantities.ties).toBe(longOnly.layout.yokeLevels.length * 2)
+  })
+
+  it('short spans are ignored when ties are off', () => {
+    const off = designColumn({ ...sq, tie: { ...sq.tie, enabled: false } })
+    expect(off.components.find((c) => c.key === 'tie')).toBeUndefined()
+    expect(off.quantities.ties).toBe(0)
+  })
+})

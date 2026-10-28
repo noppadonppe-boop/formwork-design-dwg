@@ -98,7 +98,7 @@ export function describe(el: ElementData): string[] {
     case 'wall':
       return [sh, `เคร่า ${label(i.stud.sectionId)}`, `คานรับเคร่า ${i.wale.count === 2 ? '2-' : ''}${label(i.wale.sectionId)}`, `ไทร์ ${i.tie.tieId.replace('tie-', 'Ø')}`]
     case 'column':
-      return [sh, ...(i.sheathing.type === 'plywood' && i.stud ? [`เคร่า ${label(i.stud.sectionId)}`] : []), `คานรัด ${i.yoke.count === 2 ? '2-' : ''}${label(i.yoke.sectionId)}`, i.tie.enabled ? `ไทร์ ${i.tie.spans - 1} แถว` : 'ไม่ใช้ไทร์']
+      return [sh, ...(i.sheathing.type === 'plywood' && i.stud ? [`เคร่า ${label(i.stud.sectionId)}`] : []), `คานรัด ${i.yoke.count === 2 ? '2-' : ''}${label(i.yoke.sectionId)}`, i.tie.enabled ? `ไทร์ ${i.tie.spans - 1} แถว${(i.tie.shortSpans ?? 1) > 1 ? ` + ด้านสั้น ${i.tie.shortSpans - 1} แถว` : ''}` : 'ไม่ใช้ไทร์']
     case 'slab':
       return [sh, `ตง ${label(i.joist.sectionId)}`, `คานรองรับ ${i.stringer.count === 2 ? '2-' : ''}${label(i.stringer.sectionId)}`, shore(i.shore)]
     case 'beam':
@@ -130,7 +130,11 @@ export function variants(el: ElementData, o: Pick<OptOptions, 'allowSteel'>): El
     case 'column': {
       const i = el.input
       const tm = timberOf(i.yoke.materialId)
-      const ties = i.h >= 0.6 ? [{ ...i.tie, enabled: false }, { ...i.tie, enabled: true, spans: 2 }] : [{ ...i.tie, enabled: false }]
+      const ties = [
+        { ...i.tie, enabled: false },
+        ...(Math.max(i.b, i.h) >= 0.6 ? [{ ...i.tie, enabled: true, spans: 2, shortSpans: undefined }] : []),
+        ...(Math.min(i.b, i.h) >= 0.6 ? [{ ...i.tie, enabled: true, spans: 2, shortSpans: 2 }] : []),
+      ]
       for (const sh of sheets(i.sheathing))
         for (const sid of i.sheathing.type === 'plywood' ? STUDS : [undefined])
           for (const yid of BIG)

@@ -41,6 +41,12 @@ describe('column model', () => {
   it('braces per side × sides', () => {
     expect(count('brace')).toBe(DEFAULT_COLUMN.brace.perSide * DEFAULT_COLUMN.brace.sides)
   })
+  it('ties through the short faces too when shortSpans > 1', () => {
+    const inp = { ...DEFAULT_COLUMN, b: 0.9, tie: { ...DEFAULT_COLUMN.tie, shortSpans: 3 } }
+    const d2 = designColumn(inp)
+    const short = columnModel(inp, d2).parts.filter((p) => p.id.startsWith('tieS-'))
+    expect(short).toHaveLength(d2.layout.yokeLevels.length * 2)
+  })
   it('handles edit b/h as half-widths', () => {
     expect(applyColumnHandle(DEFAULT_COLUMN, 'b', 0.26).b).toBe(0.5)
     expect(applyColumnHandle(DEFAULT_COLUMN, 'yokeSpacing', 0.42).yoke.spacingCm).toBe(40)

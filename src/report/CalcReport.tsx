@@ -7,7 +7,7 @@ import { fmtVal } from '@/components/design/ResultsPanel'
 import type { AnyDesign } from '@/data/elements'
 import { elementHeight, elementSize, QUANTITY_LABEL, TYPE_LABEL } from '@/data/elements'
 import type { Criteria, ElementData, Project } from '@/data/types'
-import { beamBracing, beamCrossJoist, beamHasRunners, beamRunnerFlat, beamStringer, type ComponentResult, FOOTING_BRACE_AT_LABEL, FOOTING_SUPPORT_LABEL, FOOTING_TIE_LAYOUT_LABEL, getMaterial, getSection, getTie, type ShoreParams, type Status, type Trace } from '@/engine'
+import { beamBracing, beamCrossJoist, beamHasRunners, beamRunnerFlat, beamStringer, columnTieSpans, type ComponentResult, FOOTING_BRACE_AT_LABEL, FOOTING_SUPPORT_LABEL, FOOTING_TIE_LAYOUT_LABEL, getMaterial, getSection, getTie, type ShoreParams, type Status, type Trace } from '@/engine'
 import { Drawing } from './Drawing'
 import { elementViews } from './views'
 
@@ -179,6 +179,12 @@ function footingCriteria(el: Extract<ElementData, { type: 'footing' }>, run: Any
   return rows
 }
 
+function columnTieText(tie: Extract<ElementData, { type: 'column' }>['input']['tie']): string {
+  const s = columnTieSpans(tie)
+  if (s.long <= 1 && s.short <= 1) return 'ไม่ใช้ไทร์'
+  return [s.long > 1 ? `${s.long - 1} แถว ผ่านด้านยาว` : '', s.short > 1 ? `${s.short - 1} แถว ผ่านด้านสั้น` : ''].filter(Boolean).join(' · ')
+}
+
 /** Criteria rows that depend on the element type. */
 function criteriaRows(el: ElementData, run: AnyDesign): [string, ReactNode][] {
   if (el.type === 'slab' || el.type === 'beam') {
@@ -195,6 +201,7 @@ function criteriaRows(el: ElementData, run: AnyDesign): [string, ReactNode][] {
     ['แรงดันด้านข้าง', PRESSURE_LABEL[p.method] ?? p.method],
     ['อัตราเท R / อุณหภูมิ T', `${p.R} ม./ชม. · ${p.T} °C`],
     ['Slump', `${p.slump} ซม.`],
+    ...(el.type === 'column' ? ([['การวางไทร์', columnTieText(el.input.tie)]] as [string, ReactNode][]) : []),
     ...(el.type === 'footing' ? footingCriteria(el, run) : ([['แรงลม', `${el.input.brace.wind} กก./ม.²`]] as [string, ReactNode][])),
   ]
 }

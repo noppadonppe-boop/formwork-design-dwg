@@ -17,6 +17,7 @@ const VARIANTS: [Types.ElementType, Patch][] = [
   ['wall', (i) => ({ ...i, thickness: 0.6, height: 6 })],
   ['column', (i) => i],
   ['column', (i) => ({ ...i, tie: { ...i.tie, enabled: false } })],
+  ['column', (i) => ({ ...i, b: 0.9, h: 1.2, tie: { ...i.tie, enabled: true, spans: 3, shortSpans: 2 } })],
   ['column', (i) => ({ ...i, sheathing: { type: 'board', materialId: 'timber-yang', thicknessCm: 2.5 } })],
   ['column', (i) => ({ ...i, height: 6, b: 0.8, h: 1.2 })],
   ['slab', (i) => i],

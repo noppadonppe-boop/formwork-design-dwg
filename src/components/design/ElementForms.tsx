@@ -266,6 +266,24 @@ function ColumnFields({ inp, set }: { inp: ColumnInput; set: (fn: (i: ColumnInpu
             </Field>
           </div>
         )}
+        {inp.tie.enabled && (
+          <>
+            <Toggle label="ใช้ Form tie ผ่านด้านสั้นด้วย (สองทิศทาง)" checked={(inp.tie.shortSpans ?? 1) > 1} onChange={(v) => set((i) => ({ ...i, tie: { ...i.tie, shortSpans: v ? 2 : undefined } }))} />
+            {(inp.tie.shortSpans ?? 1) > 1 && (
+              <div className="grid grid-cols-2 gap-2">
+                <Field label="แบ่งด้านสั้นเป็น">
+                  <Select value={inp.tie.shortSpans} onChange={(e) => set((i) => ({ ...i, tie: { ...i.tie, shortSpans: Number(e.target.value) } }))}>
+                    {[2, 3, 4].map((n) => (
+                      <option key={n} value={n}>
+                        {n} ช่วง ({n - 1} แถว)
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+              </div>
+            )}
+          </>
+        )}
       </Group>
       <BraceGroup
         b={inp.brace}

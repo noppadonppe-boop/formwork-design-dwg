@@ -1,6 +1,6 @@
 // Geometric model of a designed formwork: a flat list of parts in metres (x right, y up, z out of the wall face).
 // Shared by the 3D viewer and the 2D drawings in the calc report (and later the shop drawings).
-import { type ColumnDesign, type ColumnInput, getMaterial, getSection, type MaterialKind, type WallDesign, type WallInput } from '@/engine'
+import { type ColumnDesign, type ColumnInput, columnTieSpans, getMaterial, getSection, type MaterialKind, type WallDesign, type WallInput } from '@/engine'
 
 export type PartGroup = 'concrete' | 'sheathing' | 'stud' | 'wale' | 'yoke' | 'tie' | 'brace' | 'joist' | 'stringer' | 'shore' | 'bracing' | 'bottom' | 'head' | 'stake'
 export type Vec3 = [number, number, number]
@@ -219,15 +219,20 @@ export function columnModel(inp: ColumnInput, d: ColumnDesign): FormModel {
     )
   }
   // corner bolts through the yoke ends
+  const spans = columnTieSpans(inp.tie)
   yokeLevels.forEach((y, i) => {
     for (const sx of [1, -1])
       for (const sz of [1, -1])
         parts.push({ id: `bolt-${i}-${sx}${sz}`, group: 'tie', kind: 'tie', shape: 'bar', from: [sx * (xOut + 0.05), y - 0.02, sz * (zOut + 0.05)], to: [sx * (xOut + 0.05), y + 2 * pairH + 0.02, sz * (zOut + 0.05)], b: 0.012, d: 0.012, round: true })
-    if (inp.tie.enabled && inp.tie.spans > 1)
-      for (let j = 1; j < inp.tie.spans; j++) {
-        const z = -h / 2 + (j * h) / inp.tie.spans
-        parts.push({ id: `tie-${i}-${j}`, group: 'tie', kind: 'tie', shape: 'bar', from: [-(xOut + 0.06), y, z], to: [xOut + 0.06, y, z], b: 0.012, d: 0.012, round: true })
-      }
+    // ties through the long faces at the long-yoke level, through the short faces at the short-yoke level
+    for (let j = 1; j < spans.long; j++) {
+      const z = -h / 2 + (j * h) / spans.long
+      parts.push({ id: `tie-${i}-${j}`, group: 'tie', kind: 'tie', shape: 'bar', from: [-(xOut + 0.06), y, z], to: [xOut + 0.06, y, z], b: 0.012, d: 0.012, round: true })
+    }
+    for (let j = 1; j < spans.short; j++) {
+      const x = -b / 2 + (j * b) / spans.short
+      parts.push({ id: `tieS-${i}-${j}`, group: 'tie', kind: 'tie', shape: 'bar', from: [x, y + pairH, -(zOut + 0.06)], to: [x, y + pairH, zOut + 0.06], b: 0.012, d: 0.012, round: true })
+    }
   })
 
   // braces: perSide on each braced face (2 sides → the ±x faces)

@@ -166,6 +166,7 @@ export const REPORT_DICT: [th: string, en: string, zh: string][] = [
   ['ไทร์', 'ties', '对拉螺栓'],
   ['กำลังไทร์', 'Tie capacity', '对拉螺栓承载力'],
   ['แถว ผ่านด้านยาว', 'rows through the long side', '排穿过长边'],
+  ['แถว ผ่านด้านสั้น', 'rows through the short side', '排穿过短边'],
   ['ค้ำยันและไทร์', 'braces and ties', '斜撑及对拉螺栓'],
   ['รูป', 'Fig.', '图'],
   ['ธรณีแบบ', 'Sill', '底槛'],
