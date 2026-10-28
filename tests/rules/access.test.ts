@@ -132,6 +132,14 @@ describe('writes follow roles', () => {
     await assertFails(db(people.eng).doc(`${ROOT}/projects/p1`).delete())
     await assertSucceeds(db(people.admin).doc(`${ROOT}/projects/p1`).delete())
   })
+  it('panel stock: members read it, Engineers edit it in their own projects only', async () => {
+    await assertSucceeds(db(people.eng).doc(`${ROOT}/projects/p1/panels/k1`).set({ projectId: 'p1', code: 'P-2412' }))
+    await assertSucceeds(db(people.chk).collection(`${ROOT}/projects/p1/panels`).get())
+    await assertFails(db(people.est).doc(`${ROOT}/projects/p1/panels/k2`).set({ projectId: 'p1', code: 'P-2012' }))
+    await assertFails(db(people.eng).doc(`${ROOT}/projects/p2/panels/k2`).set({ projectId: 'p2', code: 'P-2012' }))
+    await assertFails(db(people.eng).doc(`${ROOT}/projects/p1/panels/k3`).set({ projectId: 'p2', code: 'P-2012' }))
+    await assertFails(db(people.staff).collection(`${ROOT}/projects/p1/panels`).get())
+  })
   it('adding an element bumps the project counter in the same batch (repo.createElement)', async () => {
     const fs = db(people.eng)
     const batch = fs.batch()

@@ -18,6 +18,7 @@ const ReportPage = lazy(() => import('./pages/ReportPage').then((m) => ({ defaul
 const ShopPage = lazy(() => import('./pages/ShopPage').then((m) => ({ default: m.ShopPage })))
 const ImportPage = lazy(() => import('./pages/ImportPage').then((m) => ({ default: m.ImportPage })))
 const BomPage = lazy(() => import('./pages/BomPage').then((m) => ({ default: m.BomPage })))
+const AssemblyPage = lazy(() => import('./pages/AssemblyPage').then((m) => ({ default: m.AssemblyPage })))
 const ManualPage = lazy(() => import('./pages/ManualPage').then((m) => ({ default: m.ManualPage })))
 const ReferencePage = lazy(() => import('./pages/ReferencePage').then((m) => ({ default: m.ReferencePage })))
 const UserAdminPage = lazy(() => import('./pages/UserAdminPage').then((m) => ({ default: m.UserAdminPage })))
@@ -61,6 +62,7 @@ export function App() {
           <Route path="/projects/:projectId/shop" element={<Protected bare perm="shop"><ShopPage /></Protected>} />
           <Route path="/projects/:projectId/elements/:elementId/shop" element={<Protected bare perm="shop"><ShopPage /></Protected>} />
           <Route path="/projects/:projectId/import" element={<Protected perm="import"><ImportPage /></Protected>} />
+          <Route path="/projects/:projectId/assembly" element={<Protected><AssemblyPage /></Protected>} />
           <Route path="/projects/:projectId/bom" element={<Protected perm="bom"><BomPage /></Protected>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

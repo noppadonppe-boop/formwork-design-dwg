@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '@/auth/AuthProvider'
 import { repo } from './repo'
-import type { FormElement, Project } from './types'
+import type { FormElement, FormPanel, Project } from './types'
 
 /**
  * Projects the user may open: every project with "project.viewAll" (MasterAdmin), otherwise the ones whose `members`
@@ -37,4 +37,13 @@ export function useElements(projectId: string | undefined) {
     return repo.watchElements(projectId, setElements)
   }, [projectId])
   return elements
+}
+
+export function usePanels(projectId: string | undefined) {
+  const [panels, setPanels] = useState<FormPanel[] | undefined>()
+  useEffect(() => {
+    if (!projectId) return
+    return repo.watchPanels(projectId, setPanels)
+  }, [projectId])
+  return panels
 }

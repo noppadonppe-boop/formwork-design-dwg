@@ -166,3 +166,44 @@ export const withPrice = (s: ShopSettings, key: string, price: number | undefine
   ...s,
   prices: [...s.prices.filter((p) => p.key !== key), ...(price !== undefined ? [{ key, price }] : [])],
 })
+
+// ---------------------------------------------------------------- Form Assembly: panels (แผงแบบหล่อ)
+
+export type PanelEdge = 'left' | 'right' | 'top' | 'bottom'
+/** stud direction on the panel face: 'vertical' = studs run up the panel height */
+export type StudDir = 'vertical' | 'horizontal'
+/** plywood sheet orientation on the panel: long side (2.44) along the panel width or height */
+export type SheetLay = 'auto' | 'long-width' | 'long-height'
+
+/** A prefabricated formwork panel kept in the project's stock, re-used by any assembly. */
+export interface PanelData {
+  /** unique within the project, e.g. P-2412 */
+  code: string
+  name: string
+  /** m */
+  width: number
+  height: number
+  plywood: { materialId: string; thicknessMm: number; lay: SheetLay }
+  stud: { sectionId: string; materialId: string; dir: StudDir; spacingCm: number }
+  /** edge (closing) studs on each side */
+  edges: Record<PanelEdge, boolean>
+  /** panels on hand */
+  stock: number
+  note: string
+  /** element whose design the panel is checked against */
+  refElementId?: string
+}
+
+export type FormPanel = PanelData & { id: string; projectId: string; createdAt: number; updatedAt: number; version?: number }
+
+export const DEFAULT_PANEL: PanelData = {
+  code: '',
+  name: '',
+  width: 2.4,
+  height: 1.2,
+  plywood: { materialId: 'ply-apa1', thicknessMm: 18, lay: 'auto' },
+  stud: { sectionId: 'timber-2x3', materialId: 'timber-yang', dir: 'vertical', spacingCm: 40 },
+  edges: { left: true, right: true, top: false, bottom: false },
+  stock: 0,
+  note: '',
+}

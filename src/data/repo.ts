@@ -20,7 +20,7 @@ import { userRef } from '@/auth/authService'
 import { CATEGORY, db, firebaseEnabled, rootRef } from '@/lib/firebase'
 import { ConflictError, DuplicateProjectNoError } from './conflict'
 import { deleteFile, type UploadedFile } from './files'
-import type { ElementData, FormElement, Project, ProjectData } from './types'
+import type { ElementData, FormElement, FormPanel, PanelData, Project, ProjectData } from './types'
 
 export type Unsubscribe = () => void
 
@@ -42,6 +42,10 @@ export interface Repo {
   createElement(projectId: string, data: ElementData): Promise<string>
   updateElement(projectId: string, id: string, data: Partial<ElementData>, baseVersion?: number, force?: boolean): Promise<number>
   deleteElement(projectId: string, id: string): Promise<void>
+  watchPanels(projectId: string, cb: (p: FormPanel[]) => void): Unsubscribe
+  createPanel(projectId: string, data: PanelData): Promise<string>
+  updatePanel(projectId: string, id: string, data: Partial<PanelData>, baseVersion?: number, force?: boolean): Promise<number>
+  deletePanel(projectId: string, id: string): Promise<void>
   /** per-menu settings shared by all users (e.g. optimizer prices) */
   getSetting<T>(key: string): Promise<T | undefined>
   setSetting<T>(key: string, value: T): Promise<void>
@@ -49,7 +53,7 @@ export interface Repo {
 
 const newId = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`).replace(/-/g, '').slice(0, 20)
 const byUpdated = <T extends { updatedAt: number }>(a: T, b: T) => b.updatedAt - a.updatedAt
-const byCode = (a: FormElement, b: FormElement) => a.code.localeCompare(b.code, undefined, { numeric: true })
+const byCode = (a: { code: string }, b: { code: string }) => a.code.localeCompare(b.code, undefined, { numeric: true })
 /** projectNumbers document id: case-insensitive, and safe for any characters ('/' included) */
 export const projectNoKey = (projectNo: string) => `n_${encodeURIComponent(projectNo.trim().toLowerCase())}`
 export const versionOf = (d: object | null | undefined) => {
@@ -63,6 +67,7 @@ export const versionOf = (d: object | null | undefined) => {
 // RC-FormWork-Design-Web-App/root/projectNumbers/{key}             — projectNo → projectId (unique project numbers)
 // RC-FormWork-Design-Web-App/root/projects/{pid}/elements/{eid}    — ชิ้นส่วนของโครงการ
 // RC-FormWork-Design-Web-App/root/projects/{pid}/uploads/{fid}     — ไฟล์ของโครงการ (src/data/files.ts)
+// RC-FormWork-Design-Web-App/root/projects/{pid}/panels/{id}       — แผงแบบหล่อในคลังของโครงการ (Form Assembly)
 // RC-FormWork-Design-Web-App/root/settings/{key}                   — ค่าตั้งของแต่ละเมนู
 // `version` on projects and elements is bumped by every content save, so concurrent edits are detected.
 
@@ -70,6 +75,7 @@ function firestoreRepo(): Repo {
   const fs = db!
   const projects = collection(rootRef!, CATEGORY.projects)
   const elements = (pid: string) => collection(projects, pid, CATEGORY.elements)
+  const panels = (pid: string) => collection(projects, pid, CATEGORY.panels)
   const settings = collection(rootRef!, CATEGORY.settings)
   const numberRef = (projectNo: string) => doc(rootRef!, CATEGORY.projectNumbers, projectNoKey(projectNo))
   const logError = (what: string) => (e: Error) => console.error(`Firestore ${what}:`, e)
@@ -140,11 +146,13 @@ function firestoreRepo(): Repo {
     },
     async deleteProject(id) {
       // client-side cascade; batches of ≤ 500 writes
-      const snap = await getDocs(elements(id))
-      for (let i = 0; i < snap.docs.length; i += 450) {
-        const batch = writeBatch(fs)
-        snap.docs.slice(i, i + 450).forEach((d) => batch.delete(d.ref))
-        await batch.commit()
+      for (const sub of [elements(id), panels(id)]) {
+        const snap = await getDocs(sub)
+        for (let i = 0; i < snap.docs.length; i += 450) {
+          const batch = writeBatch(fs)
+          snap.docs.slice(i, i + 450).forEach((d) => batch.delete(d.ref))
+          await batch.commit()
+        }
       }
       // project files: Storage objects + their records
       const files = await getDocs(collection(projects, id, CATEGORY.uploads))
@@ -186,6 +194,30 @@ function firestoreRepo(): Repo {
       const batch = writeBatch(fs)
       batch.delete(doc(elements(projectId), id))
       batch.update(doc(projects, projectId), { elementCount: increment(-1), updatedAt: Date.now() })
+      await batch.commit()
+    },
+    watchPanels(projectId, cb) {
+      return onSnapshot(
+        panels(projectId),
+        (snap) => cb(snap.docs.map((d) => ({ ...d.data(), id: d.id, projectId }) as FormPanel).sort(byCode)),
+        (e) => {
+          logError('watchPanels')(e)
+          cb([])
+        },
+      )
+    },
+    async createPanel(projectId, data) {
+      const id = newId()
+      const now = Date.now()
+      await setDoc(doc(panels(projectId), id), { ...data, projectId, createdAt: now, updatedAt: now, version: 1 })
+      return id
+    },
+    updatePanel(projectId, id, data, baseVersion, force = false) {
+      return versioned(doc(panels(projectId), id), data, baseVersion, force)
+    },
+    async deletePanel(projectId, id) {
+      const batch = writeBatch(fs)
+      batch.delete(doc(panels(projectId), id))
       await batch.commit()
     },
     async getSetting(key) {
@@ -268,6 +300,7 @@ export async function syncProjectAccess(): Promise<number> {
 interface LocalDb {
   projects: Record<string, Project>
   elements: Record<string, Record<string, FormElement>>
+  panels?: Record<string, Record<string, FormPanel>>
   settings?: Record<string, unknown>
 }
 
@@ -338,6 +371,7 @@ function localRepo(): Repo {
       const d = load()
       delete d.projects[id]
       delete d.elements[id]
+      delete d.panels?.[id]
       save(d)
     },
     watchElements(projectId, cb) {
@@ -368,6 +402,34 @@ function localRepo(): Repo {
       const d = load()
       delete d.elements[projectId]?.[id]
       touch(d, projectId, -1)
+      save(d)
+    },
+    watchPanels(projectId, cb) {
+      return subscribe(() => cb(Object.values(load().panels?.[projectId] ?? {}).sort(byCode)))
+    },
+    async createPanel(projectId, data) {
+      const d = load()
+      const id = newId()
+      const now = Date.now()
+      d.panels ??= {}
+      d.panels[projectId] ??= {}
+      d.panels[projectId][id] = { ...data, id, projectId, createdAt: now, updatedAt: now, version: 1 }
+      save(d)
+      return id
+    },
+    async updatePanel(projectId, id, data, baseVersion, force = false) {
+      const d = load()
+      const p = d.panels?.[projectId]?.[id]
+      if (!p) throw new Error('ไม่พบแผง')
+      if (!force && baseVersion !== undefined && versionOf(p) !== baseVersion) throw new ConflictError()
+      const version = versionOf(p) + 1
+      d.panels![projectId][id] = { ...p, ...data, updatedAt: Date.now(), version }
+      save(d)
+      return version
+    },
+    async deletePanel(projectId, id) {
+      const d = load()
+      delete d.panels?.[projectId]?.[id]
       save(d)
     },
     async getSetting<T>(key: string) {

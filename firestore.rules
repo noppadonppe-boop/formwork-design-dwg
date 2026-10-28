@@ -884,6 +884,13 @@ service cloud.firestore {
           allow delete: if fwMemberOfProject(pid) && fwCan('element.edit');
         }
 
+        // Form Assembly: the project's panel stock
+        match /panels/{id} {
+          allow read: if fwMemberOfProject(pid);
+          allow create, update: if fwMemberOfProject(pid) && fwCan('element.edit') && request.resource.data.projectId == pid;
+          allow delete: if fwMemberOfProject(pid) && (fwCan('element.edit') || fwCan('project.delete'));
+        }
+
         match /uploads/{fid} {
           allow read: if fwMemberOfProject(pid);
           allow create: if fwMemberOfProject(pid)

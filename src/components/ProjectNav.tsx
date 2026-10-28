@@ -1,7 +1,7 @@
 // Project navigation (as in the UX/UI design): a tab bar on every page inside a project, and the
 // "current project" module list in the sidebar, which falls back to the last project opened.
 import clsx from 'clsx'
-import { Box, ClipboardList, DraftingCompass, FileInput, FileText, FolderKanban, type LucideIcon, SlidersHorizontal } from 'lucide-react'
+import { Box, ClipboardList, DraftingCompass, FileInput, FileText, FolderKanban, LayoutGrid, type LucideIcon, SlidersHorizontal } from 'lucide-react'
 import { useEffect } from 'react'
 import { Link, NavLink, useLocation, useParams } from 'react-router-dom'
 import { useAuth } from '@/auth/AuthProvider'
@@ -55,6 +55,7 @@ function projectItems(pid: string, elementId: string | undefined, firstElementId
     { key: 'info', label: 'ข้อมูลโครงการ', icon: FolderKanban, to: base, match: (p) => p === base },
     { key: 'import', label: 'นำเข้าแบบ', icon: FileInput, to: `${base}/import`, perm: 'import', match: (p) => p.startsWith(`${base}/import`) },
     { key: '3d', label: '3D Designer', icon: Box, to: el ? `${base}/elements/${el}` : `${base}#elements`, match: (p) => p.startsWith(`${base}/elements/`), onClick: open3d },
+    { key: 'assembly', label: 'Form Assembly', icon: LayoutGrid, to: `${base}/assembly`, match: (p) => p.startsWith(`${base}/assembly`) },
     { key: 'report', label: 'รายการคำนวณ', icon: FileText, to: elementId ? `${base}/elements/${elementId}/report` : `${base}/report`, newTab: true, perm: 'report', match: () => false },
     { key: 'shop', label: 'Shop Drawing', icon: DraftingCompass, to: elementId ? `${base}/elements/${elementId}/shop` : `${base}/shop`, newTab: true, perm: 'shop', match: () => false },
     { key: 'bom', label: 'BOM & ราคา', icon: ClipboardList, to: `${base}/bom`, perm: 'bom', match: (p) => p.startsWith(`${base}/bom`) },
@@ -113,7 +114,7 @@ export function SidebarProjectNav({ linkClass }: { linkClass: (s: { isActive: bo
   if (!pid || project === null)
     return (
       <div className="mt-3 hidden rounded-lg border border-dashed border-navy-700 px-3 py-2.5 text-xs leading-relaxed text-navy-400 lg:block">
-        เปิดโครงการเพื่อใช้เมนู นำเข้าแบบ · 3D Designer · รายการคำนวณ · Shop Drawing · BOM
+        เปิดโครงการเพื่อใช้เมนู นำเข้าแบบ · 3D Designer · Form Assembly · รายการคำนวณ · Shop Drawing · BOM
       </div>
     )
   return (
