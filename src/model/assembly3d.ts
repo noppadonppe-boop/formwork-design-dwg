@@ -1,12 +1,10 @@
 // Form Assembly — 3D parts of an assembly for the exploded view and the assembly sequence: every panel's plywood and
-// studs on its face, the wales and form ties of the footing design, and the concrete. World axes as in formModel:
-// x along the footing's X, y up from the base, z along Y; the concrete is centred on the origin.
-// Each face has a frame: origin at u = 0 on the concrete side, `e` along the face (left → right seen from outside)
-// and `n` outward. Steps: per course the through faces, then the faces between them; then wales, then ties.
-import type { FaceKey, FormPanel } from '@/data/types'
-import { FACE_KEYS } from '@/data/types'
-import { type FootingInput, getSection, WALE_PAIR_GAP } from '@/engine'
-import type { AssemblyResult } from './assembly'
+// studs on its face, the wales / yokes and form ties of the design, and the concrete. Each face is placed by its frame
+// (assemblyGeom): a point (u, y) on the face is o + e·(u − offset) + v·(y − yOffset), and w is the distance outward n.
+// Steps: faces set first (beam soffit), then per course the through faces before the others; then wales, then ties.
+import type { ElementData, FaceKey, FormPanel } from '@/data/types'
+import { getSection, WALE_PAIR_GAP } from '@/engine'
+import { type AssemblyResult, type FaceSpec, sectionDepth, waleSectionOf } from './assembly'
 import type { Vec3 } from './formModel'
 import { panelLayout } from './panel'
 
@@ -26,8 +24,9 @@ export interface AsmPart {
   course: number
   index?: number
   filler?: boolean
-  /** outward direction used to pull the part away in the exploded view */
+  /** outward direction and the face's up direction, for the exploded view */
   n: Vec3
+  v: Vec3
 }
 
 export interface Asm3D {
@@ -37,103 +36,98 @@ export interface Asm3D {
 }
 
 const FILLER_W = 0.3
+const ZERO: Vec3 = [0, 0, 0]
 
-interface Frame {
-  o: Vec3
-  e: Vec3
-  n: Vec3
+const at = (f: FaceSpec, u: number, y: number, w: number): Vec3 => {
+  const a = u - f.offset
+  const b = y - f.yOffset
+  return [0, 1, 2].map((i) => f.o[i] + f.e[i] * a + f.v[i] * b + f.n[i] * w) as Vec3
 }
 
-function frames(lx: number, ly: number, off: Record<FaceKey, number>): Record<FaceKey, Frame> {
-  return {
-    A: { o: [-lx / 2 - off.A, 0, ly / 2], e: [1, 0, 0], n: [0, 0, 1] },
-    C: { o: [lx / 2 + off.C, 0, -ly / 2], e: [-1, 0, 0], n: [0, 0, -1] },
-    B: { o: [lx / 2, 0, ly / 2 + off.B], e: [0, 0, -1], n: [1, 0, 0] },
-    D: { o: [-lx / 2, 0, -ly / 2 - off.D], e: [0, 0, 1], n: [-1, 0, 0] },
-  }
+/** world box of the face box u0…u1 × y0…y1 × w0…w1 */
+function box(f: FaceSpec, u0: number, u1: number, y0: number, y1: number, w0: number, w1: number) {
+  const center = at(f, (u0 + u1) / 2, (y0 + y1) / 2, (w0 + w1) / 2)
+  const [du, dy, dw] = [Math.abs(u1 - u0), Math.abs(y1 - y0), Math.abs(w1 - w0)]
+  const size = [0, 1, 2].map((i) => Math.abs(f.e[i]) * du + Math.abs(f.v[i]) * dy + Math.abs(f.n[i]) * dw) as Vec3
+  return { center, size }
 }
 
-const at = (f: Frame, u: number, y: number, w: number): Vec3 => [f.o[0] + f.e[0] * u + f.n[0] * w, y, f.o[2] + f.e[2] * u + f.n[2] * w]
-
-/** world box of the face-frame box u0…u1 × y0…y1 × w0…w1 */
-function box(f: Frame, u0: number, u1: number, y0: number, y1: number, w0: number, w1: number) {
-  const c = at(f, (u0 + u1) / 2, (y0 + y1) / 2, (w0 + w1) / 2)
-  const du = Math.abs(u1 - u0)
-  const dw = Math.abs(w1 - w0)
-  const size: Vec3 = f.e[0] !== 0 ? [du, y1 - y0, dw] : [dw, y1 - y0, du]
-  return { center: c, size }
-}
-
-export function assembly3d(r: AssemblyResult, inp: FootingInput, through: 'x' | 'y'): Asm3D {
-  const lx = inp.lengthX
-  const ly = inp.lengthY
-  const off = Object.fromEntries(FACE_KEYS.map((k) => [k, r.specs[k].offset])) as Record<FaceKey, number>
-  const F = frames(lx, ly, off)
-  const parts: AsmPart[] = [{ id: 'concrete', kind: 'concrete', center: [0, inp.height / 2, 0], size: [lx, inp.height, ly], step: -1, course: 0, n: [0, 0, 0] }]
-
-  const courses = Math.max(1, ...FACE_KEYS.map((k) => r.faces[k].courses.length))
-  const isThrough = (k: FaceKey) => (k === 'A' || k === 'C' ? 'x' : 'y') === through
+export function assembly3d(r: AssemblyResult, el: ElementData): Asm3D {
+  const g = r.geom
+  const parts: AsmPart[] = [{ id: 'concrete', kind: 'concrete', center: g.concrete.center, size: g.concrete.size, step: -1, course: 0, n: ZERO, v: ZERO }]
+  const specs = r.keys.map((k) => r.specs[k]!)
   const steps: string[] = []
-  const [tk, ik] = through === 'x' ? ['A/C', 'B/D'] : ['B/D', 'A/C']
-  for (let c = 0; c < courses; c++) {
-    const pre = courses > 1 ? `ชั้นที่ ${c + 1}: ` : ''
-    steps.push(`${pre}ตั้งแผงด้าน ${tk} (ทะลุมุม)`, `${pre}สอดแผงด้าน ${ik} ระหว่างด้าน ${tk}`)
-  }
+  const stepOf = new Map<string, number>()
+
+  const first = r.keys.filter((k) => g.first?.includes(k))
+  if (first.length) stepOf.set('first', steps.push(`วางแผง${first.map((k) => r.specs[k]!.label).join(', ')}`) - 1)
+  const rest = r.keys.filter((k) => !first.includes(k))
+  const courses = Math.max(1, ...rest.map((k) => r.faces[k]!.courses.length))
+  const groups = [rest.filter((k) => r.specs[k]!.through), rest.filter((k) => !r.specs[k]!.through)].filter((x) => x.length)
+  for (let c = 0; c < courses; c++)
+    groups.forEach((keys, gi) => {
+      const pre = courses > 1 ? `ชั้นที่ ${c + 1}: ` : ''
+      const verb = groups.length > 1 ? (gi === 0 ? 'ตั้งแผง' : 'สอดแผง') : 'ตั้งแผง'
+      stepOf.set(`${c}-${gi}`, steps.push(`${pre}${verb}ด้าน ${keys.join('/')}${groups.length > 1 && gi === 0 ? ' (ทะลุมุม)' : ''}`) - 1)
+    })
+  const stepFor = (k: FaceKey, course: number) => (first.includes(k) ? stepOf.get('first')! : stepOf.get(`${course}-${groups.findIndex((x) => x.includes(k))}`)!)
 
   // panels: plywood against the concrete, studs outside it
   let depth = 0
-  for (const k of FACE_KEYS) {
-    const f = F[k]
-    for (const p of r.faces[k].placed) {
+  for (const f of specs) {
+    for (const p of r.faces[f.key]!.placed) {
       if (!p.panel) continue
       const L = panelLayout(p.panel as FormPanel)
       const tp = p.panel.plywood.thicknessMm / 1000
       depth = Math.max(depth, L.thickness)
-      const common = { step: p.course * 2 + (isThrough(k) ? 0 : 1), face: k, course: p.course, index: p.index, filler: p.w < FILLER_W, n: f.n }
-      parts.push({ id: `${k}-${p.course}-${p.index}-ply`, kind: 'ply', ...box(f, p.x, p.x + p.w, p.y, p.y + p.h, 0, tp), ...common })
-      L.members.forEach((m, i) => parts.push({ id: `${k}-${p.course}-${p.index}-m${i}`, kind: 'stud', ...box(f, p.x + m.x, p.x + m.x + m.w, p.y + m.y, p.y + m.y + m.h, tp, tp + L.studD), ...common }))
+      const common = { step: stepFor(f.key, p.course), face: f.key, course: p.course, index: p.index, filler: p.w < FILLER_W, n: f.n, v: f.v }
+      parts.push({ id: `${f.key}-${p.course}-${p.index}-ply`, kind: 'ply', ...box(f, p.x, p.x + p.w, p.y, p.y + p.h, 0, tp), ...common })
+      L.members.forEach((m, i) => parts.push({ id: `${f.key}-${p.course}-${p.index}-m${i}`, kind: 'stud', ...box(f, p.x + m.x, p.x + m.x + m.w, p.y + m.y, p.y + m.y + m.h, tp, tp + L.studD), ...common }))
     }
   }
 
-  // wales: along each face at the design levels, the pair stacked with the design gap
-  const wales = r.faces.A.wales
-  if (wales.length) {
-    const wSec = getSection(inp.wale.sectionId)
-    const wb = wSec.B / 100
-    const wd = wSec.H / 100
-    const n = inp.wale.count
-    const step = steps.push('ใส่คานรับเคร่าตามระดับที่ออกแบบ') - 1
-    for (const k of FACE_KEYS) {
-      const f = F[k]
-      const spec = r.specs[k]
+  // wales / yokes at the design levels, a pair stacked with the design gap
+  const ws = waleSectionOf(el)
+  const waleFaces = specs.filter((f) => f.wales.length)
+  if (ws && waleFaces.length) {
+    const sec = getSection(ws.sectionId)
+    const wb = sec.B / 100
+    const wd = sec.H / 100
+    const step = steps.push(`ใส่${g.waleLabel}ตามระดับที่ออกแบบ`) - 1
+    for (const f of waleFaces) {
       // wales of the through faces run past the corners to cross the others
-      const ext = isThrough(k) ? depth + wd + 0.05 : 0.05
-      const len = Math.max(spec.length, ...r.faces[k].courses.map((c) => c.length))
-      for (const [i, y] of wales.entries())
-        for (let j = 0; j < n; j++) {
-          const yc = n === 2 ? y + (j ? 1 : -1) * (wb / 2 + WALE_PAIR_GAP / 2) : y
-          parts.push({ id: `${k}-wale-${i}-${j}`, kind: 'wale', ...box(f, -ext, len + ext, yc - wb / 2, yc + wb / 2, depth, depth + wd), step, face: k, course: 0, n: f.n })
+      const ext = f.canOverrun ? depth + wd + 0.05 : 0.05
+      const len = Math.max(f.length, ...r.faces[f.key]!.courses.map((c) => c.length))
+      for (const [i, y] of f.wales.entries())
+        for (let j = 0; j < ws.count; j++) {
+          const yc = ws.count === 2 ? y + (j ? 1 : -1) * (wb / 2 + WALE_PAIR_GAP / 2) : y
+          parts.push({ id: `${f.key}-wale-${i}-${j}`, kind: 'wale', ...box(f, -ext, len + ext, yc - wb / 2, yc + wb / 2, depth, depth + wd), step, face: f.key, course: 0, n: f.n, v: ZERO })
         }
     }
   }
 
-  // form ties: through the concrete, drawn once per pair (from faces A and B)
-  const tieFaces = (['A', 'B'] as FaceKey[]).filter((k) => r.faces[k].ties.length)
+  // form ties: through the concrete, drawn once per pair of opposite faces (from the original of each link)
+  const tieFaces = specs.filter((f) => f.ties.length && !g.links.some(([, copy]) => copy === f.key))
   if (tieFaces.length) {
     const step = steps.push('ร้อย Form tie ใส่แผ่นประกับ แล้วขันแน่น') - 1
-    const reach = depth + 2 * (getSection(inp.wale.sectionId).H / 100) + 0.08
-    for (const k of tieFaces) {
-      const f = F[k]
-      const across = k === 'A' ? ly : lx
-      for (const [i, t] of r.faces[k].ties.entries()) {
+    const reach = depth + 2 * (ws ? sectionDepth(ws.sectionId) : 0.05) + 0.08
+    for (const f of tieFaces) {
+      const across = [0, 1, 2].reduce((a, i) => a + Math.abs(f.n[i]) * g.concrete.size[i], 0)
+      for (const [i, t] of r.faces[f.key]!.ties.entries()) {
         const a = at(f, t.u, t.y, reach)
-        const b: Vec3 = [a[0] - f.n[0] * (across + 2 * reach), a[1], a[2] - f.n[2] * (across + 2 * reach)]
-        parts.push({ id: `${k}-tie-${i}`, kind: 'tie', center: [(a[0] + b[0]) / 2, a[1], (a[2] + b[2]) / 2], size: [0.014, 0.014, 0.014], from: a, to: b, step, course: 0, n: [0, 0, 0] })
+        const b = [0, 1, 2].map((k) => a[k] - f.n[k] * (across + 2 * reach)) as Vec3
+        parts.push({ id: `${f.key}-tie-${i}`, kind: 'tie', center: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2], size: [0.014, 0.014, 0.014], from: a, to: b, step, course: 0, n: ZERO, v: ZERO })
       }
     }
   }
 
-  const ext = Math.max(...FACE_KEYS.map((k) => r.specs[k].offset)) + depth + 0.3
-  const top = Math.max(inp.height, ...FACE_KEYS.map((k) => r.faces[k].height))
-  return { parts, steps, bounds: { min: [-lx / 2 - ext, 0, -ly / 2 - ext], max: [lx / 2 + ext, top, ly / 2 + ext] } }
+  // bounds round everything placed
+  const min: Vec3 = [Infinity, Infinity, Infinity]
+  const max: Vec3 = [-Infinity, -Infinity, -Infinity]
+  for (const p of parts)
+    for (let i = 0; i < 3; i++) {
+      min[i] = Math.min(min[i], p.center[i] - p.size[i] / 2)
+      max[i] = Math.max(max[i], p.center[i] + p.size[i] / 2)
+    }
+  return { parts, steps, bounds: { min, max } }
 }

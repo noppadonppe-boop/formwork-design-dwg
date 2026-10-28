@@ -92,5 +92,6 @@ describe('panel codes', () => {
     expect(panelCodeFor(2.4, 1.2, [])).toBe('P-2412')
     expect(panelCodeFor(0.2, 1.2, [])).toBe('F-0212')
     expect(panelCodeFor(2.4, 1.2, ['P-2412'])).toBe('P-2412-A')
+    expect(panelCodeFor(0.25, 1.2, [])).toBe('F-25x120')
   })
 })

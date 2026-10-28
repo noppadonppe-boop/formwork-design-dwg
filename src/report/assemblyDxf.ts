@@ -84,13 +84,13 @@ export function panelView(p: PanelData, L: PanelLayout): SimpleView {
 
 export function faceView(f: FaceResult, title: string): SimpleView {
   const len = Math.max(f.spec.length, ...f.courses.map((c) => c.length))
-  const v: SimpleView = { title, rects: [], lines: [], circles: [], texts: [], width: len, height: Math.max(f.height, f.spec.height) }
+  const v: SimpleView = { title, rects: [], lines: [], circles: [], texts: [], width: len, height: Math.max(f.height, f.spec.reqHeight) }
   for (const p of f.placed) v.rects.push({ layer: p.w < 0.3 ? 'FILLER' : 'PANEL', x: p.x, y: p.y, w: p.w, h: p.h, label: p.w >= 0.3 ? p.panel?.code : undefined })
   for (const p of f.placed.filter((p) => p.w < 0.3 && p.panel)) v.texts.push({ layer: 'TEXT', x: p.x + p.w / 2, y: p.y + p.h + 0.04, h: 0.04, s: p.panel!.code, center: true })
   for (const y of f.wales) v.lines.push({ layer: 'WALE', x1: -0.1, y1: y, x2: len + 0.1, y2: y })
   for (const t of f.ties) v.circles.push({ layer: 'TIE', x: t.u, y: t.y, r: 0.015 })
-  v.lines.push({ layer: 'POUR', x1: -0.15, y1: f.spec.height, x2: len + 0.15, y2: f.spec.height })
-  v.texts.push({ layer: 'POUR', x: len + 0.2, y: f.spec.height, h: 0.05, s: `เท ${f.spec.height.toFixed(2)}` })
+  v.lines.push({ layer: 'POUR', x1: -0.15, y1: f.spec.reqHeight, x2: len + 0.15, y2: f.spec.reqHeight })
+  v.texts.push({ layer: 'POUR', x: len + 0.2, y: f.spec.reqHeight, h: 0.05, s: `${f.spec.exactHeight ? 'กว้าง' : 'สูง'} ${f.spec.reqHeight.toFixed(2)}` })
   const h = Math.max(len, v.height) / 60
   const bottom = f.placed.filter((p) => p.course === 0)
   if (bottom.length) chain(v, [0, ...bottom.map((p) => p.x + p.w)], -h * 2, h)

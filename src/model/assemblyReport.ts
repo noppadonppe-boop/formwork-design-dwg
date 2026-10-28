@@ -14,14 +14,14 @@ export interface AnalyzedAssembly {
   result?: AssemblyResult
 }
 
-/** every assembly analysed against its footing (undefined result when the element is missing or not a footing) */
+/** every assembly analysed against its element (no result when the element is missing or not covered) */
 export function analyzeAll(assemblies: FormAssembly[], elements: FormElement[], panels: FormPanel[], criteria: Criteria): AnalyzedAssembly[] {
   return assemblies.map((assembly) => {
     const element = elements.find((e) => e.id === assembly.elementId)
-    if (!element || element.type !== 'footing') return { assembly, element }
+    if (!element) return { assembly, element }
     try {
       const run = runDesign(element, criteria)
-      return { assembly, element, result: analyzeAssembly(assembly, element.input, run, panels, element, criteria) }
+      return { assembly, element, result: analyzeAssembly(assembly, element, run, panels, criteria) }
     } catch {
       return { assembly, element }
     }
@@ -43,9 +43,11 @@ export interface UsageRow {
 export function panelUsage(panels: FormPanel[], all: AnalyzedAssembly[]): UsageRow[] {
   return panels.map((panel) => {
     const perAssembly: Record<string, number> = {}
-    for (const { assembly } of all) {
+    for (const { assembly, result } of all) {
       let n = 0
-      for (const k of FACE_KEYS) for (const c of faceLayoutOf(assembly, k).courses) n += c.panels.filter((id) => id === panel.id).length
+      // the element's own faces when analysed (a beam has no face D); otherwise all four with the default links
+      const layouts = result ? result.keys.map((k) => result.layouts[k]!) : FACE_KEYS.map((k) => faceLayoutOf(assembly, k))
+      for (const l of layouts) for (const c of l.courses) n += c.panels.filter((id) => id === panel.id).length
       if (n) perAssembly[assembly.id] = n
     }
     const counts = Object.values(perAssembly)

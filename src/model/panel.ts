@@ -230,10 +230,12 @@ export function panelStatus(checks: PanelCheck[]): Status {
   return 'ok'
 }
 
-/** suggested code from the size: P-2412 = 2.40 × 1.20 m; fillers (a side < 0.30 m) F- */
+/** suggested code from the size: P-2412 = 2.40 × 1.20 m (decimetres); F-25x120 = 0.25 × 1.20 m (centimetres, when a
+ *  side is not whole decimetres); fillers (a side < 0.30 m) F- */
 export function panelCodeFor(width: number, height: number, taken: string[]): string {
-  const dm = (v: number) => String(Math.round(v * 10)).padStart(2, '0')
-  const base = `${Math.min(width, height) < 0.3 ? 'F' : 'P'}-${dm(width)}${dm(height)}`
+  const cm = [width, height].map((v) => Math.round(v * 100))
+  const size = cm.every((c) => c % 10 === 0) ? cm.map((c) => String(c / 10).padStart(2, '0')).join('') : cm.join('x')
+  const base = `${Math.min(width, height) < 0.3 ? 'F' : 'P'}-${size}`
   if (!taken.includes(base)) return base
   for (let i = 0; i < 26; i++) {
     const c = `${base}-${String.fromCharCode(65 + i)}`
