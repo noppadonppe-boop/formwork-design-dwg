@@ -1,15 +1,17 @@
 // Shoring (เสาค้ำยัน / นั่งร้าน) for slab and beam forms — book §5.4, §6.4 step 5, Tables 6.10/6.11, §4.9.
 // A shore is either a designed post (timber, round log or steel pipe; Fa from eq 5.15 / 5.17–5.18) or a
-// rated product (scaffold-frame leg, adjustable steel prop) whose working load comes from the manufacturer.
+// rated product (scaffold-frame leg, adjustable steel prop) whose working load comes from the manufacturer, or a
+// Ringlock system whose standards are checked at the ledger lift (./ringlock).
 import { component, type ComponentResult } from './design'
 import { getMaterial } from './materials'
 import { type CheckRow, columnCapacity } from './member'
 import { getSection } from './sections'
+import { ringlockCapacity, ringlockSystem, RL_HEAD_MAX, RL_JACK_MAX, type RinglockParams } from './ringlock'
 import { Trace } from './trace'
 import { fmt } from './units'
 
 export interface ShoreParams {
-  kind: 'post' | 'rated'
+  kind: 'post' | 'rated' | 'ringlock'
   /** post: timber / round-log / pipe section */
   sectionId: string
   materialId: string
@@ -22,6 +24,8 @@ export interface ShoreParams {
   lengthM?: number
   /** base plate / sole plate side, cm (0 = none) */
   baseCm: number
+  /** Ringlock system and ledger lift (kind 'ringlock') */
+  ringlock?: RinglockParams
   /** allowable bearing of the surface below, kg/m² (0 = not checked) */
   bearing: number
 }
@@ -56,7 +60,19 @@ export const GROUND_BEARING = [
 ] as const
 
 export function shoreLabel(s: ShoreParams): string {
+  if (s.kind === 'ringlock') return `${ringlockSystem(s.ringlock).name} ระยะชั้น ${(s.ringlock?.liftM ?? 1.5).toFixed(1)} ม.`
   return s.kind === 'rated' ? `${s.ratedName} SWL ${fmt(s.swl)} กก./ขา` : getSection(s.sectionId).label
+}
+
+/** The shore's section in the model: a Ringlock standard, the designed post, or none for a rated product. */
+export function shoreSectionId(s: ShoreParams): string | undefined {
+  if (s.kind === 'ringlock') return ringlockSystem(s.ringlock).sectionId
+  return s.kind === 'rated' ? undefined : s.sectionId
+}
+
+/** Safe load per leg the layout can count on before the detailed check (rated SWL / Ringlock at its lift). */
+export function shoreSwl(s: ShoreParams, lengthM: number): number {
+  return s.kind === 'ringlock' ? ringlockCapacity(s.ringlock ?? { system: 'asia48', liftM: 1.5 }, lengthM).swl : s.swl
 }
 
 /**
@@ -70,7 +86,15 @@ export function designShore(opts: { shore: ShoreParams; P: number; lengthM: numb
   trace.add({ label: 'ความยาวเสาค้ำ', value: opts.lengthM, unit: 'ม.' })
   const rows: CheckRow[] = []
   let spec: string
-  if (shore.kind === 'rated') {
+  if (shore.kind === 'ringlock') {
+    const rl = ringlockCapacity(shore.ringlock ?? { system: 'asia48', liftM: 1.5 }, opts.lengthM, trace)
+    const maker = shore.ringlock?.swl !== undefined
+    rows.push({ item: 'น้ำหนักต่อเสาตั้ง', demand: perLeg, capacity: rl.swl, ratio: perLeg / rl.swl, unit: 'กก.', ref: maker ? 'ข้อมูลผู้ผลิต' : 'AISC ASD E2' })
+    rows.push({ item: 'เกลียวแจ็คฐาน / ยูเฮดที่โผล่', demand: rl.stack.jack * 100, capacity: RL_JACK_MAX * 100, ratio: rl.stack.jack / RL_JACK_MAX, unit: 'ซม.', ref: 'JGJ 231-2010 ข้อ 6.1.5' })
+    rows.push({ item: 'ยูเฮดสูงเหนือคานนอนบนสุด a', demand: rl.stack.jack * 100, capacity: RL_HEAD_MAX * 100, ratio: rl.stack.jack / RL_HEAD_MAX, unit: 'ซม.', ref: 'JGJ 231-2010 ข้อ 6.1.5' })
+    if (opts.lengthM < 0.7) trace.warn('เสาค้ำ Ringlock สั้นกว่า 0.70 ม. — ใช้แจ็คหรือไม้รองแทน')
+    spec = `${rl.sys.name} ${rl.section.label} ระยะชั้น ${rl.stack.h.toFixed(1)} ม.`
+  } else if (shore.kind === 'rated') {
     trace.add({ label: `กำลังรับน้ำหนักปลอดภัยต่อขา (${shore.ratedName})`, value: shore.swl, unit: 'กก.', ref: '§4.9 ข้อมูลผู้ผลิต' })
     rows.push({ item: 'น้ำหนักต่อขา', demand: perLeg, capacity: shore.swl, ratio: perLeg / shore.swl, unit: 'กก.', ref: 'ข้อมูลผู้ผลิต' })
     spec = shoreLabel(shore)
@@ -94,7 +118,8 @@ export function designShore(opts: { shore: ShoreParams; P: number; lengthM: numb
     rows.push({ item: 'แรงแบกทานใต้แป้นรองฐาน', demand: q, capacity: shore.bearing, ratio: q / shore.bearing, unit: 'กก./ม.²' })
   }
   const legText = legs > 1 ? `${legs} ต้น/จุด ` : ''
-  return component('shore', opts.title ?? 'เสาค้ำยัน (Shores)', `${spec} ${legText}${opts.layoutText ?? ''}${shore.braceLevels ? ` ค้ำยันทางข้าง ${shore.braceLevels} ระดับ` : ''}`.trim(), rows, trace)
+  const braced = shore.kind === 'post' && shore.braceLevels
+  return component('shore', opts.title ?? 'เสาค้ำยัน (Shores)', `${spec} ${legText}${opts.layoutText ?? ''}${braced ? ` ค้ำยันทางข้าง ${shore.braceLevels} ระดับ` : ''}`.trim(), rows, trace)
 }
 
 /** Number of shore bays a diagonal spans so that it is no steeper than 60° (narrow bays → longer diagonals). */

@@ -6,6 +6,7 @@ import { getMaterial } from './materials'
 import { checkBeam, type DeflectionCriteria, maxSpan, type MemberInput } from './member'
 import type { PressureResult } from './pressure'
 import { getSection, multiple, plywoodStrip, rect, type Section } from './sections'
+import { isLedger, ledgerRow, ledgerText, ringlockSystem, snapToLedger } from './ringlock'
 import { DEFAULT_SHORE, designShore, designShoreBracing, type ShoreParams } from './shoring'
 import { Trace } from './trace'
 import { floorTo, fmt, pressureToLineLoad } from './units'
@@ -116,6 +117,14 @@ export function designSlab(inp: SlabInput): SlabDesign {
   const defl = inp.deflection
   const components: ComponentResult[] = []
   const timberShear = inp.checkTimberShear ?? true
+  // Ringlock: the shore grid (stringer spacing × shore spacing) is built of ledgers, so both snap down to a ledger
+  const rl = inp.shore.kind === 'ringlock' ? ringlockSystem(inp.shore.ringlock) : undefined
+  const toLedger = (cm: number, trace: Trace, what: string) => {
+    if (!rl) return cm
+    const v = snapToLedger(cm, rl)
+    trace.add({ label: `${what} ปัดลงเป็นความยาวคานนอน Ringlock`, expr: `${cm} ซม. → คานนอน ${(v / 100).toFixed(2)} ม. (มี ${ledgerText(rl)} ม.)`, value: v, unit: 'ซม.' })
+    return v
+  }
 
   // 1) sheathing → joist spacing (strip 1.00 m, continuous)
   const tSh = new Trace()
@@ -141,7 +150,7 @@ export function designSlab(inp: SlabInput): SlabDesign {
   const jo: MemberInput = { section: getSection(inp.joist.sectionId), material: joMat, support: 'continuous', deflection: defl, checkShear: joMat.kind === 'steel' || timberShear }
   const wJo = tJo.add({ label: 'น้ำหนักแผ่บนตง', expr: `${fmt(W)} × ${(a / 100).toFixed(2)} / 100`, value: pressureToLineLoad(W, a / 100), unit: 'กก./ซม.' })
   const joLim = maxSpan(jo, wJo, tJo)
-  const l = inp.stringer.spacingCm ?? floorTo(joLim.max, 5)
+  const l = inp.stringer.spacingCm ?? toLedger(floorTo(joLim.max, 5), tJo, 'ระยะคานรองรับ')
   tJo.add({ label: 'ระยะคานรองรับที่ใช้ (ช่วงตง)', value: l, unit: 'ซม.' })
   const joChk = checkBeam(jo, wJo, l, tJo)
   components.push(
@@ -160,7 +169,7 @@ export function designSlab(inp: SlabInput): SlabDesign {
   const st: MemberInput = { section: multiple(getSection(inp.stringer.sectionId), inp.stringer.count), material: stMat, support: 'continuous', deflection: defl, checkShear: true }
   const wSt = tSt.add({ label: 'น้ำหนักแผ่บนคานรองรับ', expr: `${fmt(W)} × ${(l / 100).toFixed(2)} / 100`, value: pressureToLineLoad(W, l / 100), unit: 'กก./ซม.' })
   const stLim = maxSpan(st, wSt, tSt)
-  const L = inp.shore.spacingCm ?? floorTo(stLim.max, 5)
+  const L = inp.shore.spacingCm ?? toLedger(floorTo(stLim.max, 5), tSt, 'ระยะเสาค้ำ')
   tSt.add({ label: 'ระยะเสาค้ำที่ใช้', value: L, unit: 'ซม.' })
   const stChk = checkBeam(st, wSt, L, tSt)
   components.push(
@@ -186,8 +195,9 @@ export function designSlab(inp: SlabInput): SlabDesign {
 
   // 5) lateral bracing of the shoring
   const joistX = spread(inp.lengthX, a / 100)
-  const stringerY = spread(inp.lengthY, l / 100, Math.min(0.15, l / 200))
-  const shoreX = spread(inp.lengthX, L / 100, Math.min(0.2, L / 200))
+  // Ringlock: whole ledgers between the standards, one shorter ledger for the rest
+  const stringerY = rl ? ledgerRow(inp.lengthY, l, rl, Math.min(0.15, l / 200)) : spread(inp.lengthY, l / 100, Math.min(0.15, l / 200))
+  const shoreX = rl ? ledgerRow(inp.lengthX, L, rl, Math.min(0.2, L / 200)) : spread(inp.lengthX, L / 100, Math.min(0.2, L / 200))
   if (inp.bracing.enabled)
     components.push(
       designShoreBracing({
@@ -204,6 +214,9 @@ export function designSlab(inp: SlabInput): SlabDesign {
 
   const warnings: string[] = []
   if (inp.shore.kind === 'post' && inp.shore.braceLevels === 0 && shoreLength > 3) warnings.push('เสาค้ำยาวเกิน 3 ม. โดยไม่มีค้ำยันทางข้าง — ควรเพิ่มค้ำยันกลางความสูง')
+  if (rl)
+    for (const [v, what, fixed] of [[l, 'ระยะคานรองรับ', inp.stringer.spacingCm], [L, 'ระยะเสาค้ำ', inp.shore.spacingCm]] as const)
+      if (fixed !== undefined && !isLedger(v, rl)) warnings.push(`${what} ${v} ซม. ไม่ตรงความยาวคานนอน Ringlock (${ledgerText(rl)} ม.)`)
   if (!inp.bracing.enabled) warnings.push('ไม่ได้ออกแบบค้ำยันทางข้าง — ระบบเสาค้ำต้องยึดทางข้างทั้งสองทิศทาง (§6.2)')
 
   const area = inp.lengthX * inp.lengthY

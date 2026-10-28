@@ -48,6 +48,7 @@ export const PLYWOOD: Material[] = [
 export const STEEL: Material[] = [
   { id: 'steel-ss400', kind: 'steel', name: 'เหล็กรูปพรรณ (Fy 2,400)', E: 2.0e6, Fb: 1200, Fv: 1200, Ft: 1440, Fy: 2400, ref: 'ตัวอย่าง 8.2/8.3' },
   { id: 'steel-a36', kind: 'steel', name: 'เหล็ก A36 (Fy 2,500, FS 2)', E: 2.0e6, Fb: 1250, Fv: 1000, Ft: 1500, Fy: 2500, ref: 'ตัวอย่าง 5.5 / เทศบัญญัติ กทม.' },
+  { id: 'steel-q345', kind: 'steel', name: 'เหล็ก Q345 / S355 (Fy 3,450)', E: 2.0e6, Fb: 2070, Fv: 1380, Ft: 2070, Fy: 3450, ref: 'ท่อนั่งร้าน Ringlock' },
 ]
 
 export const MATERIALS: Material[] = [...TIMBER, ...PLYWOOD, ...STEEL]

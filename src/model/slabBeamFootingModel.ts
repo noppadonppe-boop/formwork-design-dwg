@@ -7,6 +7,7 @@ import {
   beamRunnerSection,
   beamStringer,
   braceBays,
+  braceSets,
   type BeamInput,
   deckThicknessM,
   type FootingDesign,
@@ -28,6 +29,9 @@ import {
   type SlabDesign,
   type SlabInput,
   spread,
+  shoreSectionId,
+  DEFAULT_RINGLOCK,
+  ringlockStack,
 } from '@/engine'
 import { bounds, cm, type FormModel, type Handle, type HandleKey, pairOffsets, type Part, tiePlate, regularPlan, round3, roundPlan, sheets, snap, type Vec3, yawFacing } from './formModel'
 
@@ -71,7 +75,8 @@ const PLATE = 0.006 // jack / U-head plate thickness, m
 function shorePart(parts: Part[], s: ShoreParams, id: string, x: number, z: number, top: number, cradle?: Cradle) {
   const base = s.baseCm > 0 ? 0.02 : 0
   if (base) parts.push({ id: `${id}-base`, group: 'shore', kind: 'timber', shape: 'box', center: [x, base / 2, z], size: [cm(s.baseCm), base, cm(s.baseCm)] })
-  const sec = s.kind === 'rated' ? undefined : getSection(s.sectionId)
+  const sid = shoreSectionId(s)
+  const sec = sid ? getSection(sid) : undefined
   if (!sec || sec.shape === 'pipe') {
     const dia = sec ? cm(sec.B) : 0.0486
     const nut = (nid: string, y: number) => parts.push({ id: nid, group: 'shore', kind: 'steel', shape: 'box', center: [x, y, z], size: [dia + 0.04, 0.03, dia + 0.04] })
@@ -111,7 +116,38 @@ function shorePart(parts: Part[], s: ShoreParams, id: string, x: number, z: numb
   else parts.push({ id, group: 'shore', kind, shape: 'box', center: [x, (base + top) / 2, z], size: [cm(sec.B), top - base, cm(sec.H)] })
 }
 
-const shoreWidth = (s: ShoreParams) => (s.kind === 'rated' ? 0.0486 : cm(getSection(s.sectionId).H))
+/** Ringlock ledger / diagonal tube, m */
+const RL_TUBE = 0.0483
+
+/**
+ * Ringlock members over a grid of standards (xs × zs, floor to `top`): ledgers between neighbouring standards both
+ * ways at every ledger level, and vertical diagonals in every lift of the braced bays of the outer lines (both end
+ * bays, no more than 3 bays apart).
+ */
+function ringlockFrame(parts: Part[], s: ShoreParams, xs: number[], zs: number[], top: number) {
+  if (s.kind !== 'ringlock') return
+  const st = ringlockStack(top, (s.ringlock ?? DEFAULT_RINGLOCK).liftM)
+  const bar = (id: string, from: Vec3, to: Vec3) => parts.push({ id, group: 'shore', kind: 'steel', shape: 'bar', from, to, b: RL_TUBE, d: RL_TUBE, round: true })
+  st.ledgers.forEach((y, k) => {
+    zs.forEach((z, r) => xs.slice(1).forEach((x, i) => bar(`rl-ledger-x${r}-${i}-${k}`, [xs[i], y, z], [x, y, z])))
+    xs.forEach((x, c) => zs.slice(1).forEach((z, i) => bar(`rl-ledger-z${c}-${i}-${k}`, [x, y, zs[i]], [x, y, z])))
+  })
+  const diagonals = (line: string, pts: number[], at: (u: number, y: number) => Vec3) =>
+    braceSets(pts.length - 1, 1).forEach((i) =>
+      st.ledgers.slice(1).forEach((y, k) => {
+        const y0 = st.ledgers[k]
+        const up = k % 2 === 0
+        bar(`rl-diag-${line}-${i}-${k}`, at(pts[i], up ? y0 : y), at(pts[i + 1], up ? y : y0))
+      }),
+    )
+  if (xs.length > 1) [...new Set([0, zs.length - 1])].forEach((r) => diagonals(`x${r}`, xs, (x, y) => [x, y, zs[r]]))
+  if (zs.length > 1) [...new Set([0, xs.length - 1])].forEach((c) => diagonals(`z${c}`, zs, (z, y) => [xs[c], y, z]))
+}
+
+const shoreWidth = (s: ShoreParams) => {
+  const sid = shoreSectionId(s)
+  return sid ? cm(getSection(sid).H) : 0.0486
+}
 
 // ---------------------------------------------------------------- slab
 
@@ -142,9 +178,10 @@ export function slabModel(inp: SlabInput, d: SlabDesign): FormModel {
   )
   const stringerCradle: Cradle = { axis: 'z', width: pairWidth(inp.stringer.count, sb), depth: sh }
   stringerY.forEach((z, i) => shoreX.forEach((x, j) => shorePart(parts, inp.shore, `shore-${i}-${j}`, x, z, shoreTop, stringerCradle)))
+  ringlockFrame(parts, inp.shore, shoreX, stringerY, shoreTop)
 
-  // lateral bracing: an X in the end bays of every row, both directions
-  if (inp.bracing.enabled && shoreX.length > 1 && stringerY.length > 0) {
+  // lateral bracing: an X in the end bays of every row, both directions (Ringlock: its own diagonals)
+  if (inp.bracing.enabled && inp.shore.kind !== 'ringlock' && shoreX.length > 1 && stringerY.length > 0) {
     const br = getSection(inp.bracing.sectionId)
     const bk = br.shape === 'pipe' ? 'steel' : kindOf(inp.bracing.materialId)
     const bw = cm(br.B)
@@ -277,9 +314,12 @@ export function beamModel(inp: BeamInput, d: BeamDesign): FormModel {
     }
   })
 
+  if (!sgL) ringlockFrame(parts, inp.shore, headX, posts, yHeadBot)
+
   // lateral bracing of every post row along the beam: an X in the end bays (as designed), on the outer face of the
-  // posts; horizontal runners at the shore brace levels on the inner face
+  // posts; horizontal runners at the shore brace levels on the inner face (Ringlock: its own ledgers and diagonals)
   const bracing = beamBracing(inp)
+  const rl = inp.shore.kind === 'ringlock'
   const levels = inp.shore.kind === 'post' ? inp.shore.braceLevels : 0
   if (sgL) {
     // stringer system: stringer rows under the heads on U-heads and shores at their own spacing; ledgers both ways at
@@ -294,6 +334,7 @@ export function beamModel(inp: BeamInput, d: BeamDesign): FormModel {
       pairOffsets(sg.count, gb).forEach((o, c) => parts.push({ id: `stringer-${r}-${c}`, group: 'stringer', kind: kindOf(sg.materialId), shape: 'box', center: [L / 2, yHeadBot - gd / 2, z + o], size: [L, gd, gb] })),
     )
     rowZ.forEach((z, r) => shoreX.forEach((x, j) => shorePart(parts, inp.shore, `shore-${r}-${j}`, x, z, top, { axis: 'z', width: pairWidth(sg.count, gb), depth: gd })))
+    ringlockFrame(parts, inp.shore, shoreX, rowZ, top)
     const br = getSection(bracing.sectionId)
     const bk = br.shape === 'pipe' ? 'steel' : kindOf(bracing.materialId)
     const bw = cm(br.B)
@@ -309,7 +350,7 @@ export function beamModel(inp: BeamInput, d: BeamDesign): FormModel {
       rowZ.forEach((z, r) => bar(`ledger-${r}-${n}`, [x0 - 0.05, y, z - (z < 0 ? -1 : 1) * off], [x1 + 0.05, y, z - (z < 0 ? -1 : 1) * off]))
       shoreX.forEach((x, j) => bar(`ledgerx-${j}-${n}`, [x + off, y + bw, zLo - 0.05], [x + off, y + bw, zHi + 0.05]))
     })
-    if (bracing.enabled && shoreX.length > 1) {
+    if (bracing.enabled && !rl && shoreX.length > 1) {
       const y0 = 0.15
       const y1 = top - 0.1
       rowZ.forEach((z, r) => {
@@ -325,7 +366,7 @@ export function beamModel(inp: BeamInput, d: BeamDesign): FormModel {
         bar(`bry-${j}b`, [x, y1, zLo], [x, y0, zHi])
       })
     }
-  } else if ((bracing.enabled || levels) && headX.length > 1) {
+  } else if ((bracing.enabled || levels) && !rl && headX.length > 1) {
     const br = getSection(bracing.sectionId)
     const bk = br.shape === 'pipe' ? 'steel' : kindOf(bracing.materialId)
     const bw = cm(br.B)
