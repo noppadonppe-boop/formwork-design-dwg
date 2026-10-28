@@ -7,10 +7,11 @@ import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { useAuth } from '@/auth/AuthProvider'
 import { FaceElevation, PlanView } from '@/components/assembly/FaceViews'
 import { PanelDrawing } from '@/components/assembly/PanelDrawing'
+import { elementSize, TYPE_LABEL } from '@/data/elements'
 import { useAssemblies, useElements, usePanels, useProject } from '@/data/hooks'
-import { type Criteria, DEFAULT_CRITERIA, FACE_KEYS, type FaceKey, type FormPanel, type Project, shopSettings } from '@/data/types'
+import { type Criteria, DEFAULT_CRITERIA, type FaceKey, type FormPanel, type Project, shopSettings } from '@/data/types'
 import { getMaterial, getSection } from '@/engine'
-import { FACE_LABEL } from '@/model/assembly'
+import type { AssemblyResult } from '@/model/assembly'
 import { assembly3d } from '@/model/assembly3d'
 import { type AnalyzedAssembly, analyzeAll } from '@/model/assemblyReport'
 import { EDGE_LABEL, MEMBER_LABEL, panelLayout } from '@/model/panel'
@@ -61,11 +62,11 @@ export function AssemblyPrintPage() {
   const panelDxf = (p: FormPanel) => download(`${project.projectNo}-FA-${p.code}.dxf`, viewsToDxf([panelView(p, panelLayout(p))], titleLines(`แบบผลิตแผง ${p.code} Rev ${project.revision}`)), 'application/dxf')
   const asmDxf = (a: AnalyzedAssembly) => {
     if (!a.result) return
-    const keys: FaceKey[] = a.assembly.linked ? ['A', 'B'] : FACE_KEYS
+    const r = a.result
     download(
       `${project.projectNo}-FA-${a.assembly.code}.dxf`,
       viewsToDxf(
-        keys.map((k) => faceView(a.result!.faces[k], `${FACE_LABEL[k]}${a.assembly.linked ? ` (= ด้าน ${k === 'A' ? 'C' : 'D'})` : ''}`)),
+        drawnFaces(r, a.assembly.linked).map((k) => faceView(r.faces[k]!, faceTitle(r, k, a.assembly.linked))),
         titleLines(`แบบประกอบแบบหล่อ ${a.assembly.code} — ${a.element?.code ?? ''} Rev ${project.revision}`),
       ),
       'application/dxf',
@@ -248,28 +249,36 @@ function PanelSheet({ p, meta }: { p: FormPanel; meta: SheetMeta }) {
   )
 }
 
+/** faces drawn on the sheet: linked copies are not drawn again */
+const drawnFaces = (r: AssemblyResult, linked: boolean) => r.keys.filter((k) => !(linked && r.geom.links.some(([, copy]) => copy === k)))
+const faceTitle = (r: AssemblyResult, k: FaceKey, linked: boolean) => {
+  const copy = linked ? r.geom.links.find(([src]) => src === k)?.[1] : undefined
+  return `${r.specs[k]!.label}${copy ? ` = ด้าน ${copy}` : ''}`
+}
+
 function AssemblySheet({ a, meta }: { a: AnalyzedAssembly; meta: SheetMeta }) {
   const { assembly, element, result } = a
-  const model = useMemo(() => (result && element?.type === 'footing' ? assembly3d(result, element.input, assembly.through) : undefined), [result, element, assembly.through])
-  if (!result || element?.type !== 'footing') return <p className="shop-sheet text-fail">{assembly.code}: ไม่พบฐานรากของชุดประกอบนี้</p>
-  const keys: FaceKey[] = assembly.linked ? ['A', 'B'] : FACE_KEYS
+  const model = useMemo(() => (result && element ? assembly3d(result, element) : undefined), [result, element])
+  if (!result || !element) return <p className="shop-sheet text-fail">{assembly.code}: ไม่พบชิ้นงานของชุดประกอบนี้</p>
+  const g = result.geom
+  const keys = drawnFaces(result, assembly.linked)
   // every face at the same scale: drawing width in proportion to the face length
-  const span = (k: FaceKey) => Math.max(result.specs[k].length, ...result.faces[k].courses.map((c) => c.length))
+  const span = (k: FaceKey) => Math.max(result.specs[k]!.length, ...result.faces[k]!.courses.map((c) => c.length))
   const widest = Math.max(...keys.map(span))
   const noop = () => {}
-  const checks = FACE_KEYS.flatMap((k) => result.faces[k].checks.filter((c) => c.status === 'fail' || c.status === 'warn').map((c) => `ด้าน ${k}: ${c.label}`))
+  const checks = result.keys.flatMap((k) => result.faces[k]!.checks.filter((c) => c.status === 'fail' || c.status === 'warn').map((c) => `ด้าน ${k}: ${c.label}`))
   return (
     <Sheet
       meta={meta}
-      title={`แบบประกอบแบบหล่อ ${assembly.code} — ${element.code} ${element.input.lengthX.toFixed(2)} × ${element.input.lengthY.toFixed(2)} × ${element.input.height.toFixed(2)} ม.`}
+      title={`แบบประกอบแบบหล่อ ${assembly.code} — ${TYPE_LABEL[element.type]} ${element.code} ${elementSize(element)}`}
       no={`${meta.project.projectNo}-FA-${assembly.code}`}
       side={
         <div className="flex flex-col gap-[3mm]">
           <div className="w-[60mm] self-center">
-            <PlanView specs={result.specs} lx={element.input.lengthX} ly={element.input.lengthY} selected={'A'} onSelect={noop} />
+            <PlanView geom={g} specs={result.specs} selected={keys[0]} onSelect={noop} />
           </div>
           <Table head={['แผง', 'ขนาด', 'ใช้/ชุด', 'สต็อก']} rows={result.usage.map((u) => [u.panel.code, `${u.panel.width.toFixed(2)}×${u.panel.height.toFixed(2)}`, u.used, u.panel.stock ?? 0])} />
-          {result.wales.length > 0 && <Table head={['คานรับเคร่า', 'ยาว ม.', 'ท่อน']} rows={result.wales.map((w) => [`ด้าน ${w.axis === 'x' ? 'A/C' : 'B/D'}`, w.length.toFixed(2), w.count])} />}
+          {result.wales.length > 0 && <Table head={[g.waleLabel, 'ยาว ม.', 'ท่อน']} rows={result.wales.map((w) => [`ด้าน ${w.faces}`, w.length.toFixed(2), w.count])} />}
           {model && (
             <div>
               <p className="font-semibold">ลำดับการประกอบ</p>
@@ -292,17 +301,16 @@ function AssemblySheet({ a, meta }: { a: AnalyzedAssembly; meta: SheetMeta }) {
       }
     >
       <h1 className="text-[5mm] font-bold">
-        แบบประกอบ {assembly.code} <span className="text-[3.5mm] font-normal text-slate-600">ด้านทะลุมุม {assembly.through === 'x' ? 'A/C' : 'B/D'}</span>
+        แบบประกอบ {assembly.code} <span className="text-[3.5mm] font-normal text-slate-600">{g.throughLabel[assembly.through]}</span>
       </h1>
       <div className={`grid min-h-0 flex-1 gap-[4mm] ${keys.length > 2 ? 'grid-cols-2' : 'grid-cols-1'}`}>
         {keys.map((k) => (
           <div key={k} className="flex min-h-0 flex-col">
             <p className="font-semibold">
-              {FACE_LABEL[k]}
-              {assembly.linked ? ` = ด้าน ${k === 'A' ? 'C' : 'D'}` : ''} · ยาว {result.specs[k].length.toFixed(3)} ม.
+              {faceTitle(result, k, assembly.linked)} · ยาว {result.specs[k]!.length.toFixed(3)} ม.
             </p>
             <div className="min-h-0 flex-1 [&_svg]:max-h-[105mm]" style={{ width: `${Math.max(25, (span(k) / widest) * 100)}%` }}>
-              <FaceElevation face={result.faces[k]} editable={false} onSelect={noop} onMove={noop} />
+              <FaceElevation face={result.faces[k]!} editable={false} onSelect={noop} onMove={noop} />
             </div>
           </div>
         ))}

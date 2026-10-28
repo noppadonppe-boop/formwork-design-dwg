@@ -210,7 +210,8 @@ export const DEFAULT_PANEL: PanelData = {
 
 // ---------------------------------------------------------------- Form Assembly: assemblies (ชุดประกอบ)
 
-/** footing faces seen in plan: A front and C back run along X, B right and D left run along Y */
+/** faces of an element (model/assemblyGeom): footing / column sides A front, B right, C back, D left; wall faces A, C
+ *  and stop-ends B, D; beam sides A, C and soffit B */
 export type FaceKey = 'A' | 'B' | 'C' | 'D'
 export const FACE_KEYS: FaceKey[] = ['A', 'B', 'C', 'D']
 
@@ -219,7 +220,7 @@ export interface FaceLayout {
   courses: { panels: string[] }[]
 }
 
-/** Panels from the stock assembled into the complete form of one element (footings for now). */
+/** Panels from the stock assembled into the complete form of one element (footing, column, wall or beam). */
 export interface AssemblyData {
   code: string
   name: string

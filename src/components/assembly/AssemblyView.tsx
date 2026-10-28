@@ -1,15 +1,16 @@
-// Form Assembly — assemblies: panels from the stock laid out on the four faces of a footing, with automatic layout,
-// drag-to-reorder, the plan and face elevations, and the checks against the footing design.
+// Form Assembly — assemblies: panels from the stock laid out on the faces of a footing, column, wall or beam, with
+// automatic layout, drag-to-reorder, the key diagram and face elevations, and the checks against the design.
 import clsx from 'clsx'
 import { Check, Layers, Loader2, Minus, Plus, Printer, Save, Trash2, Wand2, X } from 'lucide-react'
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Button, Empty, Field, Modal, Segmented, Select, StatusBadge, Toggle } from '@/components/ui'
 import { isConflict } from '@/data/conflict'
-import { elementSize, runDesign } from '@/data/elements'
+import { elementSize, runDesign, TYPE_LABEL } from '@/data/elements'
 import { repo, versionOf } from '@/data/repo'
-import { type AssemblyData, type Criteria, emptyFaces, FACE_KEYS, type FaceKey, type FaceLayout, type FormAssembly, type FormElement, type FormPanel } from '@/data/types'
-import { analyzeAssembly, autoFace, FACE_LABEL, faceLayoutOf, faceSpecs, type FillerAt, fillerLike } from '@/model/assembly'
+import { type AssemblyData, type Criteria, emptyFaces, type FaceKey, type FaceLayout, type FormAssembly, type FormElement, type FormPanel } from '@/data/types'
+import { analyzeAssembly, autoFace, faceLayoutOf, faceSpecs, type FillerAt, fillerLike } from '@/model/assembly'
+import { elementGeom } from '@/model/assemblyGeom'
 import { assembly3d } from '@/model/assembly3d'
 import { type PanelCheck, panelCodeFor } from '@/model/panel'
 import { FaceElevation, PlanView, type Slot } from './FaceViews'
@@ -30,18 +31,22 @@ const dataOf = (a: FormAssembly): AssemblyData => ({
   note: a.note ?? '',
 })
 
-const footings = (els: FormElement[]) => els.filter((e) => e.type === 'footing')
+/** elements an assembly can be made for (footings, rectangular plywood columns, walls, beams) */
+const supported = (els: FormElement[]) => els.filter((e) => !!elementGeom(e))
 
-/** auto layout of every face (A and B only when linked) */
+/** auto layout of every face (the originals only when linked) */
 function autoAll(a: AssemblyData, el: FormElement, panels: FormPanel[], opts: { filler: FillerAt; stagger: boolean }) {
-  if (el.type !== 'footing') return { faces: a.faces, missing: [] as { key: FaceKey; width: number; height: number }[] }
-  const keys = a.linked ? (['A', 'B'] as FaceKey[]) : FACE_KEYS
-  // inner faces first: the through faces' length depends on the panels at their ends
-  const order = [...keys].sort((x, y) => Number(a.through === (x === 'A' || x === 'C' ? 'x' : 'y')) - Number(a.through === (y === 'A' || y === 'C' ? 'x' : 'y')))
-  const faces = { ...a.faces }
+  const g = elementGeom(el)
   const missing: { key: FaceKey; width: number; height: number }[] = []
+  if (!g) return { faces: a.faces, missing }
+  const keys = g.faces.map((f) => f.key).filter((k) => !(a.linked && g.links.some(([, copy]) => copy === k)))
+  // faces between the through pair first: the through faces' size depends on the panels they wrap
+  const pairOf = (k: FaceKey) => g.faces.find((f) => f.key === k)!.pair
+  const order = [...keys].sort((x, y) => Number(a.through === pairOf(x)) - Number(a.through === pairOf(y)))
+  const faces = { ...a.faces }
+  const byId = new Map(panels.map((p) => [p.id, p]))
   for (const k of order) {
-    const spec = faceSpecs(el.input, { ...a, faces }, new Map(panels.map((p) => [p.id, p])))[k]
+    const spec = faceSpecs(g, { ...a, faces }, byId)[k]!
     const r = autoFace(spec, panels, opts)
     faces[k] = r.layout
     if (r.missing) missing.push({ key: k, ...r.missing })
@@ -54,14 +59,15 @@ export function AssemblyView({ projectId, elements, panels, assemblies, criteria
   const [elId, setElId] = useState('')
   const [busy, setBusy] = useState(false)
   const selected = assemblies.find((a) => a.id === selectedId) ?? assemblies[0]
-  const candidates = footings(elements)
+  const candidates = supported(elements)
 
   const create = async () => {
     const el = elements.find((e) => e.id === elId)
-    if (!el || el.type !== 'footing' || busy) return
+    const g = el && elementGeom(el)
+    if (!el || !g || busy) return
     setBusy(true)
     try {
-      const base: AssemblyData = { code: '', name: el.name, elementId: el.id, through: el.input.lengthX >= el.input.lengthY ? 'x' : 'y', linked: true, faces: emptyFaces(), note: '' }
+      const base: AssemblyData = { code: '', name: el.name, elementId: el.id, through: g.through, linked: g.links.length > 0, faces: emptyFaces(), note: '' }
       const { faces } = autoAll(base, el, panels, { filler: 'middle', stagger: false })
       const code = `ASM-${el.code}`
       const taken = assemblies.map((a) => a.code)
@@ -79,13 +85,13 @@ export function AssemblyView({ projectId, elements, panels, assemblies, criteria
       {assemblies.length === 0 ? (
         <section className="card">
           <Empty icon={<Layers size={22} />} title="ยังไม่มีชุดประกอบ">
-            <p className="max-w-md text-sm text-muted">เลือกฐานรากที่ออกแบบแล้ว ระบบจะนำแผงจากคลังมาจัดลงทั้ง 4 ด้านให้ แล้วปรับเองได้</p>
+            <p className="max-w-md text-sm text-muted">เลือกฐานราก เสา ผนัง หรือคานที่ออกแบบแล้ว ระบบจะนำแผงจากคลังมาจัดลงทุกด้านให้ แล้วปรับเองได้</p>
             {canEdit && (
               <Button variant="primary" onClick={() => setCreating(true)} disabled={!candidates.length || !panels.length}>
                 <Plus size={16} /> สร้างชุดประกอบ
               </Button>
             )}
-            {!candidates.length && <p className="text-xs text-muted">ยังไม่มีฐานรากในโครงการ (ชุดประกอบของผนัง เสา คาน จะตามมาในเฟสถัดไป)</p>}
+            {!candidates.length && <p className="text-xs text-muted">ยังไม่มีชิ้นงานที่ทำชุดประกอบได้ (ฐานราก เสาสี่เหลี่ยมแบบไม้อัด ผนัง คาน)</p>}
             {!!candidates.length && !panels.length && <p className="text-xs text-muted">สร้างแผงในคลังก่อน</p>}
           </Empty>
         </section>
@@ -99,7 +105,7 @@ export function AssemblyView({ projectId, elements, panels, assemblies, criteria
                   <li key={a.id}>
                     <button type="button" onClick={() => onSelect(a.id)} aria-current={a.id === selected?.id ? 'true' : undefined} className={clsx('w-full px-3 py-2.5 text-left hover:bg-slate-50', a.id === selected?.id && 'bg-blue-50 ring-1 ring-inset ring-sel')}>
                       <div className="num font-semibold">{a.code}</div>
-                      <div className="truncate text-xs text-muted">{el ? `${el.code} · ${elementSize(el)}` : 'ไม่พบชิ้นงาน'}</div>
+                      <div className="truncate text-xs text-muted">{el ? `${el.code} ${TYPE_LABEL[el.type]} · ${elementSize(el)}` : 'ไม่พบชิ้นงาน'}</div>
                     </button>
                   </li>
                 )
@@ -129,12 +135,12 @@ export function AssemblyView({ projectId, elements, panels, assemblies, criteria
           </>
         }
       >
-        <Field label="ชิ้นงาน" hint="ตอนนี้รองรับฐานราก (4 ด้าน)">
+        <Field label="ชิ้นงาน" hint="ฐานราก · เสาสี่เหลี่ยม (ไม้อัด) · ผนัง · คาน">
           <Select value={elId} onChange={(e) => setElId(e.target.value)}>
-            <option value="">— เลือกฐานราก —</option>
+            <option value="">— เลือกชิ้นงาน —</option>
             {candidates.map((e) => (
               <option key={e.id} value={e.id}>
-                {e.code} · {elementSize(e)}
+                {e.code} {TYPE_LABEL[e.type]} · {elementSize(e)}
               </option>
             ))}
           </Select>
@@ -181,8 +187,8 @@ function AssemblyEditor({ assembly, elements, panels, criteria, canEdit, project
       return undefined
     }
   }, [el, criteria])
-  const r = useMemo(() => (el?.type === 'footing' ? analyzeAssembly(draft, el.input, run, panels, el, criteria) : undefined), [draft, el, run, panels, criteria])
-  const model3d = useMemo(() => (view === '3d' && r && el?.type === 'footing' ? assembly3d(r, el.input, draft.through) : undefined), [view, r, el, draft.through])
+  const r = useMemo(() => (el ? analyzeAssembly(draft, el, run, panels, criteria) : undefined), [draft, el, run, panels, criteria])
+  const model3d = useMemo(() => (view === '3d' && r && el ? assembly3d(r, el) : undefined), [view, r, el])
 
   const set = (p: Partial<AssemblyData>) => {
     setDraft((d) => ({ ...d, ...p }))
@@ -209,10 +215,10 @@ function AssemblyEditor({ assembly, elements, panels, criteria, canEdit, project
     setState('idle')
   }
 
-  if (!el || el.type !== 'footing' || !r)
+  if (!el || !r)
     return (
       <div className="card p-6 text-sm text-muted">
-        ไม่พบฐานรากของชุดประกอบนี้ (อาจถูกลบไปแล้ว)
+        ไม่พบชิ้นงานของชุดประกอบนี้ (อาจถูกลบไปแล้ว หรือเปลี่ยนเป็นรูปทรงที่ยังไม่รองรับ)
         {canEdit && (
           <Button variant="danger" className="ml-3" onClick={() => repo.deleteAssembly(projectId, assembly.id).then(onDeleted)}>
             <Trash2 size={16} /> ลบชุดประกอบ
@@ -221,21 +227,25 @@ function AssemblyEditor({ assembly, elements, panels, criteria, canEdit, project
       </div>
     )
 
-  // the face being edited: C and D edit A and B when linked
-  const editKey: FaceKey = draft.linked && face === 'C' ? 'A' : draft.linked && face === 'D' ? 'B' : face
-  const mirrored = editKey !== face
-  const layout = faceLayoutOf(draft, face)
-  const fr = r.faces[face]
+  const g = r.geom
+  // a face of another element type (or one the element lost) falls back to the first face
+  const shown: FaceKey = r.keys.includes(face) ? face : r.keys[0]
+  // the face being edited: a linked copy edits its original
+  const editKey: FaceKey = (draft.linked && g.links.find(([, copy]) => copy === shown)?.[0]) || shown
+  const mirrored = editKey !== shown
+  const layout = faceLayoutOf(draft, shown, g.links)
+  const fr = r.faces[shown]!
   const ro = !canEdit || mirrored
   const setLayout = (f: FaceLayout) => set({ faces: { ...draft.faces, [editKey]: f } })
   const courses = layout.courses
   const targetCourse = slot ? slot.course : Math.max(courses.length - 1, 0)
 
-  const runAuto = (only?: FaceKey) => {
-    const res = autoAll(only ? { ...draft, linked: false } : draft, el, panels, { filler, stagger })
+  /** auto layout of every face, or only of `only` (their missing panels replace theirs in the list) */
+  const runAuto = (only?: FaceKey[], stock: FormPanel[] = panels) => {
+    const res = autoAll(only ? { ...draft, linked: false } : draft, el, stock, { filler, stagger })
     if (only) {
-      set({ faces: { ...draft.faces, [only]: res.faces[only] } })
-      setMissing((m) => [...m.filter((x) => x.key !== only), ...res.missing.filter((x) => x.key === only)])
+      set({ faces: { ...draft.faces, ...Object.fromEntries(only.map((k) => [k, res.faces[k]])) } })
+      setMissing((m) => [...m.filter((x) => !only.includes(x.key)), ...res.missing.filter((x) => only.includes(x.key))])
     } else {
       set({ faces: res.faces })
       setMissing(res.missing)
@@ -266,30 +276,28 @@ function AssemblyEditor({ assembly, elements, panels, criteria, canEdit, project
     setLayout({ courses: courses.slice(0, -1) })
     setSlot(undefined)
   }
-  /** make the missing filler like the main panel of the face and put it into every course */
+  /** make the missing panel (or use one of that size already in the stock), then lay out again every face that
+   *  was waiting for it */
   const makeFiller = async (m: { key: FaceKey; width: number; height: number }) => {
-    const ids = faceLayoutOf(draft, m.key).courses.flatMap((c) => c.panels)
-    const like = panels.find((p) => ids.includes(p.id) && Math.abs(p.height - m.height) < 0.005) ?? panels.find((p) => Math.abs(p.height - m.height) < 0.005) ?? panels[0]
+    const same = (p: { width: number; height: number }) => Math.abs(p.width - m.width) < 0.0005 && Math.abs(p.height - m.height) < 0.0005
+    const waiting = missing.filter(same).map((x) => x.key)
+    const existing = panels.find(same)
+    if (existing) return runAuto(waiting)
+    const ids = faceLayoutOf(draft, m.key, g.links).courses.flatMap((c) => c.panels)
+    const like = panels.find((p) => ids.includes(p.id) && Math.abs(p.height - m.height) < 0.005) ?? panels.find((p) => ids.includes(p.id)) ?? panels[0]
     if (!like) return
     setMaking(true)
     try {
-      const data = fillerLike(like, m.width)
-      const id = await repo.createPanel(projectId, { ...data, code: panelCodeFor(data.width, data.height, panels.map((p) => p.code)), refElementId: el.id })
-      const f = faceLayoutOf(draft, m.key)
-      const cs = f.courses.map((c) => {
-        const at = filler === 'left' ? 0 : filler === 'right' ? c.panels.length : Math.ceil(c.panels.length / 2)
-        const row = [...c.panels]
-        row.splice(at, 0, id)
-        return { panels: row }
-      })
-      set({ faces: { ...draft.faces, [m.key]: { courses: cs } } })
-      setMissing((x) => x.filter((y) => y !== m))
+      const data = { ...fillerLike(like, m.width, m.height), refElementId: el.id }
+      const code = panelCodeFor(data.width, data.height, panels.map((p) => p.code))
+      const id = await repo.createPanel(projectId, { ...data, code })
+      runAuto(waiting, [...panels, { ...data, code, id, projectId, createdAt: Date.now(), updatedAt: Date.now() }])
     } finally {
       setMaking(false)
     }
   }
 
-  const courseH = r.faces[editKey].courses[Math.min(targetCourse, courses.length - 1)]?.h
+  const courseH = r.faces[editKey]?.courses[Math.min(targetCourse, courses.length - 1)]?.h
   const fit = (p: FormPanel) => !courseH || Math.abs(p.height - courseH) < 0.005
   const selectedPanel = slot ? panels.find((p) => p.id === courses[slot.course]?.panels[slot.index]) : undefined
 
@@ -303,7 +311,7 @@ function AssemblyEditor({ assembly, elements, panels, criteria, canEdit, project
             {dirty && <span className="text-xs text-warn">ยังไม่บันทึก</span>}
           </div>
           <p className="text-sm text-muted">
-            {el.code} ฐานราก · {elementSize(el)} · สูงเท {el.input.height.toFixed(2)} ม.
+            {el.code} {TYPE_LABEL[el.type]} · {elementSize(el)}
           </p>
         </div>
         <div className="ml-auto flex flex-wrap gap-2">
@@ -341,19 +349,25 @@ function AssemblyEditor({ assembly, elements, panels, criteria, canEdit, project
       </div>
 
       <fieldset disabled={!canEdit} className="card grid gap-4 p-4 md:grid-cols-2 xl:grid-cols-4">
-        <Field label="ด้านที่วิ่งทะลุมุม" hint="อีกคู่หนึ่งอยู่ระหว่างด้านที่ทะลุ (ยาวพอดีคอนกรีต)">
+        <Field label={g.type === 'beam' ? 'มุมข้างคานกับท้องคาน' : 'ด้านที่วิ่งทะลุมุม'} hint={g.type === 'beam' ? 'ด้านที่ทะลุจะยาว/กว้างเพิ่มเท่าความหนาแผงของอีกด้าน' : 'อีกคู่หนึ่งอยู่ระหว่างด้านที่ทะลุ (ยาวพอดีคอนกรีต)'}>
           <Segmented<'x' | 'y'>
             label="ด้านที่วิ่งทะลุมุม"
             value={draft.through}
             onChange={(through) => set({ through })}
             options={[
-              { value: 'x', label: `A/C (${el.input.lengthX.toFixed(2)})` },
-              { value: 'y', label: `B/D (${el.input.lengthY.toFixed(2)})` },
+              { value: 'x', label: g.throughLabel.x },
+              { value: 'y', label: g.throughLabel.y },
             ]}
           />
         </Field>
         <div className="flex flex-col justify-end">
-          <Toggle checked={draft.linked} onChange={(linked) => set({ linked, faces: linked ? draft.faces : { ...draft.faces, C: draft.faces.A, D: draft.faces.B } })} label="ด้านตรงข้ามเหมือนกัน (C = A, D = B)" />
+          {g.links.length > 0 && (
+            <Toggle
+              checked={draft.linked}
+              onChange={(linked) => set({ linked, faces: linked ? draft.faces : { ...draft.faces, ...Object.fromEntries(g.links.map(([src, copy]) => [copy, draft.faces[src]])) } })}
+              label={`ด้านตรงข้ามเหมือนกัน (${g.links.map(([src, copy]) => `${copy} = ${src}`).join(', ')})`}
+            />
+          )}
         </div>
         <Field label="แผงเสริมไว้ที่">
           <Segmented<FillerAt> label="แผงเสริมไว้ที่" value={filler} onChange={setFiller} options={(['middle', 'left', 'right'] as const).map((v) => ({ value: v, label: FILLER_LABEL[v] }))} />
@@ -370,10 +384,10 @@ function AssemblyEditor({ assembly, elements, panels, criteria, canEdit, project
         <div className="flex flex-col gap-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-warn ring-1 ring-amber-200" role="alert">
           {missing.map((m) => (
             <div key={m.key} className="flex flex-wrap items-center gap-2">
-              ด้าน {m.key}: แผงในคลังต่อได้ไม่พอดี — ขาดอีก <span className="num font-semibold">{m.width.toFixed(2)}</span> ม. ต่อชั้น
+              ด้าน {m.key}: แผงในคลังต่อได้ไม่พอดี — ต้องมีแผง <span className="num font-semibold">{+m.width.toFixed(3)} × {+m.height.toFixed(3)}</span> ม.
               {canEdit && (
                 <Button variant="secondary" className="ml-auto h-8" onClick={() => makeFiller(m)} disabled={making}>
-                  {making ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />} สร้างแผงเสริม {m.width.toFixed(2)} × {m.height.toFixed(2)} แล้วใส่ให้
+                  {making ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />} สร้างแผง {+m.width.toFixed(3)} × {+m.height.toFixed(3)} แล้วจัดใหม่
                 </Button>
               )}
             </div>
@@ -384,8 +398,8 @@ function AssemblyEditor({ assembly, elements, panels, criteria, canEdit, project
       <div className="grid gap-4 xl:grid-cols-[260px_minmax(0,1fr)]">
         <div className="flex flex-col gap-4">
           <div className="card p-3">
-            <p className="mb-1 text-xs text-muted">ผัง — คลิกเลือกด้าน (สีเข้ม = วิ่งทะลุมุม)</p>
-            <PlanView specs={r.specs} lx={el.input.lengthX} ly={el.input.lengthY} selected={face} onSelect={(k) => (setFace(k), setSlot(undefined))} />
+            <p className="mb-1 text-xs text-muted">{g.diagram.caption} — คลิกเลือกด้าน (สีเข้ม = ทะลุมุม)</p>
+            <PlanView geom={g} specs={r.specs} selected={shown} onSelect={(k) => (setFace(k), setSlot(undefined))} />
           </div>
           <div className="card p-3">
             <h3 className="mb-2 text-sm font-semibold">แผงที่ใช้ต่อ 1 ชุด</h3>
@@ -414,11 +428,13 @@ function AssemblyEditor({ assembly, elements, panels, criteria, canEdit, project
           </div>
           {r.wales.length > 0 && (
             <div className="card p-3">
-              <h3 className="mb-2 text-sm font-semibold">คานรับเคร่า (ตามที่ออกแบบ)</h3>
+              <h3 className="mb-2 text-sm font-semibold">{g.waleLabel} (ตามที่ออกแบบ)</h3>
               <ul className="text-sm">
                 {r.wales.map((w, i) => (
                   <li key={i} className="flex justify-between py-0.5">
-                    <span>ด้าน {w.axis === 'x' ? 'A/C' : 'B/D'} ยาว <span className="num">{w.length.toFixed(2)}</span> ม.</span>
+                    <span>
+                      ด้าน {w.faces} ยาว <span className="num">{w.length.toFixed(2)}</span> ม.
+                    </span>
                     <span className="num">{w.count} ท่อน</span>
                   </li>
                 ))}
@@ -436,7 +452,7 @@ function AssemblyEditor({ assembly, elements, panels, criteria, canEdit, project
               </Suspense>
               {selectedPanel && slot && (
                 <p className="mt-3 text-sm">
-                  เลือก <span className="num font-semibold">{selectedPanel.code}</span> · {FACE_LABEL[face]} ชั้นที่ {slot.course + 1} ลำดับที่ {slot.index + 1} ·{' '}
+                  เลือก <span className="num font-semibold">{selectedPanel.code}</span> · {fr.spec.label} ชั้นที่ {slot.course + 1} ลำดับที่ {slot.index + 1} ·{' '}
                   <button type="button" className="font-medium text-sel underline" onClick={() => setView('2d')}>
                     ดูในรูปด้าน
                   </button>
@@ -447,18 +463,19 @@ function AssemblyEditor({ assembly, elements, panels, criteria, canEdit, project
           <div className={clsx('card p-4', view === '3d' && 'hidden')}>
             <div className="mb-3 flex flex-wrap items-center gap-2">
               <div role="tablist" aria-label="ด้าน" className="inline-flex gap-1 rounded-lg bg-slate-100 p-1">
-                {FACE_KEYS.map((k) => (
-                  <button key={k} type="button" role="tab" aria-selected={face === k} onClick={() => (setFace(k), setSlot(undefined))} className={clsx('h-8 rounded-md px-3 text-[13px]', face === k ? 'bg-white font-semibold shadow-sm' : 'text-slate-600')}>
-                    {k} <StatusDot status={r.faces[k].status} />
+                {r.keys.map((k) => (
+                  <button key={k} type="button" role="tab" aria-selected={shown === k} onClick={() => (setFace(k), setSlot(undefined))} className={clsx('h-8 rounded-md px-3 text-[13px]', shown === k ? 'bg-white font-semibold shadow-sm' : 'text-slate-600')}>
+                    {k} <StatusDot status={r.faces[k]!.status} />
                   </button>
                 ))}
               </div>
               <span className="text-sm">
-                {FACE_LABEL[face]} · ยาว <span className="num">{fr.spec.length.toFixed(3)}</span> ม. {fr.spec.through ? '(ทะลุมุม)' : '(อยู่ระหว่างด้านทะลุ)'}
+                {fr.spec.label} · ยาว <span className="num">{fr.spec.length.toFixed(3)}</span> ม. · {fr.spec.exactHeight ? 'กว้าง' : 'สูง'} {fr.spec.exactHeight ? '' : '≥ '}
+                <span className="num">{fr.spec.reqHeight.toFixed(3)}</span> ม. {fr.spec.through ? '(ทะลุมุม)' : ''}
               </span>
               {!ro && (
                 <div className="ml-auto flex flex-wrap gap-1.5">
-                  <Button variant="ghost" className="h-8 px-2.5" onClick={() => runAuto(editKey)}>
+                  <Button variant="ghost" className="h-8 px-2.5" onClick={() => runAuto([editKey])}>
                     <Wand2 size={14} /> จัดด้านนี้
                   </Button>
                   <Button variant="ghost" className="h-8 px-2.5" onClick={addCourse}>
@@ -470,7 +487,7 @@ function AssemblyEditor({ assembly, elements, panels, criteria, canEdit, project
                 </div>
               )}
             </div>
-            {mirrored && <p className="mb-2 text-xs text-muted">ด้าน {face} ใช้แผงเหมือนด้าน {editKey} — ปิด “ด้านตรงข้ามเหมือนกัน” เพื่อจัดแยก</p>}
+            {mirrored && <p className="mb-2 text-xs text-muted">ด้าน {shown} ใช้แผงเหมือนด้าน {editKey} — ปิด “ด้านตรงข้ามเหมือนกัน” เพื่อจัดแยก</p>}
             <FaceElevation face={fr} editable={!ro} selected={mirrored ? undefined : slot} onSelect={(s) => !mirrored && setSlot(s)} onMove={move} />
             <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-600">
               <span className="inline-flex items-center gap-1.5">
@@ -514,7 +531,7 @@ function AssemblyEditor({ assembly, elements, panels, criteria, canEdit, project
           )}
 
           <div className="card p-4">
-            <h3 className="mb-2 text-sm font-semibold">การตรวจสอบ {FACE_LABEL[face]}</h3>
+            <h3 className="mb-2 text-sm font-semibold">การตรวจสอบ {fr.spec.label}</h3>
             <CheckList checks={fr.checks} />
             {r.usage.some((u) => u.status !== 'ok') && (
               <p className="mt-3 text-xs text-muted">แผงที่มีจุดสีเหลือง/แดงในตาราง “แผงที่ใช้” — ดูรายละเอียดในคลังแผง (ตรวจกับ {el.code})</p>

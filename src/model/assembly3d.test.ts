@@ -1,17 +1,19 @@
 import { describe, expect, it } from 'vitest'
 import { newElement, runDesign } from '@/data/elements'
-import { type AssemblyData, DEFAULT_CRITERIA, DEFAULT_PANEL, emptyFaces, type FormPanel, type PanelData } from '@/data/types'
+import { type AssemblyData, DEFAULT_CRITERIA, DEFAULT_PANEL, type ElementData, emptyFaces, type FormPanel, type PanelData } from '@/data/types'
 import { analyzeAssembly } from './assembly'
 import { assembly3d } from './assembly3d'
 
 const mk = (id: string, o: Partial<PanelData>): FormPanel => ({ ...DEFAULT_PANEL, code: id, stock: 10, ...o, id, projectId: 'p', createdAt: 0, updatedAt: 0 })
-const stock = [mk('P-2412', { width: 2.4, height: 1.2 }), mk('P-2012', { width: 2, height: 1.2 }), mk('F-0212', { width: 0.2, height: 1.2 })]
+const stock = [mk('P-2412', { width: 2.4, height: 1.2 }), mk('P-2012', { width: 2, height: 1.2 }), mk('F-0212', { width: 0.2, height: 1.2 }), mk('S', { width: 2.4, height: 0.3 })]
+
+function element(type: ElementData['type'], input: object): ElementData {
+  const el = newElement(type, DEFAULT_CRITERIA, [])
+  return { ...el, input: { ...el.input, ...input } } as ElementData
+}
 
 function setup(through: 'x' | 'y') {
-  const base = newElement('footing', DEFAULT_CRITERIA, [])
-  if (base.type !== 'footing') throw new Error()
-  const el = { ...base, input: { ...base.input, lengthX: 5, lengthY: 2, height: 2, support: 'tied' as const } }
-  const run = runDesign(el, DEFAULT_CRITERIA)
+  const el = element('footing', { lengthX: 5, lengthY: 2, height: 2, support: 'tied' })
   const faces = emptyFaces()
   const two = (ids: string[]) => ({ courses: [{ panels: ids }, { panels: ids }] })
   if (through === 'y') {
@@ -22,14 +24,13 @@ function setup(through: 'x' | 'y') {
     faces.B = two(['P-2012'])
   }
   const a: AssemblyData = { code: 'ASM', name: '', elementId: 'e', through, linked: true, faces, note: '' }
-  const r = analyzeAssembly(a, el.input, run, stock, el, DEFAULT_CRITERIA)
-  return { r, inp: el.input }
+  return { r: analyzeAssembly(a, el, runDesign(el, DEFAULT_CRITERIA), stock, DEFAULT_CRITERIA)!, el }
 }
 
 describe('assembly in 3D', () => {
   it('puts the plywood of each face against the concrete, through faces past the corners', () => {
-    const { r, inp } = setup('y')
-    const m = assembly3d(r, inp, 'y')
+    const { r, el } = setup('y')
+    const m = assembly3d(r, el)
     const ply = m.parts.filter((p) => p.kind === 'ply')
     expect(ply).toHaveLength(2 * (3 + 2) * 2)
     // face A (front, +z) between the B/D faces: x from −2.5 to 2.5, plywood just outside z = 1
@@ -45,8 +46,8 @@ describe('assembly in 3D', () => {
   })
 
   it('steps: per course the through faces then the others, then wales, then ties', () => {
-    const { r, inp } = setup('x')
-    const m = assembly3d(r, inp, 'x')
+    const { r, el } = setup('x')
+    const m = assembly3d(r, el)
     expect(m.steps).toHaveLength(2 * 2 + 2)
     expect(m.steps[0]).toContain('A/C')
     expect(m.steps[1]).toContain('B/D')
@@ -60,7 +61,40 @@ describe('assembly in 3D', () => {
   })
 
   it('marks fillers', () => {
-    const { r, inp } = setup('y')
-    expect(assembly3d(r, inp, 'y').parts.some((p) => p.kind === 'ply' && p.filler)).toBe(true)
+    const { r, el } = setup('y')
+    expect(assembly3d(r, el).parts.some((p) => p.kind === 'ply' && p.filler)).toBe(true)
+  })
+
+  it('beam: the soffit goes first and lies under the concrete, the sides stand on it', () => {
+    const el = element('beam', { b: 0.3, h: 0.6, slabT: 0, type: 'isolated', length: 2.4 })
+    const faces = emptyFaces()
+    faces.B = { courses: [{ panels: ['S'] }] }
+    faces.A = { courses: [{ panels: ['P-2412'] }] }
+    const a: AssemblyData = { code: 'B1', name: '', elementId: 'e', through: 'y', linked: true, faces, note: '' }
+    const r = analyzeAssembly(a, el, runDesign(el, DEFAULT_CRITERIA), stock)!
+    const m = assembly3d(r, el)
+    expect(m.steps[0]).toContain('ท้องคาน')
+    const soffit = m.parts.find((p) => p.kind === 'ply' && p.face === 'B')!
+    expect(soffit.step).toBe(0)
+    // plywood just below the concrete (y = 0), the full beam length along x
+    expect(soffit.center[1] + soffit.size[1] / 2).toBeCloseTo(0, 6)
+    expect(soffit.size[0]).toBeCloseTo(2.4, 6)
+    const side = m.parts.find((p) => p.kind === 'ply' && p.face === 'A')!
+    expect(side.step).toBeGreaterThan(0)
+    // the side stands on the soffit: from the concrete underside up; the soffit is wider than the web by the sides
+    expect(side.center[1] - side.size[1] / 2).toBeCloseTo(0, 6)
+    expect(r.specs.B!.reqHeight).toBeGreaterThan(0.3)
+  })
+
+  it('wall: ties run through both faces', () => {
+    const el = element('wall', { length: 4.8, thickness: 0.2, height: 2.4 })
+    const faces = emptyFaces()
+    faces.A = { courses: [{ panels: ['P-2412', 'P-2412'] }, { panels: ['P-2412', 'P-2412'] }] }
+    const a: AssemblyData = { code: 'W1', name: '', elementId: 'e', through: 'x', linked: true, faces, note: '' }
+    const r = analyzeAssembly(a, el, runDesign(el, DEFAULT_CRITERIA), stock)!
+    const ties = assembly3d(r, el).parts.filter((p) => p.kind === 'tie')
+    expect(ties.length).toBeGreaterThan(0)
+    // each tie spans more than the wall thickness, along z
+    expect(ties.every((t) => Math.abs(t.from![2] - t.to![2]) > 0.2 && Math.abs(t.from![0] - t.to![0]) < 1e-9)).toBe(true)
   })
 })
