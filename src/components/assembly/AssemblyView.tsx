@@ -2,15 +2,18 @@
 // drag-to-reorder, the plan and face elevations, and the checks against the footing design.
 import clsx from 'clsx'
 import { Check, Layers, Loader2, Minus, Plus, Save, Trash2, Wand2, X } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Button, Empty, Field, Modal, Segmented, Select, StatusBadge, Toggle } from '@/components/ui'
 import { isConflict } from '@/data/conflict'
 import { elementSize, runDesign } from '@/data/elements'
 import { repo, versionOf } from '@/data/repo'
 import { type AssemblyData, type Criteria, emptyFaces, FACE_KEYS, type FaceKey, type FaceLayout, type FormAssembly, type FormElement, type FormPanel } from '@/data/types'
 import { analyzeAssembly, autoFace, FACE_LABEL, faceLayoutOf, faceSpecs, type FillerAt, fillerLike } from '@/model/assembly'
+import { assembly3d } from '@/model/assembly3d'
 import { type PanelCheck, panelCodeFor } from '@/model/panel'
 import { FaceElevation, PlanView, type Slot } from './FaceViews'
+
+const Assembly3D = lazy(() => import('./Assembly3D'))
 
 const CHECK_STYLE: Record<PanelCheck['status'], string> = { ok: 'text-ok', warn: 'text-warn', fail: 'text-fail', info: 'text-muted' }
 const CHECK_MARK: Record<PanelCheck['status'], string> = { ok: '✓', warn: '!', fail: '✕', info: 'i' }
@@ -152,6 +155,7 @@ function AssemblyEditor({ assembly, elements, panels, criteria, canEdit, project
   const [missing, setMissing] = useState<{ key: FaceKey; width: number; height: number }[]>([])
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [making, setMaking] = useState(false)
+  const [view, setView] = useState<'2d' | '3d'>('2d')
   const dirty = JSON.stringify(draft) !== base.current.json
 
   useEffect(() => {
@@ -177,6 +181,7 @@ function AssemblyEditor({ assembly, elements, panels, criteria, canEdit, project
     }
   }, [el, criteria])
   const r = useMemo(() => (el?.type === 'footing' ? analyzeAssembly(draft, el.input, run, panels, el, criteria) : undefined), [draft, el, run, panels, criteria])
+  const model3d = useMemo(() => (view === '3d' && r && el?.type === 'footing' ? assembly3d(r, el.input, draft.through) : undefined), [view, r, el, draft.through])
 
   const set = (p: Partial<AssemblyData>) => {
     setDraft((d) => ({ ...d, ...p }))
@@ -417,7 +422,23 @@ function AssemblyEditor({ assembly, elements, panels, criteria, canEdit, project
         </div>
 
         <div className="flex min-w-0 flex-col gap-4">
-          <div className="card p-4">
+          <Segmented<'2d' | '3d'> label="มุมมอง" value={view} onChange={setView} options={[{ value: '2d', label: 'รูปด้าน 2D (จัดแผง)' }, { value: '3d', label: '3D · ลำดับการประกอบ' }]} />
+          {view === '3d' && model3d && (
+            <div className="card p-4">
+              <Suspense fallback={<div className="flex h-[380px] items-center justify-center text-muted"><Loader2 className="animate-spin" aria-label="กำลังโหลด 3D" /></div>}>
+                <Assembly3D model={model3d} selected={slot ? { face: editKey, ...slot } : undefined} onPick={(p) => (p ? (setFace(p.face), setSlot({ course: p.course, index: p.index })) : setSlot(undefined))} />
+              </Suspense>
+              {selectedPanel && slot && (
+                <p className="mt-3 text-sm">
+                  เลือก <span className="num font-semibold">{selectedPanel.code}</span> · {FACE_LABEL[face]} ชั้นที่ {slot.course + 1} ลำดับที่ {slot.index + 1} ·{' '}
+                  <button type="button" className="font-medium text-sel underline" onClick={() => setView('2d')}>
+                    ดูในรูปด้าน
+                  </button>
+                </p>
+              )}
+            </div>
+          )}
+          <div className={clsx('card p-4', view === '3d' && 'hidden')}>
             <div className="mb-3 flex flex-wrap items-center gap-2">
               <div role="tablist" aria-label="ด้าน" className="inline-flex gap-1 rounded-lg bg-slate-100 p-1">
                 {FACE_KEYS.map((k) => (
@@ -465,7 +486,7 @@ function AssemblyEditor({ assembly, elements, panels, criteria, canEdit, project
             </div>
           </div>
 
-          {!ro && (
+          {!ro && view === '2d' && (
             <div className="card p-4">
               <div className="mb-2 flex flex-wrap items-center gap-2">
                 <h3 className="text-sm font-semibold">วางแผงจากคลัง</h3>
