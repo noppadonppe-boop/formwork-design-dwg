@@ -59,6 +59,13 @@ describe('beam model', () => {
     expect(top('cjoist-0')).toBeCloseTo(inp.clearHeight - deckThicknessM(inp.sheathing), 6)
     expect(top('stiff-0')).toBeLessThan(top('cjoist-0') - 0.01)
   })
+  it('side-form ties get a bearing plate across the double wale at both ends', () => {
+    const inp = { ...DEFAULT_BEAM, h: 1.2, tie: { ...DEFAULT_BEAM.tie, enabled: true } }
+    const parts = beamModel(inp, designBeam(inp)).parts
+    const ties = parts.filter((p) => /^tie-/.test(p.id))
+    expect(ties.length).toBeGreaterThan(0)
+    expect(parts.filter((p) => p.id.startsWith('tieplate'))).toHaveLength(2 * ties.length)
+  })
   it('width handle drags one face (half width)', () => expect(applyBeamHandle(DEFAULT_BEAM, 'b', 0.2).b).toBe(0.4))
 })
 

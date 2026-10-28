@@ -23,6 +23,7 @@ const COLOR: Record<AsmPart['kind'] | 'filler' | 'sel', string> = {
   stud: '#ead2a4',
   wale: '#2f8f83',
   tie: '#2b2f36',
+  plate: '#7b8794',
   sel: '#2563eb',
 }
 const boxGeo = new THREE.BoxGeometry(1, 1, 1)
@@ -133,8 +134,8 @@ function PartMesh({ p, step, highlight, explode, concrete, selected, onPick }: {
   useEffect(() => () => material.dispose(), [material])
   if (!visible) return null
 
-  // exploded: faces move out along their normal, courses lift, wales go further out than the panels
-  const pull = explode * PULL * (p.kind === 'wale' ? 1.6 : 1)
+  // exploded: faces move out along their normal, courses lift, wales (and the tie plates on them) go further out than the panels
+  const pull = explode * PULL * (p.kind === 'wale' || p.kind === 'plate' ? 1.6 : 1)
   const lift = explode * LIFT * p.course
   const shift: Vec3 = [p.n[0] * pull, lift, p.n[2] * pull]
   const click =

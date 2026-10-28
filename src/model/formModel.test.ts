@@ -35,8 +35,11 @@ describe('column model', () => {
   it('4 yoke sets × count per level', () => {
     expect(count('yoke')).toBe(4 * DEFAULT_COLUMN.yoke.count * d.layout.yokeLevels.length)
   })
-  it('ties split the long side, plus 4 corner bolts per level', () => {
-    expect(count('tie')).toBe(d.layout.yokeLevels.length * (4 + DEFAULT_COLUMN.tie.spans - 1))
+  it('ties split the long side (+2 bearing plates each), plus 4 corner bolts per level', () => {
+    const ties = d.layout.yokeLevels.length * (DEFAULT_COLUMN.tie.spans - 1)
+    expect(count('tie')).toBe(4 * d.layout.yokeLevels.length + 3 * ties)
+    const plates = columnModel(DEFAULT_COLUMN, d).parts.filter((p) => p.id.startsWith('tieplate'))
+    expect(plates).toHaveLength(2 * ties)
   })
   it('braces per side × sides', () => {
     expect(count('brace')).toBe(DEFAULT_COLUMN.brace.perSide * DEFAULT_COLUMN.brace.sides)

@@ -96,5 +96,14 @@ describe('assembly in 3D', () => {
     expect(ties.length).toBeGreaterThan(0)
     // each tie spans more than the wall thickness, along z
     expect(ties.every((t) => Math.abs(t.from![2] - t.to![2]) > 0.2 && Math.abs(t.from![0] - t.to![0]) < 1e-9)).toBe(true)
+    // a bearing plate on the wales at both ends of every tie, outside the forms on either side of the wall
+    const plates = assembly3d(r, el).parts.filter((p) => p.kind === 'plate')
+    expect(plates).toHaveLength(2 * ties.length)
+    for (const t of ties) {
+      const at = plates.filter((p) => Math.abs(p.center[0] - t.from![0]) < 1e-9 && Math.abs(p.center[1] - t.from![1]) < 1e-9)
+      expect(at).toHaveLength(2)
+      expect(Math.sign(at[0].center[2])).toBe(-Math.sign(at[1].center[2]))
+      expect(at.every((p) => Math.abs(p.center[2]) > 0.1 && Math.abs(p.center[2]) < Math.abs(t.from![2]))).toBe(true)
+    }
   })
 })
