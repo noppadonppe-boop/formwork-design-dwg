@@ -212,7 +212,7 @@ export function ShopView({ model, view, w, h, dims = [], tags = [], title, denom
     const conc = p.kind === 'concrete'
     if (p.shape === 'box' && (p.yaw || p.plan)) {
       // turned box or prism: its outline in one shade
-      const q = hull(pts.map((r) => [r[0], r[1]] as Pt))
+      const q = p.plan && view === 'top' ? pts.slice(0, p.plan.length).map((r) => [r[0], r[1]] as Pt) : hull(pts.map((r) => [r[0], r[1]] as Pt))
       return <polygon key={p.id} points={q.map((r) => `${X(r[0]).toFixed(2)},${Y(r[1]).toFixed(2)}`).join(' ')} fill={conc ? (view === 'iso' ? FILL.concrete : `url(#${hatch})`) : shade(FILL[p.kind], view === 'iso' ? 0.9 : 1)} stroke={STROKE[p.kind]} strokeWidth={lw} strokeLinejoin="round" opacity={conc && view === 'iso' ? 0.35 : 1} />
     }
     if (p.shape === 'box' && view === 'iso') {

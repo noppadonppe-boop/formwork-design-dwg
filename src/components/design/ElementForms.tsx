@@ -23,6 +23,13 @@ import {
   type ColumnShape,
   columnShapeOf,
   cutYokeNetCm,
+  isLegShape,
+  legBox,
+  legLayout,
+  type LegShape,
+  LEG_YOKE_LABEL,
+  requiredTies,
+  SHAPE_NAME,
   plywoodBendRadius,
   POLYGON_YOKE_LABEL,
   polygonDims,
@@ -198,14 +205,30 @@ function WallFields({ inp, set }: { inp: WallInput; set: (fn: (i: WallInput) => 
 
 // ---------------------------------------------------------------- column
 
-type ShapeKey = 'rect' | 'circle' | 'hex' | 'oct'
+type ShapeKey = 'rect' | 'circle' | 'hex' | 'oct' | 'L' | 'T' | 'U'
 const SHAPE_OPTIONS: { key: ShapeKey; label: string; icon: ReactNode }[] = [
   { key: 'rect', label: 'สี่เหลี่ยม', icon: <path d="M5 9h24v16H5z" /> },
   { key: 'circle', label: 'กลม', icon: <circle cx="17" cy="17" r="12" /> },
   { key: 'hex', label: 'หกเหลี่ยม', icon: <path d="M10 6h14l6.5 11L24 28H10L3.5 17z" /> },
   { key: 'oct', label: 'แปดเหลี่ยม', icon: <path d="M12 4h10l8 8v10l-8 8H12l-8-8V12z" /> },
+  { key: 'L', label: 'ตัว L', icon: <path d="M6 5h22v8H14v16H6z" /> },
+  { key: 'T', label: 'ตัว T', icon: <path d="M5 6h24v8h-8v15h-8V14H5z" /> },
+  { key: 'U', label: 'ตัว U', icon: <path d="M5 6h8v14h8V6h8v22H5z" /> },
 ]
 const shapeKey = (s: ColumnShape): ShapeKey => (s.kind === 'polygon' ? (s.n === 6 ? 'hex' : 'oct') : s.kind)
+
+/** Starting sizes of an L/T/U, m. */
+const LEG_DEFAULT: Record<'L' | 'T' | 'U', LegShape> = {
+  L: { kind: 'L', a: 0.8, b: 0.8, ta: 0.25, tb: 0.25, yoke: 'tied' },
+  T: { kind: 'T', bf: 0.9, tf: 0.25, tw: 0.25, d: 0.8, yoke: 'tied' },
+  U: { kind: 'U', b: 1.0, d: 0.8, t: 0.25, tb: 0.25, yoke: 'tied' },
+}
+
+/** Column input on an L/T/U shape: b × h kept as its box. */
+function withLeg(i: ColumnInput, s: LegShape): ColumnInput {
+  const [bx, bz] = legBox(s)
+  return { ...i, b: bx, h: bz, shape: s }
+}
 
 /** Column input switched to another plan shape: one size b = h for round/polygon; staves for a round column. */
 function withShape(i: ColumnInput, key: ShapeKey): ColumnInput {
@@ -214,10 +237,30 @@ function withShape(i: ColumnInput, key: ShapeKey): ColumnInput {
     const { shape: _s, ...rest } = i
     return rest
   }
-  const size = was.kind === 'rect' ? Math.min(i.b, i.h) : i.b
+  if (key === 'L' || key === 'T' || key === 'U') {
+    // ties at the inner corners are part of the form; each leg starts as one span
+    const s = { ...LEG_DEFAULT[key], yoke: isLegShape(was) ? was.yoke : 'tied' } as LegShape
+    return withLeg({ ...i, tie: { ...i.tie, enabled: s.yoke === 'box' ? i.tie.enabled : true, spans: 1, shortSpans: undefined } }, s)
+  }
+  const size = was.kind === 'rect' ? Math.min(i.b, i.h) : isLegShape(was) ? 0.6 : i.b
   if (key === 'circle') return withRoundForm({ ...i, b: size, h: size })
   const n = key === 'hex' ? 6 : 8
   return { ...i, b: size, h: size, shape: { kind: 'polygon', n, yoke: was.kind === 'polygon' ? was.yoke : 'box' } }
+}
+
+/** Size fields of an L/T/U, cm; a thickness stays at least 5 cm short of the size it lies across. */
+function LegFields({ s, onChange }: { s: LegShape; onChange: (s: LegShape) => void }) {
+  const f = (label: string, key: string, value: number, max: number) => (
+    <NumField key={key} label={label} unit="ซม." scale={100} value={value} min={10} max={Math.max(10, max * 100)} onChange={(v) => v && onChange({ ...s, [key]: v } as LegShape)} />
+  )
+  switch (s.kind) {
+    case 'L':
+      return [f('ยาวรวม a', 'a', s.a, 6), f('ยาวรวม b', 'b', s.b, 6), f('ขาหนา ta', 'ta', s.ta, s.b - 0.05), f('ขาหนา tb', 'tb', s.tb, s.a - 0.05)]
+    case 'T':
+      return [f('ปีกกว้าง bf', 'bf', s.bf, 6), f('ปีกหนา tf', 'tf', s.tf, s.d - 0.05), f('เอวหนา tw', 'tw', s.tw, s.bf - 0.1), f('ลึกรวม d', 'd', s.d, 6)]
+    case 'U':
+      return [f('กว้าง b', 'b', s.b, 6), f('ลึก d', 'd', s.d, 6), f('ขาหนา t', 't', s.t, (s.b - 0.05) / 2), f('ท้องหนา tb', 'tb', s.tb, s.d - 0.05)]
+  }
 }
 
 function ShapePicker({ value, onChange }: { value: ShapeKey; onChange: (k: ShapeKey) => void }) {
@@ -250,6 +293,7 @@ function ColumnFields({ inp, set }: { inp: ColumnInput; set: (fn: (i: ColumnInpu
   const round = shape.kind === 'circle' ? shape : undefined
   const poly = shape.kind === 'polygon' ? shape : undefined
   const ring = poly?.yoke === 'ring'
+  const leg = isLegShape(shape) ? shape : undefined
   /** ready-made round form: no timber members */
   const madeForm = round && round.system !== 'stave'
   const setSize = (v: number | undefined) => v && set((i) => ({ ...i, b: v, h: v }))
@@ -258,7 +302,9 @@ function ColumnFields({ inp, set }: { inp: ColumnInput; set: (fn: (i: ColumnInpu
       <Group title="ขนาดเสา" part="concrete">
         <ShapePicker value={shapeKey(shape)} onChange={(k) => set((i) => withShape(i, k))} />
         <div className="fields3">
-          {shape.kind === 'rect' ? (
+          {leg ? (
+            <LegFields s={leg} onChange={(s) => set((i) => withLeg(i, s))} />
+          ) : shape.kind === 'rect' ? (
             <>
               <NumField label="ด้าน b" unit="ซม." scale={100} value={inp.b} min={10} max={300} onChange={(v) => v && set((i) => ({ ...i, b: v }))} />
               <NumField label="ด้าน h" unit="ซม." scale={100} value={inp.h} min={10} max={300} onChange={(v) => v && set((i) => ({ ...i, h: v }))} />
@@ -302,6 +348,20 @@ function ColumnFields({ inp, set }: { inp: ColumnInput; set: (fn: (i: ColumnInpu
         {round?.system === 'stave' && <p className="text-xs text-slate-500">ไม้อัดหนา 18 มม. ดัดโค้งได้ที่รัศมี ≥ {plywoodBendRadius(18)} ม. เสากลมจึงใช้ไม้ระแนงตั้ง (หรือไม้อัดตัดเป็นแถบ) รัดด้วยกรอบคานรัดไม้กระดานกว้างเจาะโค้งตามวงกลม ตอกลิ่มที่มุม (ตัวอย่าง 9.2)</p>}
         {poly && !ring && <p className="text-xs text-slate-500">คานรัดเป็นกรอบสี่เหลี่ยมรอบเสา ไม้อุดมุมหนุนด้านเอียง 4 ด้าน คำนวณคานรัดแบบเสาสี่เหลี่ยมขนาดเท่ากรอบ</p>}
         {ring && <p className="text-xs text-slate-500">คานรัดวิ่งตามทุกด้าน ต่อมุมด้วยเหล็กประกับ + น็อต รับแรงดึง T = w·F/2 ไม่ต้องใช้ Form tie</p>}
+        {leg && (
+          <Segmented
+            label={`คานรัดเสา${SHAPE_NAME[leg.kind]}`}
+            value={leg.yoke}
+            options={(['tied', 'box'] as const).map((v) => ({ value: v, label: LEG_YOKE_LABEL[v] }))}
+            onChange={(v) => set((i) => ({ ...withLeg(i, { ...leg, yoke: v }), tie: { ...i.tie, enabled: v === 'tied' ? true : i.tie.enabled, spans: v === 'tied' ? 1 : Math.max(i.tie.spans, 2) } }))}
+          />
+        )}
+        {leg?.yoke === 'tied' && (
+          <p className="text-xs text-slate-500">
+            มุมในไม่มีหน้าตรงข้ามรับแรงดึงของคานรัด ระบบจึงใส่ Form tie ผ่านแต่ละขาที่มุมใน <b>{requiredTies(leg)} แถว</b> ให้เสมอ (ปิดไม่ได้) แต่ละขาคิดเหมือนเสาสี่เหลี่ยมที่โคนยึดด้วยไทร์
+          </p>
+        )}
+        {leg?.yoke === 'box' && <p className="text-xs text-slate-500">คานรัดเป็นกรอบสี่เหลี่ยมรอบเสา ใส่กล่องไม้อุดที่มุมเว้า {legLayout(leg).fillers.length} กล่อง (รูป 9.2) คำนวณคานรัดแบบเสาสี่เหลี่ยมขนาดเท่ากรอบ</p>}
       </Group>
       <PressureGroup p={inp.pressure} onChange={(p) => set((i) => ({ ...i, pressure: p }))} />
       {!madeForm && <ColumnTimberFields inp={inp} set={set} />}
@@ -394,7 +454,24 @@ function ColumnTimberFields({ inp, set }: { inp: ColumnInput; set: (fn: (i: Colu
           />
         )}
       </Group>
-      {!staves && !ring && <ColumnTieGroup inp={inp} set={set} />}
+      {isLegShape(shape) && shape.yoke === 'tied' ? (
+        <Group title="การยึดรั้ง (Form tie)" part="tie">
+          <div className="grid grid-cols-2 gap-2">
+            <TieSelect value={inp.tie.tieId} onChange={(v) => set((i) => ({ ...i, tie: { ...i.tie, tieId: v } }))} />
+            <Field label="แบ่งแต่ละขาเป็น">
+              <Select value={Math.max(1, inp.tie.spans)} onChange={(e) => set((i) => ({ ...i, tie: { ...i.tie, spans: Number(e.target.value) } }))}>
+                {[1, 2, 3, 4].map((n) => (
+                  <option key={n} value={n}>
+                    {n === 1 ? '1 ช่วง (ไทร์มุมในเท่านั้น)' : `${n} ช่วง (+${n - 1} แถว/ขา)`}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          </div>
+        </Group>
+      ) : (
+        !staves && !ring && <ColumnTieGroup inp={inp} set={set} />
+      )}
     </>
   )
 }

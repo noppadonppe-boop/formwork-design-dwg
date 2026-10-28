@@ -23,6 +23,11 @@ const VARIANTS: [Types.ElementType, Patch][] = [
   ...([['stave', 'board'], ['stave', 'plywood'], ['steel', 'board'], ['tube', 'board']] as const).map(([sys, sh]): [Types.ElementType, Patch] => ['column', (i) => ({ ...i, b: 0.5, h: 0.5, shape: { kind: 'circle', system: sys }, sheathing: sh === 'board' ? { type: 'board', materialId: 'timber-yang', thicknessCm: 2.5 } : i.sheathing })]),
   ...([6, 8] as const).flatMap((n) => (['box', 'ring'] as const).map((y): [Types.ElementType, Patch] => ['column', (i) => ({ ...i, b: 0.6, h: 0.6, shape: { kind: 'polygon', n, yoke: y } })])),
   ['column', (i) => ({ ...i, b: 0.6, h: 0.6, shape: { kind: 'polygon', n: 8, yoke: 'box' }, sheathing: { type: 'board', materialId: 'timber-yang', thicknessCm: 2.5 } })],
+  ...(['tied', 'box'] as const).flatMap((y): [Types.ElementType, Patch][] => [
+    ['column', (i) => ({ ...i, shape: { kind: 'L', a: 0.8, b: 0.8, ta: 0.25, tb: 0.25, yoke: y }, tie: { ...i.tie, enabled: true, spans: 2 } })],
+    ['column', (i) => ({ ...i, shape: { kind: 'T', bf: 0.9, tf: 0.25, tw: 0.25, d: 0.8, yoke: y }, tie: { ...i.tie, spans: 1 } })],
+    ['column', (i) => ({ ...i, shape: { kind: 'U', b: 0.8, d: 0.8, t: 0.25, tb: 0.25, yoke: y }, tie: { ...i.tie, spans: 1 } })],
+  ]),
   ['slab', (i) => i],
   ['slab', (i) => ({ ...i, shore: { ...i.shore, kind: 'rated' } })],
   ['slab', (i) => ({ ...i, shore: { ...i.shore, sectionId: 'timber-3x3', materialId: 'timber-yang', braceLevels: 1 } })],

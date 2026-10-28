@@ -4,6 +4,7 @@ import { newElement, runDesign, withRoundForm } from '@/data/elements'
 import { DEFAULT_CRITERIA, type ElementData } from '@/data/types'
 import { type ColumnInput, type ColumnShape, polygonDims } from '@/engine'
 import { concreteVolume, elementBom } from './bom'
+import { boxOutline, PROJ } from '@/report/Drawing'
 import { boxPoints, type BoxPart } from './formModel'
 
 function column(shape: ColumnShape, patch: Partial<Extract<ElementData, { type: 'column' }>['input']> = {}) {
@@ -63,5 +64,38 @@ describe('polygon column model', () => {
     expect(Math.min(...zs)).toBeCloseTo(0.3, 6)
     const xs = boxPoints(face).map((q) => q[0])
     expect(Math.max(...xs) - Math.min(...xs)).toBeGreaterThanOrEqual(polygonDims(8, 0.6).a)
+  })
+})
+
+describe('L / T / U column model', () => {
+  const Lshape: ColumnShape = { kind: 'L', a: 0.8, b: 0.8, ta: 0.25, tb: 0.25, yoke: 'tied' }
+
+  it('L along the faces: concrete = section × H, a yoke on all 6 faces, 2 ties per level', () => {
+    const c = column(Lshape, { b: 0.8, h: 0.8, tie: { enabled: true, tieId: 'tie-3/8', spans: 1 } })
+    const levels = c.run.design.layout.yokeLevels.length
+    expect(concreteVolume(c.model)).toBeCloseTo((0.8 * 0.25 + 0.55 * 0.25) * 3, 6)
+    expect(c.model.parts.filter((p) => p.id.startsWith('yokeF-0-')).length).toBe(6 * c.el.input.yoke.count)
+    expect(c.model.parts.filter((p) => p.id.startsWith('tie-')).length).toBe(levels * 2)
+    expect(c.run.design.quantities.ties).toBe(levels * 2)
+  })
+
+  it('the plan view draws the L as it is, the side view its box', () => {
+    const c = column(Lshape, { b: 0.8, h: 0.8 })
+    const conc = c.model.parts.find((p) => p.id === 'concrete') as BoxPart
+    expect(boxOutline(conc, PROJ.top, true)).toHaveLength(6)
+    expect(boxOutline(conc, PROJ.front, false)).toHaveLength(4)
+  })
+
+  it('U in a box: one filler box in the opening, studs only on the faces against the box', () => {
+    const c = column({ kind: 'U', b: 1, d: 0.8, t: 0.25, tb: 0.25, yoke: 'box' }, { b: 1, h: 0.8, tie: { enabled: false, tieId: 'tie-3/8', spans: 1 } })
+    expect(line(c.lines, 'กล่องไม้อุด')!.qty).toBe(1)
+    expect(c.model.parts.some((p) => p.id.startsWith('yokeL'))).toBe(true)
+  })
+
+  it('T: 3 ties per level, and more when the legs are split', () => {
+    const t = (spans: number) => column({ kind: 'T', bf: 0.9, tf: 0.25, tw: 0.25, d: 0.8, yoke: 'tied' }, { b: 0.9, h: 0.8, tie: { enabled: true, tieId: 'tie-3/8', spans } })
+    const one = t(1)
+    expect(one.model.parts.filter((p) => p.id.startsWith('tie-0-')).length).toBe(3)
+    expect(t(2).model.parts.filter((p) => p.id.startsWith('tie-0-')).length).toBe(6)
   })
 })

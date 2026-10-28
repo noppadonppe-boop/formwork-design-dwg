@@ -18,7 +18,7 @@ import {
 } from './design'
 import { CONCRETE_NAIL_SWL, getMaterial, getTie } from './materials'
 import { BEAM_COEF, type CheckRow, checkBeam, combinedTensionBending, type DeflectionCriteria, maxSpan, type Support } from './member'
-import { type ColumnShape, columnSection, columnShapeOf, cutYokeNetCm, polygonBox, polygonDims, RATED_PRESSURE, SHAPE_NAME, STAVE_WIDTH } from './planShape'
+import { type ColumnShape, columnSection, columnShapeOf, cutYokeNetCm, isLegShape, legBox, type LegLayout, legLayout, legOutline, legStudFaces, polygonBox, polygonDims, RATED_PRESSURE, requiredTies, SHAPE_NAME, STAVE_WIDTH } from './planShape'
 import { lateralPressure } from './pressure'
 import { board, getSection, multiple, plywoodStrip, rect, type Section } from './sections'
 import { Trace } from './trace'
@@ -63,7 +63,7 @@ export interface ColumnLayout {
 
 export interface ColumnDesign extends DesignResult {
   layout: ColumnLayout
-  quantities: { plywoodArea: number; yokes: number; studs: number; ties: number; braces: number; fillers?: number; staves?: number; formArea?: number; bolts?: number }
+  quantities: { plywoodArea: number; yokes: number; studs: number; ties: number; braces: number; fillers?: number; fillerBoxes?: number; staves?: number; formArea?: number; bolts?: number }
 }
 
 export const DEFAULT_COLUMN: ColumnInput = {
@@ -104,26 +104,52 @@ function checkYokes(p: number, s: number, bCm: number, hCm: number, yoke: { sect
     ['คานรัดด้านยาว', longSpan, support(spans.long), (w * shortSpan) / 2],
     ['คานรัดด้านสั้น', shortSpan, support(spans.short), (w * longSpan) / 2],
   ]
-  for (const [name, span, support, T] of sides) {
-    const c = BEAM_COEF[support]
-    const M = c.m * w * span * span
-    const ct = combinedTensionBending(yoke.section, yoke.material, T, M)
-    trace?.add({ label: `${name}: แรงดึง T = w × ช่วงตั้งฉาก / 2`, value: T, unit: 'กก.' })
-    trace?.add({ label: `${name}: M = ${c.mLabel} (ช่วง ${span.toFixed(0)} ซม.)`, value: M, unit: 'กก.-ซม.' })
-    trace?.add({
-      label: `${name}: σ = T/A ± M/S`,
-      expr: `${ct.ft.toFixed(1)} ± ${ct.fb.toFixed(1)} → ดึง ${ct.tension.toFixed(1)} ≤ ${ct.Ft}, อัด ${ct.compression.toFixed(1)} ≤ ${ct.Fc}`,
-      value: ct.ratio,
-      ref: '§9.4',
-      status: ct.ratio <= 1 ? 'ok' : 'fail',
-    })
-    rows.push({ item: `${name} – ดึง+ดัด`, demand: ct.tension, capacity: ct.Ft, ratio: ct.tension / ct.Ft, unit: 'กก./ซม.²' })
-    rows.push({ item: `${name} – อัด+ดัด`, demand: ct.compression, capacity: ct.Fc, ratio: ct.compression / ct.Fc, unit: 'กก./ซม.²' })
-    const delta = (c.d * w * span ** 4) / (yoke.material.E * yoke.section.Ix)
-    const allow = Math.min(span / (defl?.ratio ?? 360), defl?.absCm ?? Infinity)
-    trace?.add({ label: `${name}: Δ = ${c.dLabel}`, expr: `≤ ${allow.toFixed(3)}`, value: delta, unit: 'ซม.', status: delta <= allow ? 'ok' : 'fail' })
-    rows.push({ item: `${name} – การแอ่นตัว`, demand: delta, capacity: allow, ratio: delta / allow, unit: 'ซม.' })
+  for (const [name, span, support, T] of sides) rows.push(...yokeRows(name, span, support, T, w, yoke, trace, defl))
+  return { rows, ratio: Math.max(...rows.map((r) => r.ratio)) }
+}
+
+/** One yoke of span `span` (cm) under w (kg/cm) and axial tension T (kg): bending + tension (§9.4) and deflection. */
+function yokeRows(name: string, span: number, support: Support, T: number, w: number, yoke: { section: Section; material: ReturnType<typeof getMaterial> }, trace?: Trace, defl?: DeflectionCriteria): CheckRow[] {
+  const c = BEAM_COEF[support]
+  const M = c.m * w * span * span
+  const ct = combinedTensionBending(yoke.section, yoke.material, T, M)
+  trace?.add({ label: `${name}: แรงดึง T = w × ช่วงตั้งฉาก / 2`, value: T, unit: 'กก.' })
+  trace?.add({ label: `${name}: M = ${c.mLabel} (ช่วง ${span.toFixed(0)} ซม.)`, value: M, unit: 'กก.-ซม.' })
+  trace?.add({
+    label: `${name}: σ = T/A ± M/S`,
+    expr: `${ct.ft.toFixed(1)} ± ${ct.fb.toFixed(1)} → ดึง ${ct.tension.toFixed(1)} ≤ ${ct.Ft}, อัด ${ct.compression.toFixed(1)} ≤ ${ct.Fc}`,
+    value: ct.ratio,
+    ref: '§9.4',
+    status: ct.ratio <= 1 ? 'ok' : 'fail',
+  })
+  const delta = (c.d * w * span ** 4) / (yoke.material.E * yoke.section.Ix)
+  const allow = Math.min(span / (defl?.ratio ?? 360), defl?.absCm ?? Infinity)
+  trace?.add({ label: `${name}: Δ = ${c.dLabel}`, expr: `≤ ${allow.toFixed(3)}`, value: delta, unit: 'ซม.', status: delta <= allow ? 'ok' : 'fail' })
+  return [
+    { item: `${name} – ดึง+ดัด`, demand: ct.tension, capacity: ct.Ft, ratio: ct.tension / ct.Ft, unit: 'กก./ซม.²' },
+    { item: `${name} – อัด+ดัด`, demand: ct.compression, capacity: ct.Fc, ratio: ct.compression / ct.Fc, unit: 'กก./ซม.²' },
+    { item: `${name} – การแอ่นตัว`, demand: delta, capacity: allow, ratio: delta / allow, unit: 'ซม.' },
+  ]
+}
+
+/**
+ * Yokes along the faces of an L/T/U at spacing s (cm), leg by leg: each leg works like a rectangular column of
+ * thickness t whose root is held by the tie at the inner corner — long yokes span L/n (n spans with extra ties) in
+ * tension w·t/2 from the end yoke; the end yoke spans t in tension w·(L/n)/2. The outer yokes also span the corners
+ * of the core (c) in tension from the perpendicular corner span (w·cp/2).
+ */
+function checkLegYokes(p: number, s: number, lay: LegLayout, n: number, yoke: { section: Section; material: ReturnType<typeof getMaterial> }, trace?: Trace, defl?: DeflectionCriteria): YokeCheck {
+  const w = pressureToLineLoad(p, s / 100)
+  const support: Support = n >= 3 ? 'continuous' : 'simple'
+  const rows: CheckRow[] = []
+  trace?.add({ label: 'น้ำหนักแผ่บนคานรัด w = P × ระยะคานรัด', expr: `${fmt(p)} × ${(s / 100).toFixed(2)} / 100`, value: w, unit: 'กก./ซม.' })
+  for (const leg of lay.legs) {
+    const span = (leg.L * 100) / n
+    const t = leg.t * 100
+    rows.push(...yokeRows(`${leg.name}: คานรัดหน้ายาว`, span, support, leg.far === 'free' ? (w * t) / 2 : 0, w, yoke, trace, defl))
+    if (leg.far === 'free') rows.push(...yokeRows(`${leg.name}: คานรัดปลายขา`, t, 'simple', (w * span) / 2, w, yoke, trace, defl))
   }
+  lay.core.forEach((k, i) => rows.push(...yokeRows(`คานรัดหน้านอกที่มุม ${i + 1}`, k.c * 100, 'simple', (w * k.cp * 100) / 2, w, yoke, trace, defl)))
   return { rows, ratio: Math.max(...rows.map((r) => r.ratio)) }
 }
 
@@ -161,15 +187,21 @@ export function designColumn(inp: ColumnInput): ColumnDesign {
   if (shape.kind === 'circle') return designRoundColumn(inp, shape)
   const poly = shape.kind === 'polygon' ? shape : undefined
   const ring = poly?.yoke === 'ring'
-  // a polygon in a box of yokes is designed as the rectangle of its box
-  const [boxX, boxZ] = poly ? polygonBox(poly.n, inp.b) : [inp.b, inp.h]
+  const leg = isLegShape(shape) ? shape : undefined
+  const lay = leg ? legLayout(leg) : undefined
+  const legTied = leg?.yoke === 'tied'
+  /** spans each leg is split into by its ties */
+  const legSpans = Math.max(1, Math.round(inp.tie.spans))
+  // a polygon or an L/T/U in a box of yokes is designed as the rectangle of its box
+  const [boxX, boxZ] = poly ? polygonBox(poly.n, inp.b) : leg ? legBox(leg) : [inp.b, inp.h]
   const bCm = Math.min(boxX, boxZ) * 100
   const hCm = Math.max(boxX, boxZ) * 100
   const aCm = poly ? polygonDims(poly.n, inp.b).a * 100 : 0
   const fCm = inp.b * 100
+  const legFaces = leg ? legOutline(leg).map((q, k, all) => Math.hypot(all[(k + 1) % all.length][0] - q[0], all[(k + 1) % all.length][1] - q[1]) * 100) : []
   /** widest face of sheathing */
-  const faceCm = poly ? aCm : hCm
-  const tieIn = ring ? { ...inp.tie, enabled: false } : inp.tie
+  const faceCm = poly ? aCm : leg ? Math.max(...legFaces) : hCm
+  const tieIn = ring || legTied ? { ...inp.tie, enabled: false } : inp.tie
   const sec = columnSection(inp)
   const pres = lateralPressure({ ...inp.pressure, element: 'column', H: inp.height, d: sec.d })
   const p = pres.Pmax
@@ -229,7 +261,8 @@ export function designColumn(inp: ColumnInput): ColumnDesign {
   }
 
   // yokes — auto: reduce spacing in 5 cm steps until the yoke passes
-  const yokeCheck = (sp: number, t?: Trace) => (ring && poly ? checkRingYokes(p, sp, aCm, fCm, poly.n, yoke, t, defl) : checkYokes(p, sp, bCm, hCm, yoke, tieIn, t, defl))
+  const yokeCheck = (sp: number, t?: Trace) =>
+    ring && poly ? checkRingYokes(p, sp, aCm, fCm, poly.n, yoke, t, defl) : legTied && lay ? checkLegYokes(p, sp, lay, legSpans, yoke, t, defl) : checkYokes(p, sp, bCm, hCm, yoke, tieIn, t, defl)
   let s = inp.yoke.spacingCm ?? sFromSupport
   if (inp.yoke.spacingCm === undefined) {
     while (s > 10 && yokeCheck(s).ratio > 1) s -= 5
@@ -237,9 +270,20 @@ export function designColumn(inp: ColumnInput): ColumnDesign {
   const tYo = new Trace()
   tYo.add({ label: 'ระยะคานรัด (c/c)', value: s, unit: 'ซม.' })
   if (poly && !ring) tYo.add({ label: `กรอบคานรัดรอบเสา${SHAPE_NAME[poly.n]} + ไม้อุดมุม 4 ด้าน`, expr: `${(boxX * 100).toFixed(0)} × ${(boxZ * 100).toFixed(0)} ซม.`, value: hCm, unit: 'ซม.' })
+  if (leg && lay && !legTied) tYo.add({ label: `กรอบคานรัดรอบเสา${SHAPE_NAME[leg.kind]} + กล่องไม้อุด ${lay.fillers.length} กล่อง`, expr: `${(boxX * 100).toFixed(0)} × ${(boxZ * 100).toFixed(0)} ซม.`, value: hCm, unit: 'ซม.', ref: 'รูป 9.2' })
+  if (legTied && lay?.gap !== undefined) {
+    // the inner forms of a U need room on both sides of the gap: sheathing + studs + yokes, and 5 cm to strip them
+    const studCm = inp.sheathing.type === 'plywood' && inp.stud ? getSection(inp.stud.sectionId).H : 0
+    const shCm = inp.sheathing.type === 'plywood' ? inp.sheathing.thicknessMm / 10 : inp.sheathing.thicknessCm
+    const need = 2 * (shCm + studCm + yoke.section.H) + 5
+    const gap = lay.gap * 100
+    tYo.add({ label: 'ช่องในตัว U สำหรับแบบในสองฝั่ง', expr: `≥ 2 × (${shCm} + ${studCm} + ${yoke.section.H}) + 5 = ${need.toFixed(1)}`, value: gap, unit: 'ซม.', status: gap >= need ? 'ok' : 'fail' })
+    if (gap < need) tYo.warn(`ช่องในตัว U กว้าง ${gap.toFixed(0)} ซม. แคบกว่า ${need.toFixed(0)} ซม. ที่ต้องใช้วางแบบในสองฝั่ง — ใช้แบบในถอดยุบได้ หรือเลือกกรอบสี่เหลี่ยม + กล่องไม้อุด`)
+  }
   const yc = yokeCheck(s, tYo)
+  const yokeNote = ring && poly ? ` วงแหวน ${poly.n} ด้าน` : legTied ? ` ตามหน้า ${legFaces.length} ด้าน` : ''
   components.push(
-    component('yoke', 'คานรัดแบบ (Yokes)', `${yoke.section.label} @${s} ซม. (${yoke.material.name})${ring && poly ? ` วงแหวน ${poly.n} ด้าน` : ''}`, yc.rows, tYo, {
+    component('yoke', 'คานรัดแบบ (Yokes)', `${yoke.section.label} @${s} ซม. (${yoke.material.name})${yokeNote}`, yc.rows, tYo, {
       label: 'ระยะคานรัด',
       value: s,
       max: sFromSupport,
@@ -270,6 +314,27 @@ export function designColumn(inp: ColumnInput): ColumnDesign {
     const layout = [spans.long > 1 ? `${spans.long - 1} แถว ผ่านด้านยาว` : '', spans.short > 1 ? `${spans.short - 1} แถว ผ่านด้านสั้น` : ''].filter(Boolean).join(' + ')
     components.push(component('tie', 'เหล็กยึดรั้ง (Form tie)', `${tie.name} ${layout}`, rows, tTi))
   }
+  // L/T/U along the faces: a tie through each leg at the inner corner (both ends of a U's base), more along the legs
+  let legTiesPerLevel = 0
+  if (legTied && lay && leg) {
+    const tie = getTie(inp.tie.tieId)
+    const tTi = new Trace()
+    const rows: CheckRow[] = []
+    for (const g of lay.legs) {
+      const span = g.L / legSpans
+      const roots = g.far === 'tied' ? 2 : 1
+      const T = tTi.add({ label: `แรงดึงไทร์มุมใน (${g.name}) = P × s × (ช่วง/2 + ช่วงมุม/2)`, expr: `${fmt(p)} × ${(s / 100).toFixed(2)} × (${(span / 2).toFixed(2)} + ${(g.c / 2).toFixed(2)})`, value: p * (s / 100) * (span / 2 + g.c / 2), unit: 'กก.' })
+      rows.push({ item: `ไทร์มุมใน (${g.name})`, demand: T, capacity: tie.swl, ratio: T / tie.swl, unit: 'กก.', ref: tie.ref })
+      if (legSpans > 1) {
+        const Ti = tTi.add({ label: `แรงดึงไทร์กลางขา (${g.name}) = P × s × ช่วง`, value: p * (s / 100) * span, unit: 'กก.' })
+        rows.push({ item: `ไทร์กลางขา (${g.name})`, demand: Ti, capacity: tie.swl, ratio: Ti / tie.swl, unit: 'กก.', ref: tie.ref })
+      }
+      legTiesPerLevel += roots + legSpans - 1
+    }
+    const req = requiredTies(leg)
+    const extra = legTiesPerLevel - req
+    components.push(component('tie', 'เหล็กยึดรั้ง (Form tie)', `${tie.name} มุมใน ${req} แถว${extra ? ` + กลางขา ${extra} แถว` : ''} (บังคับ)`, rows, tTi))
+  }
 
   // base nails (Ex 9.1 step 4): H = p × (s/2) × face width per side
   const tSi = new Trace()
@@ -287,16 +352,19 @@ export function designColumn(inp: ColumnInput): ColumnDesign {
   const faceStuds = poly && studSpacing ? Math.ceil(aCm / studSpacing) + 1 : undefined
   // in a box: studs on the flats against the box (2 on the hexagon, 4 on the octagon), fillers behind the 4 sloping faces
   const studdedFaces = poly ? (ring ? poly.n : poly.n === 6 ? 2 : 4) : 0
+  // L/T/U: studs on every face (in a box only on the faces against the box; the filler boxes back the others)
+  const legStuds = leg && studSpacing ? legStudFaces(leg, !legTied).reduce((n, f) => n + Math.ceil((f * 100) / studSpacing) + 1, 0) : 0
   return {
     ...summarize(pres, components),
     layout: { yokeSpacing: s, studSpacing, yokeLevels, studsPerFace, faceStuds },
     quantities: {
       plywoodArea: sec.perimeter * inp.height,
-      yokes: yokeLevels.length * (ring && poly ? poly.n : 4) * inp.yoke.count,
-      studs: poly ? studdedFaces * (faceStuds ?? 0) : 2 * (studsPerFace.short + studsPerFace.long),
-      ties: yokeLevels.length * (spans.long - 1 + spans.short - 1),
+      yokes: yokeLevels.length * (ring && poly ? poly.n : legTied ? legFaces.length : 4) * inp.yoke.count,
+      studs: poly ? studdedFaces * (faceStuds ?? 0) : leg ? legStuds : 2 * (studsPerFace.short + studsPerFace.long),
+      ties: yokeLevels.length * (legTied ? legTiesPerLevel : spans.long - 1 + spans.short - 1),
       braces: inp.brace.perSide * inp.brace.sides,
       ...(poly && !ring ? { fillers: 4 } : {}),
+      ...(lay && !legTied ? { fillerBoxes: lay.fillers.length } : {}),
     },
   }
 }

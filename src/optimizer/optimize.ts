@@ -3,7 +3,7 @@
 // them by material + handling cost per set (priced from the same BOM as the shop drawing).
 import { type AnyDesign, layoutSummary, runDesign } from '@/data/elements'
 import type { Criteria, ElementData } from '@/data/types'
-import { beamRunnerFlat, columnShapeOf, columnShapeSystem, getMaterial, getSection } from '@/engine'
+import { beamRunnerFlat, columnShapeOf, columnShapeSystem, getMaterial, getSection, isLegShape } from '@/engine'
 import { elementBom, SHEET_AREA } from '@/model/bom'
 
 export interface OptPrices {
@@ -103,6 +103,7 @@ export function describe(el: ElementData): string[] {
       const s = columnShapeOf(el.input)
       if (s.kind === 'circle') return s.system === 'stave' ? [sh, `คานรัดเจาะโค้ง ${i.yoke.count === 2 ? '2-' : ''}${label(i.yoke.sectionId)}`] : [columnShapeSystem(s)]
       const ring = s.kind === 'polygon' && s.yoke === 'ring'
+      if (isLegShape(s) && s.yoke === 'tied') return [sh, ...(i.sheathing.type === 'plywood' && i.stud ? [`เคร่า ${label(i.stud.sectionId)}`] : []), `คานรัด ${i.yoke.count === 2 ? '2-' : ''}${label(i.yoke.sectionId)} ตามหน้า`, `ไทร์มุมใน${i.tie.spans > 1 ? ` + กลางขา ${i.tie.spans - 1}` : ''}`]
       return [sh, ...(i.sheathing.type === 'plywood' && i.stud ? [`เคร่า ${label(i.stud.sectionId)}`] : []), `คานรัด ${i.yoke.count === 2 ? '2-' : ''}${label(i.yoke.sectionId)}${ring ? ' วงแหวน' : ''}`, ring ? 'ไม่ใช้ไทร์' : i.tie.enabled ? `ไทร์ ${i.tie.spans - 1} แถว${(i.tie.shortSpans ?? 1) > 1 ? ` + ด้านสั้น ${i.tie.shortSpans - 1} แถว` : ''}` : 'ไม่ใช้ไทร์']
     }
     case 'slab':
@@ -143,14 +144,16 @@ export function variants(el: ElementData, o: Pick<OptOptions, 'allowSteel'>): El
       }
       const tm = timberOf(i.yoke.materialId)
       // ties go through a rectangle or a polygon's box only; staves are bolted with the chosen tie
-      const tied = shape.kind === 'rect' || (shape.kind === 'polygon' && shape.yoke === 'box')
-      const ties = tied
+      const tied = shape.kind === 'rect' || ((shape.kind === 'polygon' || isLegShape(shape)) && shape.yoke === 'box')
+      // an L/T/U along its faces always has its inner-corner ties; try them alone and with one more per leg
+      const legTies = isLegShape(shape) && shape.yoke === 'tied' ? [{ ...i.tie, spans: 1 }, { ...i.tie, spans: 2 }] : undefined
+      const ties = legTies ?? (tied
         ? [
             { ...i.tie, enabled: false },
             ...(Math.max(i.b, i.h) >= 0.6 ? [{ ...i.tie, enabled: true, spans: 2, shortSpans: undefined }] : []),
             ...(Math.min(i.b, i.h) >= 0.6 ? [{ ...i.tie, enabled: true, spans: 2, shortSpans: 2 }] : []),
           ]
-        : [i.tie]
+        : [i.tie])
       for (const sh of sheets(i.sheathing))
         for (const sid of i.sheathing.type === 'plywood' && shape.kind !== 'circle' ? STUDS : [undefined])
           for (const yid of shape.kind === 'circle' ? BOARDS : BIG)

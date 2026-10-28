@@ -1,6 +1,6 @@
 // Orthographic SVG drawing of a formwork model (elevation / end view / plan) with dimension lines.
 // Painter's algorithm: parts are drawn far → near along the view direction.
-import { boxPoints, type FormModel, type Part, type Vec3 } from '@/model/formModel'
+import { type BoxPart, boxPoints, type FormModel, type Part, type Vec3 } from '@/model/formModel'
 
 export type OrthoView = 'front' | 'side' | 'top'
 
@@ -58,6 +58,13 @@ export function hull(points: Pt[]): Pt[] {
   return [...lower.slice(0, -1), ...upper.slice(0, -1)]
 }
 
+/** Outline of a turned box or prism in a view: a prism's plan as it is in the top view (it may be re-entrant, an L or a U), else the hull of its corners. */
+export function boxOutline(p: BoxPart, P: (v: Vec3) => [number, number, number], top: boolean): Pt[] {
+  const q = boxPoints(p)
+  if (p.plan && top) return q.slice(0, p.plan.length).map((v) => P(v).slice(0, 2) as Pt)
+  return hull(q.map((v) => P(v).slice(0, 2) as Pt))
+}
+
 export function Drawing({ model, view, width = 640, height = 360, dims = [], title, scaleNote }: { model: FormModel; view: OrthoView; width?: number; height?: number; dims?: Dim[]; title: string; scaleNote?: string }) {
   const P = PROJ[view]
   const items = model.parts.map((p) => {
@@ -106,7 +113,7 @@ export function Drawing({ model, view, width = 640, height = 360, dims = [], tit
         {view !== 'top' && <line x1={0} x2={width} y1={Y(0)} y2={Y(0)} stroke="#64748b" strokeWidth={1} />}
         {items.map(({ p, pts }) => {
           if (p.shape === 'box' && (p.yaw || p.plan)) {
-            const q = hull(boxPoints(p).map((v) => P(v).slice(0, 2) as Pt))
+            const q = boxOutline(p, P, view === 'top')
             return <polygon key={p.id} points={q.map(([u, v]) => `${X(u).toFixed(2)},${Y(v).toFixed(2)}`).join(' ')} fill={p.kind === 'concrete' ? `url(#hatch-${view})` : FILL[p.kind]} stroke={STROKE[p.kind]} strokeWidth={0.5} />
           }
           if (p.shape === 'box') {

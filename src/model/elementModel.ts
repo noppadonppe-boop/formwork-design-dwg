@@ -21,8 +21,8 @@ export function elementGroups(el: ElementData): PartGroup[] {
     case 'column': {
       const s = columnShapeOf(el.input)
       if (s.kind === 'circle') return s.system === 'stave' ? ['concrete', 'sheathing', 'yoke', 'tie', 'brace'] : s.system === 'steel' ? ['concrete', 'sheathing', 'tie', 'brace'] : ['concrete', 'sheathing', 'brace']
-      // polygon in a box: the corner fillers show with the studs
-      const studs = el.input.sheathing.type === 'plywood' || (s.kind === 'polygon' && s.yoke === 'box')
+      // in a box: the corner fillers / filler boxes show with the studs
+      const studs = el.input.sheathing.type === 'plywood' || ((s.kind === 'polygon' || s.kind === 'L' || s.kind === 'T' || s.kind === 'U') && s.yoke === 'box')
       return ['concrete', 'sheathing', ...(studs ? (['stud'] as const) : []), 'yoke', 'tie', 'brace']
     }
     case 'slab':

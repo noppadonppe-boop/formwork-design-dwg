@@ -40,7 +40,7 @@ const toc = (L: Lfn): [string, string, [string, string][]?][] => [
       ['th-ties', L('Form tie', 'Form ties', '对拉螺栓')],
       ['th-shores', L('เสาค้ำและการโก่งเดาะ', 'Shores and buckling', '立杆与屈曲')],
       ['th-braces', L('ค้ำยันแบบ', 'Form bracing', '模板斜撑')],
-      ['th-column-shapes', L('เสากลมและเสาหลายเหลี่ยม', 'Round and polygonal columns', '圆柱与多边形柱')],
+      ['th-column-shapes', L('เสากลม หลายเหลี่ยม และตัว L/T/U', 'Round, polygonal and L/T/U columns', '圆柱、多边形柱与 L/T/U 形柱')],
       ['th-beam', L('แบบหล่อคาน', 'Beam forms', '梁模板')],
       ['th-footing', L('แบบหล่อฐานราก', 'Footing forms', '基础模板')],
       ['th-materials', L('ค่าวัสดุ', 'Material values', '材料参数')],
@@ -889,17 +889,17 @@ export function ManualPage() {
             {L('F = H × ระยะค้ำยัน / cos θ / จำนวนระดับ ≤ Fa·A', 'F = H × brace spacing / cos θ / number of levels ≤ Fa·A', 'F = H × 斜撑间距 / cos θ / 层数 ≤ Fa·A')}
           </Formula>
 
-          <H3 id="th-column-shapes">{L('เสากลมและเสาหลายเหลี่ยม', 'Round and polygonal columns', '圆柱与多边形柱')}</H3>
+          <H3 id="th-column-shapes">{L('เสากลม หลายเหลี่ยม และตัว L/T/U', 'Round, polygonal and L/T/U columns', '圆柱、多边形柱与 L/T/U 形柱')}</H3>
           <p>
             {L(
               <>
-                ในกลุ่ม <b>ขนาดเสา</b> เลือกรูปหน้าตัดได้ 4 แบบ: สี่เหลี่ยม (b × h) กลม (กรอก D) หกเหลี่ยมและแปดเหลี่ยม (กรอก F = ระยะข้ามด้านแบน ระบบแสดงยาวด้าน a ให้) แรงดันคอนกรีตคิดด้วยความหนา d = D หรือ F
+                ในกลุ่ม <b>ขนาดเสา</b> เลือกรูปหน้าตัดได้ 7 แบบ: สี่เหลี่ยม (b × h) กลม (กรอก D) หกเหลี่ยมและแปดเหลี่ยม (กรอก F = ระยะข้ามด้านแบน ระบบแสดงยาวด้าน a ให้) และตัว L / T / U (กรอกขนาดรวมและความหนาของแต่ละขา) แรงดันคอนกรีตคิดด้วยความหนา d = D, F หรือขาที่บางที่สุด
               </>,
               <>
-                In the <b>Column size</b> group pick one of four sections: rectangle (b × h), round (enter D), hexagon or octagon (enter F, the distance across the flats; the side a is shown). The concrete pressure uses d = D or F.
+                In the <b>Column size</b> group pick one of seven sections: rectangle (b × h), round (enter D), hexagon or octagon (enter F, the distance across the flats; the side a is shown), and L / T / U (enter the overall sizes and the thickness of each leg). The concrete pressure uses d = D, F or the thinnest leg.
               </>,
               <>
-                在 <b>柱尺寸</b> 中可选 4 种截面:矩形(b × h)、圆形(输入 D)、六边形和八边形(输入 F = 对边距离,系统显示边长 a)。混凝土侧压力按 d = D 或 F 计算。
+                在 <b>柱尺寸</b> 中可选 7 种截面:矩形(b × h)、圆形(输入 D)、六边形和八边形(输入 F = 对边距离,系统显示边长 a),以及 L / T / U 形(输入总尺寸和各肢厚度)。混凝土侧压力按 d = D、F 或最薄肢计算。
               </>,
             )}
           </p>
@@ -915,6 +915,8 @@ export function ManualPage() {
                 ['กลม', 'ท่อกระดาษ', 'แรงดัน ≤ ค่าที่ผู้ผลิตรับรอง'],
                 ['หก/แปดเหลี่ยม', 'กรอบคานรัดสี่เหลี่ยม + ไม้อุดมุม (ค่าเริ่มต้น)', 'เหมือนเสาสี่เหลี่ยมขนาดเท่ากรอบ (แปดเหลี่ยม F × F, หกเหลี่ยม 2R × F) ใช้ไทร์ได้'],
                 ['หก/แปดเหลี่ยม', 'คานรัดวงแหวนตามรูป', 'แต่ละด้านช่วง a: M = wa²/8 ร่วมกับแรงดึง T = wF/2 · ไม่ใช้ไทร์'],
+                ['ตัว L / T / U', 'คานรัดตามทุกหน้า + Form tie ที่มุมใน (ค่าเริ่มต้น)', 'แยกเป็นขาสี่เหลี่ยม แต่ละขาเหมือนเสาสี่เหลี่ยมที่โคนยึดด้วยไทร์ · ไทร์มุมในบังคับ L 2, T 3, U 4 แถว · แบ่งขาด้วยไทร์เพิ่มได้ · ตัว U ตรวจช่องในว่าวางแบบในสองฝั่งได้'],
+                ['ตัว L / T / U', 'กรอบคานรัดสี่เหลี่ยม + กล่องไม้อุดที่มุมเว้า (รูป 9.2)', 'เหมือนเสาสี่เหลี่ยมขนาดเท่ากรอบ ใช้ไทร์ได้ · เหมาะกับเสาเล็กที่มุมเว้าไม่ใหญ่'],
               ],
               [
                 ['Round', 'Vertical staves + a frame of wide boards cut out to the circle (default 1"×10")', 'Staves as a continuous beam between yokes · each yoke board spans D: F = wD/2, M = wD²/8 on the net section at the cut-out'],
@@ -922,6 +924,8 @@ export function ManualPage() {
                 ['Round', 'Cardboard tube', 'Pressure ≤ maker rating'],
                 ['Hexagon/octagon', 'Box of yokes + corner fillers (default)', 'As a rectangular column the size of the box (octagon F × F, hexagon 2R × F); ties allowed'],
                 ['Hexagon/octagon', 'Ring of yokes along the faces', 'Each face spans a: M = wa²/8 with tension T = wF/2 · no ties'],
+                ['L / T / U', 'Yokes along every face + form ties at the inner corners (default)', 'Split into rectangular legs, each like a rectangular column held at its root by the tie · inner-corner ties required: L 2, T 3, U 4 rows · more ties may split the legs · a U checks there is room for the inner forms'],
+                ['L / T / U', 'Rectangular box of yokes + filler boxes in the re-entrant corners (Fig 9.2)', 'As a rectangular column the size of the box; ties allowed · suits small columns with small re-entrant corners'],
               ],
               [
                 ['圆形', '竖向木条 + 开弧形口的宽木板柱箍框(默认 1"×10")', '木条按柱箍间连续梁 · 每块柱箍板跨度 D:F = wD/2, M = wD²/8,按开口处净截面'],
@@ -929,6 +933,8 @@ export function ManualPage() {
                 ['圆形', '纸管模板', '压力 ≤ 厂家额定值'],
                 ['六/八边形', '矩形柱箍框 + 角部填块(默认)', '按与框同尺寸的矩形柱计算(八边形 F × F,六边形 2R × F),可用对拉螺栓'],
                 ['六/八边形', '沿边环形柱箍', '每边跨度 a:M = wa²/8 并受拉 T = wF/2 · 不用对拉螺栓'],
+                ['L / T / U 形', '沿各面柱箍 + 内角对拉螺栓(默认)', '拆分为矩形肢,每肢按根部由对拉螺栓固定的矩形柱计算 · 内角螺栓必需:L 2、T 3、U 4 排 · 可加螺栓分跨 · U 形验算内模空间'],
+                ['L / T / U 形', '矩形柱箍框 + 凹角填充木箱(图 9.2)', '按与框同尺寸的矩形柱计算,可用对拉螺栓 · 适合凹角较小的小柱'],
               ],
             )}
           />

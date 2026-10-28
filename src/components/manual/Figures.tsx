@@ -364,7 +364,7 @@ export function ColumnShapesFigure() {
   const bw = 26 // board width
   const N = 22
   return (
-    <svg {...svgProps(660, 250, L('แปลนแบบหล่อเสากลม แปดเหลี่ยม และหกเหลี่ยม', 'Plans of round, octagonal and hexagonal column forms', '圆柱、八边形柱与六边形柱模板平面'))}>
+    <svg {...svgProps(880, 250, L('แปลนแบบหล่อเสากลม แปดเหลี่ยม หกเหลี่ยม และตัว L', 'Plans of round, octagonal, hexagonal and L-shaped column forms', '圆柱、八边形柱、六边形柱与 L 形柱模板平面'))}>
       <Defs id={id} />
       {/* round: staves in a square frame of cut-out boards */}
       <g transform="translate(110 112)">
@@ -403,15 +403,34 @@ export function ColumnShapesFigure() {
             <circle key={p} cx={p.split(',')[0]} cy={p.split(',')[1]} r="3.2" fill={C.steelLine} />
           ))}
       </g>
+      {/* L: yokes along the faces, a tie through each leg at the inner corner */}
+      <g>
+        {[
+          [690, 40, 850, 40],
+          [842, 30, 842, 100],
+          [758, 100, 850, 100],
+          [698, 30, 698, 194],
+          [758, 100, 758, 194],
+          [690, 184, 768, 184],
+        ].map(([x1, y1, x2, y2], k) => (
+          <line key={k} x1={x1} y1={y1} x2={x2} y2={y2} stroke={C.timLine} strokeWidth="10" />
+        ))}
+        <polygon points="704,46 836,46 836,94 752,94 752,178 704,178" fill={C.ply} stroke={C.plyLine} />
+        <polygon points="710,52 830,52 830,88 746,88 746,172 710,172" fill={`url(#${id}-hatch)`} stroke={C.concLine} />
+        <line x1="764" y1="32" x2="764" y2="108" stroke={C.load} strokeWidth="2.4" strokeDasharray="5 3" />
+        <line x1="690" y1="106" x2="766" y2="106" stroke={C.load} strokeWidth="2.4" strokeDasharray="5 3" />
+      </g>
       <g fontSize="12.5" textAnchor="middle" fill={C.ink}>
         <text x="110" y="226">{L('ไม้ระแนง + คานรัดเจาะโค้ง', 'Staves + cut-out yoke boards', '木条 + 开弧形口柱箍板')}</text>
         <text x="330" y="226">{L('กรอบคานรัด + ไม้อุดมุม', 'Box of yokes + corner fillers', '矩形柱箍框 + 角部填块')}</text>
         <text x="550" y="226">{L('คานรัดวงแหวนตามรูป', 'Ring of yokes along the faces', '沿边环形柱箍')}</text>
+        <text x="770" y="226">{L('คานรัดตามหน้า + ไทร์มุมใน', 'Yokes along faces + inner-corner ties', '沿面柱箍 + 内角对拉螺栓')}</text>
       </g>
       <g fontSize="11" textAnchor="middle" fill={C.muted} className="num">
         <text x="110" y="243">F = wD/2 · M = wD²/8</text>
         <text x="330" y="243">{L('= เสาสี่เหลี่ยม F × F', '= F × F rectangle', '= F × F 矩形柱')}</text>
         <text x="550" y="243">T = wF/2 · M = wa²/8</text>
+        <text x="770" y="243">{L('แต่ละขา = เสาสี่เหลี่ยม t × L', 'each leg = t × L rectangle', '每肢 = t × L 矩形柱')}</text>
       </g>
     </svg>
   )

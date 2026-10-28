@@ -7,7 +7,7 @@ import { fmtVal } from '@/components/design/ResultsPanel'
 import type { AnyDesign } from '@/data/elements'
 import { elementHeight, elementSize, QUANTITY_LABEL, TYPE_LABEL } from '@/data/elements'
 import type { Criteria, ElementData, Project } from '@/data/types'
-import { beamBracing, beamCrossJoist, beamHasRunners, beamRunnerFlat, beamStringer, columnShapeOf, columnShapeSystem, columnSizeText, columnTieSpans, type ComponentResult, footingSystemLabel, getMaterial, getSection, getTie, type ShoreParams, type Status, type Trace } from '@/engine'
+import { beamBracing, beamCrossJoist, beamHasRunners, beamRunnerFlat, beamStringer, columnShapeOf, columnShapeSystem, isLegShape, columnSizeText, columnTieSpans, type ComponentResult, footingSystemLabel, getMaterial, getSection, getTie, type ShoreParams, type Status, type Trace } from '@/engine'
 import { Drawing } from './Drawing'
 import { elementViews } from './views'
 
@@ -191,6 +191,7 @@ function columnTieText(tie: Extract<ElementData, { type: 'column' }>['input']['t
 function columnBolted(i: Extract<ElementData, { type: 'column' }>['input']): boolean {
   const s = columnShapeOf(i)
   if (s.kind === 'circle') return s.system === 'steel'
+  if (isLegShape(s) && s.yoke === 'tied') return true
   return i.tie.enabled && !(s.kind === 'polygon' && s.yoke === 'ring')
 }
 
@@ -199,7 +200,7 @@ function columnShapeRows(i: Extract<ElementData, { type: 'column' }>['input']): 
   const s = columnShapeOf(i)
   if (s.kind === 'rect') return [['การวางไทร์', columnTieText(i.tie)]]
   const rows: [string, ReactNode][] = [['รูปหน้าตัด', `${columnSizeText(i)} · ${columnShapeSystem(s)}`]]
-  if (s.kind === 'polygon' && s.yoke === 'box') rows.push(['การวางไทร์', columnTieText(i.tie)])
+  if ((s.kind === 'polygon' || isLegShape(s)) && s.yoke === 'box') rows.push(['การวางไทร์', columnTieText(i.tie)])
   return rows
 }
 

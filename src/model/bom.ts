@@ -70,6 +70,10 @@ function partSpec(el: ElementData, p: Part): Spec | undefined {
   if (p.id.startsWith('shell') || p.id.startsWith('flange')) return { category: 'accessory', description: `แบบเหล็กเสากลม ${dia} ครึ่งวง`, unit: 'ชิ้น' }
   if (p.id.startsWith('tube')) return { category: 'accessory', description: `ท่อกระดาษหล่อเสา ${dia}`, unit: 'ท่อน' }
   if (p.id.startsWith('bracket')) return { category: 'accessory', description: 'เหล็กประกับมุมคานรัด + น็อต', unit: 'ชุด' }
+  if (p.id.startsWith('fillbox') && p.shape === 'box') {
+    const [w, t] = [p.size[0], p.size[2]].map((x) => Math.round(x * 100))
+    return { category: 'accessory', description: `กล่องไม้อุดมุมเว้า ${Math.max(w, t)}×${Math.min(w, t)} ซม. สูง ${p.size[1].toFixed(2)} ม.`, unit: 'กล่อง' }
+  }
   if (p.id.startsWith('filler') && p.shape === 'box') {
     const [w, t] = [p.size[0], p.size[2]].map((x) => Math.round(x * 100))
     return { category: 'timber', description: `ไม้อุดมุม ${w}×${t} ซม. ${shortName(i.stud?.materialId ?? 'timber-yang')}`, unit: 'ท่อน', nominal: [w / 2.5, t / 2.5] }

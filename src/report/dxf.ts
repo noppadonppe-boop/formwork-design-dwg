@@ -1,7 +1,7 @@
 // DXF (R12, ASCII) export of the shop-drawing views at full size in millimetres: one layer per part group,
 // dimensions as lines + text, Thai text written as \U+XXXX escapes (read by AutoCAD / BricsCAD / LibreCAD).
-import { boxPoints, type FormModel, type PartGroup } from '@/model/formModel'
-import { corners, type Dim, hull, type OrthoView, PROJ, type Pt } from './Drawing'
+import type { FormModel, PartGroup } from '@/model/formModel'
+import { boxOutline, corners, type Dim, type OrthoView, PROJ } from './Drawing'
 
 export interface DxfView {
   model: FormModel
@@ -86,7 +86,7 @@ export function toDxf(views: DxfView[], titleLines: string[] = [], sheet: DxfShe
       const ly = layer(p.group)
       const [a, b] = corners(p).map(P)
       if (p.shape === 'box' && (p.yaw || p.plan)) {
-        const q = hull(boxPoints(p).map((v) => P(v).slice(0, 2) as Pt))
+        const q = boxOutline(p, P, v.view === 'top')
         q.forEach((u, k) => {
           const w = q[(k + 1) % q.length]
           line(ly, X(u[0]), Y(u[1]), X(w[0]), Y(w[1]))

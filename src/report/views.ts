@@ -1,7 +1,7 @@
 // Orthographic views of each element type with their dimension chains — shared by the calc report and the shop drawings.
 import type { AnyDesign } from '@/data/elements'
 import type { ElementData } from '@/data/types'
-import { BEAM_TYPE_LABEL, columnShapeOf, columnTieSpans, footingSystemLabel, polygonBox, SHAPE_NAME } from '@/engine'
+import { BEAM_TYPE_LABEL, columnShapeOf, columnTieSpans, footingSystemLabel, isLegShape, legBox, legOutline, polygonBox, SHAPE_NAME } from '@/engine'
 import { elementModel } from '@/model/elementModel'
 import type { FormModel } from '@/model/formModel'
 import { chain, corners, type Dim } from './Drawing'
@@ -38,17 +38,27 @@ export function elementViews(el: ElementData, run: AnyDesign): { a: DrawingSpec;
     const extZ = Math.max(...plan.parts.flatMap((p) => corners(p).map((q) => Math.abs(q[2]))))
     const shape = columnShapeOf(i)
     const round = shape.kind === 'circle'
-    // plan extent of the concrete: a polygon's box (across the corners × F for the hexagon)
-    const [cx, cz] = shape.kind === 'polygon' ? polygonBox(shape.n, i.b) : [i.b, i.h]
-    const spans = shape.kind === 'rect' || (shape.kind === 'polygon' && shape.yoke === 'box') ? columnTieSpans(i.tie) : { long: 1, short: 1 }
+    const leg = isLegShape(shape) ? shape : undefined
+    // plan extent of the concrete: a polygon's or an L/T/U's box (across the corners × F for the hexagon)
+    const [cx, cz] = shape.kind === 'polygon' ? polygonBox(shape.n, i.b) : leg ? legBox(leg) : [i.b, i.h]
+    const boxed = shape.kind === 'rect' || (shape.kind === 'polygon' && shape.yoke === 'box') || leg?.yoke === 'box'
+    const spans = boxed ? columnTieSpans(i.tie) : { long: 1, short: 1 }
     const longZ = cz >= cx
     const [L, S] = longZ ? [cz, cx] : [cx, cz]
     const tieL = spans.long > 1 ? Array.from({ length: spans.long + 1 }, (_, k) => -L / 2 + (k * L) / spans.long) : []
     const tieS = spans.short > 1 ? Array.from({ length: spans.short + 1 }, (_, k) => -S / 2 + (k * S) / spans.short) : []
     const [tieZ, tieX] = longZ ? [tieL, tieS] : [tieS, tieL]
     const size = Math.round(i.b * 100)
-    const planDims: Dim[] =
-      shape.kind === 'rect'
+    // an L/T/U: the steps of its outline along x and down z, and the overall sizes beyond them
+    const legChain = (k: 0 | 1) => (leg ? [...new Set(legOutline(leg).map((q) => Math.round(q[k] * 1000) / 1000))].sort((a, b) => a - b).map((v) => v - (k ? cz : cx) / 2) : [])
+    const planDims: Dim[] = leg
+      ? [
+          ...chain('h', legChain(0), extZ + 0.15),
+          { dir: 'h', a: -cx / 2, b: cx / 2, at: extZ + 0.35, text: `${Math.round(cx * 100)}` },
+          ...chain('v', legChain(1).map((z) => -z), -ext - 0.15),
+          { dir: 'v', a: -cz / 2, b: cz / 2, at: -ext - 0.35, text: `${Math.round(cz * 100)}` },
+        ]
+      : shape.kind === 'rect'
         ? [
             { dir: 'h', a: -i.b / 2, b: i.b / 2, at: i.h / 2 + 0.35, text: `b = ${size}` },
             { dir: 'v', a: -i.h / 2, b: i.h / 2, at: -ext - 0.15, text: `h = ${Math.round(i.h * 100)}` },
@@ -64,7 +74,7 @@ export function elementViews(el: ElementData, run: AnyDesign): { a: DrawingSpec;
     const elev: Dim[] = [...(levels.length ? chain('v', [0, ...levels, i.height], m.bounds.min[0] - 0.2) : [{ dir: 'v' as const, a: 0, b: i.height, at: m.bounds.min[0] - 0.2, text: `H = ${i.height.toFixed(2)}` }]), { dir: 'h', a: -cx / 2, b: cx / 2, at: i.height + 0.3, text: `${Math.round(cx * 100)}` }]
     const what = round ? (shape.system === 'stave' ? 'ระแนงและคานรัดเจาะโค้ง' : shape.system === 'steel' ? 'แบบเหล็กและสลักปีก' : 'ท่อกระดาษ') : 'คานรัด เคร่า และไทร์'
     return {
-      a: { model: plan, view: 'top', dims: planDims, title: `แปลนเสา${shape.kind === 'rect' ? '' : SHAPE_NAME[shape.kind === 'circle' ? 'circle' : shape.n]} (Plan) — ${what} (ซม.)` },
+      a: { model: plan, view: 'top', dims: planDims, title: `แปลนเสา${shape.kind === 'rect' ? '' : SHAPE_NAME[shape.kind === 'polygon' ? shape.n : shape.kind]} (Plan) — ${what} (ซม.)` },
       b: { model: m, view: 'front', dims: elev, title: 'รูปด้านเสา (Elevation) — ระยะคานรัด (ซม.)' },
     }
   }

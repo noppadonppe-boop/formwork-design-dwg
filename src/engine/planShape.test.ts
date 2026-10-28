@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { designColumn, type ColumnInput } from './column'
 import { DEFAULT_BRACE } from './design'
 import { getMaterial } from './materials'
-import { columnSection, plywoodBendRadius, polygonBox, polygonDims, polygonFaces } from './planShape'
+import { type ColumnShape, columnSection, plywoodBendRadius, polygonBox, polygonDims, polygonFaces, requiredTies } from './planShape'
 import { multiple, timber } from './sections'
 
 const base: ColumnInput = {
@@ -154,5 +154,68 @@ describe('round column with a narrow yoke board', () => {
   it('warns that the board is too narrow for its cut-out', () => {
     const r = designColumn({ ...base, b: 0.5, h: 0.5, shape: { kind: 'circle', system: 'stave' }, sheathing: { type: 'board', materialId: 'timber-yang', thicknessCm: 2.5 } })
     expect(r.warnings.some((w) => w.includes('แคบเกินไปสำหรับรอยเจาะโค้ง'))).toBe(true)
+  })
+})
+
+describe('L / T / U columns', () => {
+  const L: ColumnInput = { ...base, b: 0.8, h: 0.8, shape: { kind: 'L', a: 0.8, b: 0.8, ta: 0.25, tb: 0.25, yoke: 'tied' }, tie: { ...base.tie, spans: 1 } }
+
+  it('inner-corner ties: L 2, T 3, U 4; section area and perimeter', () => {
+    expect(requiredTies({ kind: 'L', a: 0.8, b: 0.8, ta: 0.25, tb: 0.25, yoke: 'tied' })).toBe(2)
+    expect(requiredTies({ kind: 'T', bf: 0.9, tf: 0.25, tw: 0.25, d: 0.8, yoke: 'tied' })).toBe(3)
+    expect(requiredTies({ kind: 'U', b: 1, d: 0.8, t: 0.25, tb: 0.25, yoke: 'tied' })).toBe(4)
+    const s = columnSection(L)
+    expect(s.area).toBeCloseTo(0.8 * 0.25 + 0.55 * 0.25, 9)
+    expect(s.perimeter).toBeCloseTo(3.2, 9)
+    expect(s.d).toBe(0.25)
+  })
+
+  it('L along the faces: each leg like a rectangular column held at its root by the tie', () => {
+    const d = designColumn(L)
+    const s = d.layout.yokeSpacing
+    const P = d.pressure.Pmax
+    const tie = comp(d, 'tie')!
+    expect(tie.rows).toHaveLength(2)
+    // root tie: P × s × (leg span / 2 + corner span / 2) = P × s × (0.55/2 + 0.25/2)
+    expect(tie.rows[0].demand).toBeCloseTo(P * (s / 100) * (0.55 / 2 + 0.25 / 2), 6)
+    // long yoke of a leg: span 55 cm, tension w·t/2
+    const w = (P * (s / 100)) / 100
+    const y = multiple(timber(1.5, 3), 2)
+    expect(comp(d, 'yoke')!.rows[0].demand).toBeCloseTo((w * 25) / 2 / y.A + (w * 55 * 55) / 8 / y.Sx, 6)
+    expect(d.quantities.yokes).toBe(d.layout.yokeLevels.length * 6 * 2)
+    expect(d.quantities.ties).toBe(d.layout.yokeLevels.length * 2)
+    expect(d.quantities.plywoodArea).toBeCloseTo(3.2 * 3.5, 6)
+  })
+
+  it('more ties along the legs split them and add their own rows', () => {
+    const d = designColumn({ ...L, tie: { ...L.tie, spans: 2 } })
+    expect(comp(d, 'tie')!.rows).toHaveLength(4)
+    expect(d.quantities.ties).toBe(d.layout.yokeLevels.length * 4)
+  })
+
+  it('in a box of yokes: the rectangle of its box, one filler box', () => {
+    // same pressure for both (the L takes d = 25 cm, the 80 × 80 rectangle d = 80 cm)
+    const hydro = { ...L.pressure, method: 'HYDROSTATIC' as const }
+    const box = designColumn({ ...L, pressure: hydro, shape: { ...(L.shape as Extract<ColumnShape, { kind: 'L' }>), yoke: 'box' }, tie: { ...L.tie, enabled: false } })
+    const rect = designColumn({ ...L, pressure: hydro, shape: undefined, tie: { ...L.tie, enabled: false } })
+    expect(comp(box, 'yoke')!.rows.map((r) => r.demand)).toEqual(comp(rect, 'yoke')!.rows.map((r) => r.demand))
+    expect(box.quantities.fillerBoxes).toBe(1)
+  })
+
+  it('U: the base is tied at both ends; a narrow gap warns', () => {
+    const U: ColumnInput = { ...base, b: 1, h: 0.8, shape: { kind: 'U', b: 1, d: 0.8, t: 0.25, tb: 0.25, yoke: 'tied' }, tie: { ...base.tie, spans: 1 } }
+    const d = designColumn(U)
+    expect(d.quantities.ties).toBe(d.layout.yokeLevels.length * 4)
+    expect(d.warnings.some((w) => w.includes('ช่องในตัว U'))).toBe(false)
+    const narrow = designColumn({ ...U, shape: { kind: 'U', b: 0.8, d: 0.8, t: 0.25, tb: 0.25, yoke: 'tied' } })
+    expect(narrow.warnings.some((w) => w.includes('ช่องในตัว U'))).toBe(true)
+  })
+
+  it('T: three ties, eight faces', () => {
+    const d = designColumn({ ...base, b: 0.9, h: 0.8, shape: { kind: 'T', bf: 0.9, tf: 0.25, tw: 0.25, d: 0.8, yoke: 'tied' }, tie: { ...base.tie, spans: 1 } })
+    expect(comp(d, 'tie')!.rows).toHaveLength(3)
+    expect(d.quantities.yokes).toBe(d.layout.yokeLevels.length * 8 * 2)
+    expect(comp(d, 'yoke')!.maxRatio).toBeLessThanOrEqual(1)
+    expect(comp(d, 'tie')!.maxRatio).toBeLessThanOrEqual(1)
   })
 })

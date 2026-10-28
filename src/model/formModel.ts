@@ -9,6 +9,10 @@ import {
   cutYokeInnerCm,
   getMaterial,
   getSection,
+  legBox,
+  legLayout,
+  legOutline,
+  legTies,
   type MaterialKind,
   polygonBox,
   polygonDims,
@@ -34,7 +38,8 @@ export interface BoxPart extends PartBase {
   size: Vec3
   /** turn about +y through the centre, radians (three.js rotation.y) */
   yaw?: number
-  /** prism instead of a box: convex plan outline [x, z] about the centre (size = its bounding box) */
+  /** prism instead of a box: plan outline [x, z] about the centre (size = its bounding box); plan views draw it as
+   * it is, other views its convex hull */
   plan?: [number, number][]
 }
 /** prismatic member between two points (braces, ties) */
@@ -347,6 +352,34 @@ function shapedColumnModel(inp: ColumnInput, d: ColumnDesign, shape: Exclude<Col
   let zOut: number
   let faceW: [number, number] // width of the ±x / ±z faces for the braces
 
+  /** Box of yokes round a plan box bx × bz, `o` out from it, as round a rectangular column; returns its outer extent. */
+  const boxFrame = (bx: number, bz: number, o: number): [number, number] => {
+    const xo = bx / 2 + o + yd
+    const zo = bz / 2 + o + yd
+    const spans = columnTieSpans(inp.tie)
+    const longZ = bz >= bx
+    yokeLevels.forEach((y, i) => {
+      pairOffsets(inp.yoke.count, yb).forEach((off, k) => {
+        for (const s of [1, -1]) {
+          parts.push({ id: `yokeL${s}-${i}-${k}`, group: 'yoke', kind: yKind, shape: 'box', center: [s * (bx / 2 + o + yd / 2), y + off, 0], size: [yd, yb, 2 * zo + 0.2] })
+          parts.push({ id: `yokeS${s}-${i}-${k}`, group: 'yoke', kind: yKind, shape: 'box', center: [0, y + pairH + off, s * (bz / 2 + o + yd / 2)], size: [2 * xo + 0.2, yb, yd] })
+        }
+      })
+      for (const sx of [1, -1]) for (const sz of [1, -1]) parts.push(bolt(`bolt-${i}-${sx}${sz}`, [sx * (xo + 0.05), y - 0.02, sz * (zo + 0.05)], [sx * (xo + 0.05), y + 2 * pairH + 0.02, sz * (zo + 0.05)]))
+      // ties split the long yokes (through the long faces), and the short ones when asked
+      const [L, S] = longZ ? [bz, bx] : [bx, bz]
+      for (let j = 1; j < spans.long; j++) {
+        const u = -L / 2 + (j * L) / spans.long
+        parts.push(longZ ? bolt(`tie-${i}-${j}`, [-(xo + 0.06), y, u], [xo + 0.06, y, u]) : bolt(`tie-${i}-${j}`, [u, y + pairH, -(zo + 0.06)], [u, y + pairH, zo + 0.06]))
+      }
+      for (let j = 1; j < spans.short; j++) {
+        const u = -S / 2 + (j * S) / spans.short
+        parts.push(longZ ? bolt(`tieS-${i}-${j}`, [u, y + pairH, -(zo + 0.06)], [u, y + pairH, zo + 0.06]) : bolt(`tieS-${i}-${j}`, [-(xo + 0.06), y, u], [xo + 0.06, y, u]))
+      }
+    })
+    return [xo, zo]
+  }
+
   if (shape.kind === 'circle') {
     const r = F / 2
     parts.push({ id: 'concrete', group: 'concrete', kind: 'concrete', shape: 'box', center: [0, H / 2, 0], size: [F, H, F], plan: regularPlan(36, r) })
@@ -389,7 +422,7 @@ function shapedColumnModel(inp: ColumnInput, d: ColumnDesign, shape: Exclude<Col
       xOut = zOut = r + t
     }
     faceW = [F, F]
-  } else {
+  } else if (shape.kind === 'polygon') {
     const { n } = shape
     const { R, a } = polygonDims(n, F)
     const faces = polygonFaces(n, F)
@@ -434,31 +467,95 @@ function shapedColumnModel(inp: ColumnInput, d: ColumnDesign, shape: Exclude<Col
       // the hexagon's ±x sides end in a corner
       xOut = n === 8 ? F / 2 + o + yd : (F / 2 + o + yd) / Math.cos(Math.PI / n)
       zOut = F / 2 + o + yd
-    } else {
-      // box of yokes round the polygon's box, as round a rectangular column
-      xOut = bx / 2 + o + yd
-      zOut = bz / 2 + o + yd
-      const spans = columnTieSpans(inp.tie)
-      const longZ = bz >= bx
+    } else [xOut, zOut] = boxFrame(bx, bz, o)
+    faceW = [bz, bx]
+  } else {
+    // L / T / U, centred on its box: x right, z as drawn (the outline runs down the page)
+    const [bx, bz] = legBox(shape)
+    const q = legOutline(shape).map(([x, z]) => [x - bx / 2, z - bz / 2] as [number, number])
+    const stud = inp.sheathing.type === 'plywood' && inp.stud ? getSection(inp.stud.sectionId) : undefined
+    const studKind = inp.stud ? getMaterial(inp.stud.materialId).kind : 'timber'
+    const sb = stud ? cm(stud.B) : 0
+    const sd = stud ? cm(stud.H) : 0
+    const o = ply + sd
+    const tied = shape.yoke === 'tied'
+    parts.push({ id: 'concrete', group: 'concrete', kind: 'concrete', shape: 'box', center: [0, H / 2, 0], size: [bx, H, bz], plan: q })
+    const nq = q.length
+    const area2 = q.reduce((s, a, k) => s + a[0] * q[(k + 1) % nq][1] - q[(k + 1) % nq][0] * a[1], 0)
+    const edges = q.map((a, k) => {
+      const b = q[(k + 1) % nq]
+      const L = Math.hypot(b[0] - a[0], b[1] - a[1])
+      const dir: [number, number] = [(b[0] - a[0]) / L, (b[1] - a[1]) / L]
+      const n: [number, number] = area2 > 0 ? [dir[1], -dir[0]] : [-dir[1], dir[0]]
+      return { a, b, L, dir, n, phi: Math.atan2(n[1], n[0]), alongX: Math.abs(dir[1]) < 1e-9 }
+    })
+    // a corner is convex when the outline turns the way it winds
+    const convex = edges.map((e, k) => {
+      const p = edges[(k - 1 + nq) % nq].dir
+      return (p[0] * e.dir[1] - p[1] * e.dir[0]) * area2 > 0
+    })
+    /** box along edge e, `off` out from the face, ends moved out by eA / eB (negative: in) */
+    const along = (id: string, group: PartGroup, kind: Part['kind'], e: (typeof edges)[number], off: number, eA: number, eB: number, y: number, h: number, t: number): BoxPart => {
+      const m = (eB - eA) / 2
+      const c: [number, number] = [(e.a[0] + e.b[0]) / 2 + e.dir[0] * m + e.n[0] * off, (e.a[1] + e.b[1]) / 2 + e.dir[1] * m + e.n[1] * off]
+      return { id, group, kind, shape: 'box', center: [c[0], y, c[1]], size: [e.L + eA + eB, h, t], yaw: yawFacing(e.phi) }
+    }
+    const onBox = (e: (typeof edges)[number]) => (e.alongX ? Math.abs(Math.abs(e.a[1]) - bz / 2) < 1e-9 : Math.abs(Math.abs(e.a[0]) - bx / 2) < 1e-9)
+    edges.forEach((e, k) => {
+      const j = (k + 1) % nq
+      const end = (cv: boolean, x: number) => (cv ? x : -x)
+      parts.push(along(`ply-${k}`, 'sheathing', shKind, e, ply / 2, end(convex[k], ply), end(convex[j], ply), H / 2, H, ply))
+      // studs on every face; in a box only on the faces against it (the filler boxes back the others)
+      if (stud && d.layout.studSpacing && (tied || onBox(e))) {
+        const mA = convex[k] ? sb / 2 : o + sb / 2
+        const mB = convex[j] ? sb / 2 : o + sb / 2
+        const avail = Math.max(e.L - mA - mB, 0)
+        const m = Math.ceil((avail * 100) / d.layout.studSpacing) + 1
+        for (let i = 0; i < m; i++) {
+          const u = m === 1 ? e.L / 2 : mA + (i * avail) / (m - 1)
+          const c: [number, number] = [e.a[0] + e.dir[0] * u + e.n[0] * (ply + sd / 2), e.a[1] + e.dir[1] * u + e.n[1] * (ply + sd / 2)]
+          parts.push({ id: `stud-${k}-${i}`, group: 'stud', kind: studKind, shape: 'box', center: [c[0], H / 2, c[1]], size: [sb, H, sd], yaw: yawFacing(e.phi) })
+        }
+      }
+    })
+    if (tied) {
+      // a yoke along every face: past the convex corners (bolted where they cross), to the inner corners' mitre;
+      // the faces along x sit one yoke set higher so the yokes cross as on a rectangular column
+      const oy = o + yd / 2
+      const ext = o + yd + 0.05
       yokeLevels.forEach((y, i) => {
-        pairOffsets(inp.yoke.count, yb).forEach((off, k) => {
-          for (const s of [1, -1]) {
-            parts.push({ id: `yokeL${s}-${i}-${k}`, group: 'yoke', kind: yKind, shape: 'box', center: [s * (bx / 2 + o + yd / 2), y + off, 0], size: [yd, yb, 2 * zOut + 0.2] })
-            parts.push({ id: `yokeS${s}-${i}-${k}`, group: 'yoke', kind: yKind, shape: 'box', center: [0, y + pairH + off, s * (bz / 2 + o + yd / 2)], size: [2 * xOut + 0.2, yb, yd] })
+        edges.forEach((e, k) => {
+          const j = (k + 1) % nq
+          const lift = e.alongX ? pairH : 0
+          pairOffsets(inp.yoke.count, yb).forEach((off, ko) => parts.push(along(`yokeF-${i}-${k}-${ko}`, 'yoke', yKind, e, oy, convex[k] ? ext : -oy, convex[j] ? ext : -oy, y + lift + off, yb, yd)))
+          if (convex[j]) {
+            const n2 = edges[j].n
+            const c: [number, number] = [e.b[0] + (e.n[0] + n2[0]) * (o + yd + 0.03), e.b[1] + (e.n[1] + n2[1]) * (o + yd + 0.03)]
+            parts.push(bolt(`bolt-${i}-${k}`, [c[0], y - 0.02, c[1]], [c[0], y + 2 * pairH + 0.02, c[1]]))
           }
         })
-        for (const sx of [1, -1]) for (const sz of [1, -1]) parts.push(bolt(`bolt-${i}-${sx}${sz}`, [sx * (xOut + 0.05), y - 0.02, sz * (zOut + 0.05)], [sx * (xOut + 0.05), y + 2 * pairH + 0.02, sz * (zOut + 0.05)]))
-        // ties split the long yokes (through the long faces), and the short ones when asked
-        const [L, S] = longZ ? [bz, bx] : [bx, bz]
-        for (let j = 1; j < spans.long; j++) {
-          const u = -L / 2 + (j * L) / spans.long
-          parts.push(longZ ? bolt(`tie-${i}-${j}`, [-(xOut + 0.06), y, u], [xOut + 0.06, y, u]) : bolt(`tie-${i}-${j}`, [u, y + pairH, -(zOut + 0.06)], [u, y + pairH, zOut + 0.06]))
-        }
-        for (let j = 1; j < spans.short; j++) {
-          const u = -S / 2 + (j * S) / spans.short
-          parts.push(longZ ? bolt(`tieS-${i}-${j}`, [u, y + pairH, -(zOut + 0.06)], [u, y + pairH, zOut + 0.06]) : bolt(`tieS-${i}-${j}`, [-(xOut + 0.06), y, u], [xOut + 0.06, y, u]))
-        }
+        // ties through every leg at the inner corner(s), more along the legs
+        legLayout(shape).legs.forEach((g, gi) =>
+          legTies(g, Math.max(1, Math.round(inp.tie.spans)), Math.min(o + yd, g.L / 3)).forEach((u, ti) => {
+            const p0: [number, number] = [g.o[0] - bx / 2 + g.dir[0] * u, g.o[1] - bz / 2 + g.dir[1] * u]
+            const xt = o + yd + 0.05
+            const lift = Math.abs(g.across[0]) < 1e-9 ? pairH : 0
+            parts.push(bolt(`tie-${i}-${gi}-${ti}`, [p0[0] - g.across[0] * xt, y + lift, p0[1] - g.across[1] * xt], [p0[0] + g.across[0] * (g.t + xt), y + lift, p0[1] + g.across[1] * (g.t + xt)]))
+          }),
+        )
       })
+      xOut = bx / 2 + o + yd
+      zOut = bz / 2 + o + yd
+    } else {
+      // filler boxes from the inner faces' sheathing out to the box of yokes (Fig 9.2)
+      legLayout(shape).fillers.forEach(([x, z, w, dd], k) => {
+        const x0 = x - bx / 2 + (x < 1e-9 ? -o : ply)
+        const x1 = x + w - bx / 2 + (Math.abs(x + w - bx) < 1e-9 ? o : -ply)
+        const z0 = z - bz / 2 + (z < 1e-9 ? -o : ply)
+        const z1 = z + dd - bz / 2 + (Math.abs(z + dd - bz) < 1e-9 ? o : -ply)
+        parts.push({ id: `fillbox-${k}`, group: 'stud', kind: studKind, shape: 'box', center: [(x0 + x1) / 2, H / 2, (z0 + z1) / 2], size: [x1 - x0, H, z1 - z0] })
+      })
+      ;[xOut, zOut] = boxFrame(bx, bz, o)
     }
     faceW = [bz, bx]
   }
@@ -488,7 +585,8 @@ function shapedColumnModel(inp: ColumnInput, d: ColumnDesign, shape: Exclude<Col
   const label = shape.kind === 'circle' ? 'เส้นผ่านศูนย์กลาง D' : 'ระยะข้ามด้านแบน F'
   const handles: Handle[] = [
     { key: 'height', label: 'ความสูง H', position: [0, H + 0.2, 0], axis: [0, 1, 0], value: H, min: 0.3, max: 15, step: 0.05 },
-    { key: 'b', label, position: [F / 2, H + 0.05, 0], axis: [1, 0, 0], value: F / 2, min: 0.075, max: 1.5, step: 0.025 },
+    // one size to drag on a round / polygonal column; an L/T/U is sized in the form
+    ...(shape.kind === 'circle' || shape.kind === 'polygon' ? [{ key: 'b' as const, label, position: [F / 2, H + 0.05, 0] as Vec3, axis: [1, 0, 0] as Vec3, value: F / 2, min: 0.075, max: 1.5, step: 0.025 }] : []),
   ]
   if (yokeLevels.length > 1)
     handles.push({ key: 'yokeSpacing', label: 'ระยะคานรัด', position: [xOut + 0.15, yokeLevels[1], 0], axis: [0, 1, 0], value: yokeLevels[1] - yokeLevels[0], min: 0.1, max: 1.5, step: 0.05 })
@@ -527,8 +625,9 @@ export function applyColumnHandle(inp: ColumnInput, key: HandleKey, value: numbe
       return { ...inp, height: round3(snap(value, 0.05)) }
     case 'b': {
       const b = round3(snap(value * 2, 0.05))
-      // round / polygon: one size, b = h
-      return columnShapeOf(inp).kind === 'rect' ? { ...inp, b } : { ...inp, b, h: b }
+      // round / polygon: one size, b = h; an L/T/U keeps its sizes in the shape
+      const k = columnShapeOf(inp).kind
+      return k === 'rect' ? { ...inp, b } : k === 'circle' || k === 'polygon' ? { ...inp, b, h: b } : inp
     }
     case 'h':
       return { ...inp, h: round3(snap(value * 2, 0.05)) }

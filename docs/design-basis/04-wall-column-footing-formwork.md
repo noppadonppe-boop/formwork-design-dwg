@@ -871,7 +871,7 @@ Short side yokes:
 - 4.4 Deflection (Eq 5.27) `Δ = 5/384 × 30(30)⁴/(94,100×260) = 0.01 cm` ≤ 30/360 = 0.08 OK.
 **ข. By tables** (start [p.369]): pressures 8,400 / 8,300 / 6,000 → 6,000; plywood 20 mm, studs 1½"×3", pressure 6,000 … continuation on book p.370–371 is **missing from the scan** [illegible / not present]. (Use Tables 9.2, 9.4, 9.9 analogously.)
 
-### B.8 Round and polygonal columns in the calculator (`src/engine/planShape.ts`)
+### B.8 Round, polygonal and L/T/U columns in the calculator (`src/engine/planShape.ts`)
 A column input may carry `shape`; without it the column is the rectangle b × h and every result is unchanged. A round column keeps D in b = h, a regular hexagon/octagon keeps F (distance across the flats) in b = h. Lateral pressure uses d = D or F.
 
 **Round — staves + cut-out yoke boards** (default; Ex 9.2, Fig 9.2):
@@ -886,6 +886,11 @@ A column input may carry `shape`; without it the column is the rectangle b × h 
 **Hexagon / octagon**:
 - *Box of yokes + corner fillers* (default; Fig 9.2 "octagon: corner fillets"): yokes form the rectangle round the polygon (octagon F × F, hexagon 2R × F), timber fillers behind the sloping faces carry their pressure to the yokes; designed exactly as the rectangular column of that box, ties allowed. Studs on the flats against the box; side a = F·tan(π/n).
 - *Ring of yokes along the faces*: every member spans a face a, simply supported at bolted corner brackets: `M = w·a²/8`, axial `T = w·F/2` (equilibrium of half the ring), combined as B.6; no ties.
+
+**L / T / U** (sizes held in the shape, b × h = its box; pressure d = the thinnest leg):
+- *Yokes along every face + ties at the inner corners* (default). A re-entrant corner has no opposite face to take the yokes' tension, so a tie through each leg at the inner corner is required: L 2 rows, T 3 (through each flange wing, through the web), U 4 (through each leg, through the base at both ends). The section splits into rectangular legs (thickness t, length L from the inner corner); each works like a rectangular column (B.6) whose root is held by the tie: long-face yokes span L/n (n spans with n − 1 more ties per leg; continuous when n ≥ 3) in tension w·t/2 from the end yoke; the end yoke spans t in tension w·(L/n)/2; the outer yokes also span the core corners c in tension w·c_perp/2. Root tie `T = p·s·(L/n/2 + c/2)`, ties along a leg `p·s·L/n`. A U's base is tied at both ends (no end yoke).
+- U: the clear width between the legs must take the inner forms on both sides: `b − 2t ≥ 2(sheathing + stud + yoke) + 5 cm`, else a warning (collapsible inner forms or the box system).
+- *Rectangular box + filler boxes* (Fig 9.2: "L/T column: rectangular frame with timber filler boxes nailed in the corner"): designed as the rectangular column of the box, ties allowed; the filler boxes (one for an L or a U, two for a T) carry the inner faces' pressure to the yokes in compression and are not designed.
 
 **Quantities / drawings**: form area = perimeter × H (πD·H; n·a·H); concrete = section area × H (πD²/4; n·a·F/4). The 3D/2D model draws turned boxes for faces and staves and a prism for round/polygonal concrete; the BOM counts a steel form half or a tube once.
 
