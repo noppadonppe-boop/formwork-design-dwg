@@ -871,6 +871,24 @@ Short side yokes:
 - 4.4 Deflection (Eq 5.27) `Δ = 5/384 × 30(30)⁴/(94,100×260) = 0.01 cm` ≤ 30/360 = 0.08 OK.
 **ข. By tables** (start [p.369]): pressures 8,400 / 8,300 / 6,000 → 6,000; plywood 20 mm, studs 1½"×3", pressure 6,000 … continuation on book p.370–371 is **missing from the scan** [illegible / not present]. (Use Tables 9.2, 9.4, 9.9 analogously.)
 
+### B.8 Round and polygonal columns in the calculator (`src/engine/planShape.ts`)
+A column input may carry `shape`; without it the column is the rectangle b × h and every result is unchanged. A round column keeps D in b = h, a regular hexagon/octagon keeps F (distance across the flats) in b = h. Lateral pressure uses d = D or F.
+
+**Round — staves + cut-out yoke boards** (default; Ex 9.2, Fig 9.2):
+- Staves (boards, or plywood cut into strips, no wider than 7.5 cm round the circle) span vertically between the yokes as a continuous beam on a 1 m strip → max yoke spacing from bending / deflection, as boards between yokes (B.4 type 1).
+- Yokes: a square frame of four wide boards (1"×8", 1"×10", 1"×12"; flat, wedged or bolted at the corners), each cut out to the circle. Each board spans D: `w = p·s`, `F = w·D/2`, `M = w·D²/8`, `σ = F/A ± M/S` on the **net section** at the cut-out, Δ = 5wD⁴/384EI ≤ D/360. Auto spacing steps down 5 cm from the stave limit until the yoke passes.
+- Net depth: entered, or by default board width − r₀(1 − cos 45°), r₀ = D/2 + stave thickness (the boards' inner edges meet on the circle at 45°). Ex 9.2 uses 17.5 cm on a 1"×10" (25 cm) board; the default rule gives 16.9 cm there (slightly conservative).
+- Check (unit test): Ex 9.2 → P = 6,740 kg/m², staves a = 35 cm (bending), yokes @25 cm, σ = 11.6 ± 59.4 = 71.0 (t) / 47.9 (c) vs book 70.7 / 48.
+- Plywood does not bend to a small radius (dry, across the face grain, APA): 6 mm R ≥ 0.6 m, 9 mm 0.9 m, 12 mm 1.8 m, 15 mm 2.4 m, 18 mm 3.6 m — so plywood is only used as strips on a column.
+
+**Round — ready-made forms**: steel form in two halves — pressure ≤ the maker's rated pressure (default 6,000 kg/m², to be replaced) and flange bolts down both seams `T = p·(D/2)·s_bolt ≤ SWL` (auto spacing ≤ 50 cm); cardboard tube — pressure ≤ rated (default 3,000 kg/m²) only. Braces as for any column (width = D).
+
+**Hexagon / octagon**:
+- *Box of yokes + corner fillers* (default; Fig 9.2 "octagon: corner fillets"): yokes form the rectangle round the polygon (octagon F × F, hexagon 2R × F), timber fillers behind the sloping faces carry their pressure to the yokes; designed exactly as the rectangular column of that box, ties allowed. Studs on the flats against the box; side a = F·tan(π/n).
+- *Ring of yokes along the faces*: every member spans a face a, simply supported at bolted corner brackets: `M = w·a²/8`, axial `T = w·F/2` (equilibrium of half the ring), combined as B.6; no ties.
+
+**Quantities / drawings**: form area = perimeter × H (πD·H; n·a·H); concrete = section area × H (πD²/4; n·a·F/4). The 3D/2D model draws turned boxes for faces and staves and a prism for round/polygonal concrete; the BOM counts a steel form half or a tube once.
+
 ---
 
 ## PART C — CHAPTER 10: FOOTING FORMWORK (แบบหล่อฐานราก) [p.372–423]

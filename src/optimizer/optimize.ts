@@ -55,6 +55,8 @@ export interface OptResult {
 const PLY = [12, 15, 18, 20]
 const STUDS = ['timber-1.5x3', 'timber-1.5x4', 'timber-2x3', 'timber-2x4', 'timber-2x6']
 const BIG = ['timber-2x4', 'timber-2x6', 'timber-2x8', 'timber-3x4', 'timber-4x4']
+/** wide boards cut out to a round column (Ex 9.2) */
+const BOARDS = ['timber-1x8', 'timber-1x10', 'timber-1x12', 'timber-2x8']
 const STEEL_LIGHT = ['lipC-100×50×20×2.3', 'rhs-100×50×2.3']
 const STEEL_WALE = ['rhs-100×50×2.3', 'box-100×100×2.3']
 const SHORE_PIPES = ['pipe-4.27', 'pipe-4.86', 'pipe-6.03', 'pipe-7.63']
@@ -99,7 +101,7 @@ export function describe(el: ElementData): string[] {
       return [sh, `เคร่า ${label(i.stud.sectionId)}`, `คานรับเคร่า ${i.wale.count === 2 ? '2-' : ''}${label(i.wale.sectionId)}`, `ไทร์ ${i.tie.tieId.replace('tie-', 'Ø')}`]
     case 'column': {
       const s = columnShapeOf(el.input)
-      if (s.kind === 'circle') return s.system === 'stave' ? [sh, `ริบ ${i.yoke.count === 2 ? '2-' : ''}${label(i.yoke.sectionId)}`, `สลัก ${i.tie.tieId.replace('tie-', 'Ø')}`] : [columnShapeSystem(s)]
+      if (s.kind === 'circle') return s.system === 'stave' ? [sh, `คานรัดเจาะโค้ง ${i.yoke.count === 2 ? '2-' : ''}${label(i.yoke.sectionId)}`] : [columnShapeSystem(s)]
       const ring = s.kind === 'polygon' && s.yoke === 'ring'
       return [sh, ...(i.sheathing.type === 'plywood' && i.stud ? [`เคร่า ${label(i.stud.sectionId)}`] : []), `คานรัด ${i.yoke.count === 2 ? '2-' : ''}${label(i.yoke.sectionId)}${ring ? ' วงแหวน' : ''}`, ring ? 'ไม่ใช้ไทร์' : i.tie.enabled ? `ไทร์ ${i.tie.spans - 1} แถว${(i.tie.shortSpans ?? 1) > 1 ? ` + ด้านสั้น ${i.tie.shortSpans - 1} แถว` : ''}` : 'ไม่ใช้ไทร์']
     }
@@ -151,7 +153,7 @@ export function variants(el: ElementData, o: Pick<OptOptions, 'allowSteel'>): El
         : [i.tie]
       for (const sh of sheets(i.sheathing))
         for (const sid of i.sheathing.type === 'plywood' && shape.kind !== 'circle' ? STUDS : [undefined])
-          for (const yid of BIG)
+          for (const yid of shape.kind === 'circle' ? BOARDS : BIG)
             for (const n of [1, 2] as const)
               for (const tie of ties)
                 out.push({ ...el, input: { ...i, sheathing: sh, stud: sid ? { sectionId: sid, materialId: tm } : i.stud, yoke: { ...i.yoke, sectionId: yid, materialId: tm, count: n, spacingCm: undefined, addCm: n === 2 ? 10 : 0 }, tie } })

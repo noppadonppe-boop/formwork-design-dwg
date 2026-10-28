@@ -1,7 +1,8 @@
 // Plan shape of a column section. The rectangle (b × h) is the default; a round column and the regular
 // hexagon/octagon keep their one size in b = h (D, or F = distance across the flats).
-//   circle  — vertical staves held by curved ribs in hoop tension (T = p·s·D/2), a bolted steel form, or a
-//             cardboard tube; plywood bends round only to large radii (APA, dry, across the face grain);
+//   circle  — vertical staves in a square frame of wide boards cut out to the circle (Ex 9.2: each board spans D,
+//             F = w·D/2, M = w·D²/8 on the net section), a bolted steel form, or a cardboard tube; plywood bends
+//             round only to large radii (APA, dry, across the face grain);
 //   polygon — a square/rectangular box of yokes with corner fillers behind the sloping faces (the rectangle
 //             design on the box), or a ring of yokes along the faces: span a, M = w·a²/8, T = w·F/2.
 
@@ -10,7 +11,14 @@ export type PolygonYoke = 'box' | 'ring'
 
 export type ColumnShape =
   | { kind: 'rect' }
-  | { kind: 'circle'; system: CircleSystem; /** steel form / tube: allowable pressure from the maker, kg/m² */ ratedKgM2?: number }
+  | {
+      kind: 'circle'
+      system: CircleSystem
+      /** steel form / tube: allowable pressure from the maker, kg/m² */
+      ratedKgM2?: number
+      /** staves: net depth of a yoke board at its cut-out, cm (default from the geometry) */
+      netCm?: number
+    }
   | { kind: 'polygon'; n: 6 | 8; yoke: PolygonYoke }
 
 export const RECT_SHAPE: ColumnShape = { kind: 'rect' }
@@ -20,6 +28,13 @@ export const columnShapeOf = (inp: { shape?: ColumnShape }): ColumnShape => inp.
 export const RATED_PRESSURE: Record<Exclude<CircleSystem, 'stave'>, number> = { steel: 6000, tube: 3000 }
 /** Widest stave across the face of a round column, cm (keeps the facets close to the circle). */
 export const STAVE_WIDTH = 7.5
+
+/**
+ * Square frame of yoke boards round a circle of radius ro (outside of the staves), cm: the boards' inner edges
+ * meet on the circle at 45°, so each board is cut ro(1 − cos 45°) deep at mid-length.
+ */
+export const cutYokeInnerCm = (roCm: number) => roCm * Math.SQRT1_2
+export const cutYokeNetCm = (boardCm: number, roCm: number) => boardCm - (roCm - cutYokeInnerCm(roCm))
 
 /** Smallest radius a dry plywood sheet bends to across the face grain, m (APA). */
 export const PLY_BEND_RADIUS: [number, number][] = [
@@ -67,7 +82,7 @@ export function columnSection(inp: { b: number; h: number; shape?: ColumnShape }
 }
 
 export const SHAPE_NAME: Record<string, string> = { rect: 'สี่เหลี่ยม', circle: 'กลม', 6: 'หกเหลี่ยม', 8: 'แปดเหลี่ยม' }
-export const CIRCLE_SYSTEM_LABEL: Record<CircleSystem, string> = { stave: 'ไม้ระแนงตั้ง + ริบโค้ง', steel: 'แบบเหล็กสำเร็จรูป', tube: 'ท่อกระดาษ' }
+export const CIRCLE_SYSTEM_LABEL: Record<CircleSystem, string> = { stave: 'ไม้ระแนงตั้ง + คานรัดเจาะโค้ง', steel: 'แบบเหล็กสำเร็จรูป', tube: 'ท่อกระดาษ' }
 export const POLYGON_YOKE_LABEL: Record<PolygonYoke, string> = { box: 'กรอบสี่เหลี่ยม + ไม้อุดมุม', ring: 'วงแหวนตามรูป' }
 
 /** "กลม Ø50 ซม." / "หกเหลี่ยม F 60 ซม." / "30×60 ซม." */

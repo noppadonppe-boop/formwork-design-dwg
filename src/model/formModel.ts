@@ -6,6 +6,7 @@ import {
   type ColumnShape,
   columnShapeOf,
   columnTieSpans,
+  cutYokeInnerCm,
   getMaterial,
   getSection,
   type MaterialKind,
@@ -23,7 +24,7 @@ interface PartBase {
   id: string
   group: PartGroup
   kind: MaterialKind | 'concrete' | 'tie'
-  /** one physical piece drawn as several parts (a curved rib in segments): the BOM counts it once at `lengthM` */
+  /** one physical piece drawn as several parts (a round form's half in segments): the BOM counts it once at `lengthM` */
   piece?: { id: string; lengthM: number }
 }
 /** box, axis-aligned unless turned about the vertical axis */
@@ -327,7 +328,7 @@ function onFace(id: string, group: PartGroup, kind: Part['kind'], phi: number, r
 
 /**
  * Round or polygonal column, centred at the origin; a polygon's flats face ±z (and ±x for the octagon).
- * Staves + ribs in segments (one BOM piece per half ring), a steel form in two halves, or a cardboard tube;
+ * Staves in a square frame of cut-out yoke boards, a steel form in two halves (one BOM piece each), or a tube;
  * a polygon in a box of yokes with corner fillers, or in a ring of yokes along its faces.
  */
 function shapedColumnModel(inp: ColumnInput, d: ColumnDesign, shape: Exclude<ColumnShape, { kind: 'rect' }>): FormModel {
@@ -353,25 +354,19 @@ function shapedColumnModel(inp: ColumnInput, d: ColumnDesign, shape: Exclude<Col
       const N = d.layout.staves ?? 24
       const w = 2 * (r + ply / 2) * Math.tan(Math.PI / N)
       for (let k = 0; k < N; k++) parts.push(onFace(`stave-${k}`, 'sheathing', shKind, (2 * Math.PI * k) / N, r + ply / 2, 0, H / 2, [w * 0.985, H, ply]))
-      // ribs: two half rings per set, each drawn in M straight segments
-      const M = 8
-      const rr = r + ply + yd / 2
-      const seg = 2 * rr * Math.tan(Math.PI / (2 * M))
-      const nb = d.layout.boltsPerJoint ?? 1
+      // square frame of wide boards cut out to the circle (Ex 9.2), the boards' inner edges meeting on it at 45°;
+      // the staves show through the cut-outs in plan
+      const e = cutYokeInnerCm((r + ply) * 100) / 100
+      xOut = zOut = e + yd
       yokeLevels.forEach((y, i) => {
-        pairOffsets(inp.yoke.count, yb).forEach((off, ko) => {
-          for (let h = 0; h < 2; h++)
-            for (let k = 0; k < M; k++)
-              parts.push({ ...onFace(`rib-${i}-${h}-${k}-${ko}`, 'yoke', yKind, h * Math.PI + ((k + 0.5) * Math.PI) / M, rr, 0, y + off, [seg, yb, yd]), piece: { id: `rib-${i}-${h}-${ko}`, lengthM: Math.PI * rr } })
-        })
-        // bolts across the two joints
-        for (const sx of [1, -1])
-          for (let j = 0; j < nb; j++) {
-            const yy = y + (nb === 2 ? (j ? 1 : -1) * (pairH / 2) : 0)
-            parts.push(bolt(`ribbolt-${i}-${sx}-${j}`, [sx * rr, yy, -0.07], [sx * rr, yy, 0.07]))
+        pairOffsets(inp.yoke.count, yb).forEach((off, k) => {
+          for (const s of [1, -1]) {
+            parts.push({ id: `yokeC${s}-${i}-${k}`, group: 'yoke', kind: yKind, shape: 'box', center: [s * (e + yd / 2), y + off, 0], size: [yd, yb, 2 * zOut + 0.1] })
+            parts.push({ id: `yokeCS${s}-${i}-${k}`, group: 'yoke', kind: yKind, shape: 'box', center: [0, y + pairH + off, s * (e + yd / 2)], size: [2 * xOut + 0.1, yb, yd] })
           }
+        })
+        for (const sx of [1, -1]) for (const sz of [1, -1]) parts.push(bolt(`bolt-${i}-${sx}${sz}`, [sx * (xOut + 0.03), y - 0.02, sz * (zOut + 0.03)], [sx * (xOut + 0.03), y + 2 * pairH + 0.02, sz * (zOut + 0.03)]))
       })
-      xOut = zOut = r + ply + yd
     } else if (shape.system === 'steel') {
       const t = 0.004
       const M = 12
@@ -496,7 +491,7 @@ function shapedColumnModel(inp: ColumnInput, d: ColumnDesign, shape: Exclude<Col
     { key: 'b', label, position: [F / 2, H + 0.05, 0], axis: [1, 0, 0], value: F / 2, min: 0.075, max: 1.5, step: 0.025 },
   ]
   if (yokeLevels.length > 1)
-    handles.push({ key: 'yokeSpacing', label: shape.kind === 'circle' ? 'ระยะริบ' : 'ระยะคานรัด', position: [xOut + 0.15, yokeLevels[1], 0], axis: [0, 1, 0], value: yokeLevels[1] - yokeLevels[0], min: 0.1, max: 1.5, step: 0.05 })
+    handles.push({ key: 'yokeSpacing', label: 'ระยะคานรัด', position: [xOut + 0.15, yokeLevels[1], 0], axis: [0, 1, 0], value: yokeLevels[1] - yokeLevels[0], min: 0.1, max: 1.5, step: 0.05 })
   return { parts, handles, bounds: bounds(parts) }
 }
 

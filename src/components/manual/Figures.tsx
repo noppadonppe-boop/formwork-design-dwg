@@ -346,6 +346,77 @@ export function FootingFigure() {
   )
 }
 
+/** Regular n-gon of apothem a (flats on top and bottom) about (cx, cy) as an SVG points string. */
+const ngon = (n: number, a: number, cx: number, cy: number) => {
+  const R = a / Math.cos(Math.PI / n)
+  return Array.from({ length: n }, (_, k) => {
+    const t = Math.PI / 2 + Math.PI / n + (2 * Math.PI * k) / n
+    return `${(cx + R * Math.cos(t)).toFixed(1)},${(cy + R * Math.sin(t)).toFixed(1)}`
+  }).join(' ')
+}
+
+export function ColumnShapesFigure() {
+  const L = useL()
+  const id = 'csh'
+  const r = 52
+  const st = 7 // staves
+  const e = (r + st) * Math.SQRT1_2 // yoke boards meet on the circle at 45°
+  const bw = 26 // board width
+  const N = 22
+  return (
+    <svg {...svgProps(660, 250, L('แปลนแบบหล่อเสากลม แปดเหลี่ยม และหกเหลี่ยม', 'Plans of round, octagonal and hexagonal column forms', '圆柱、八边形柱与六边形柱模板平面'))}>
+      <Defs id={id} />
+      {/* round: staves in a square frame of cut-out boards */}
+      <g transform="translate(110 112)">
+        {[1, -1].map((s) => (
+          <g key={s}>
+            <rect x={s > 0 ? e : -e - bw} y={-e - bw - 8} width={bw} height={2 * (e + bw) + 16} fill={C.tim} stroke={C.timLine} />
+            <rect x={-e - bw - 8} y={s > 0 ? e : -e - bw} width={2 * (e + bw) + 16} height={bw} fill={C.tim} stroke={C.timLine} />
+          </g>
+        ))}
+        {Array.from({ length: N }, (_, k) => (
+          <rect key={k} x={-4.6} y={r} width={9.2} height={st} fill={C.ply} stroke={C.plyLine} strokeWidth="0.8" transform={`rotate(${(360 * k) / N})`} />
+        ))}
+        <circle r={r} fill={`url(#${id}-hatch)`} stroke={C.concLine} />
+      </g>
+      {/* octagon: box of yokes with corner fillers */}
+      <g transform="translate(330 112)">
+        <rect x={-73} y={-73} width={146} height={146} fill={C.tim} stroke={C.timLine} strokeDasharray="3 2" />
+        {[1, -1].map((s) => (
+          <g key={s}>
+            <rect x={s > 0 ? 73 : -83} y={-92} width={10} height={184} fill={C.tim} stroke={C.timLine} />
+            <rect x={-92} y={s > 0 ? 73 : -83} width={184} height={10} fill={C.tim} stroke={C.timLine} />
+          </g>
+        ))}
+        <polygon points={ngon(8, 58, 0, 0)} fill={C.ply} stroke={C.plyLine} />
+        <polygon points={ngon(8, 52, 0, 0)} fill={`url(#${id}-hatch)`} stroke={C.concLine} />
+      </g>
+      {/* hexagon: ring of yokes along the faces */}
+      <g transform="translate(550 112)">
+        <polygon points={ngon(6, 66, 0, 0)} fill="none" stroke={C.timLine} strokeWidth="13" strokeLinejoin="miter" />
+        <polygon points={ngon(6, 66, 0, 0)} fill="none" stroke={C.tim} strokeWidth="11" strokeLinejoin="miter" />
+        <polygon points={ngon(6, 58, 0, 0)} fill={C.ply} stroke={C.plyLine} />
+        <polygon points={ngon(6, 52, 0, 0)} fill={`url(#${id}-hatch)`} stroke={C.concLine} />
+        {ngon(6, 72, 0, 0)
+          .split(' ')
+          .map((p) => (
+            <circle key={p} cx={p.split(',')[0]} cy={p.split(',')[1]} r="3.2" fill={C.steelLine} />
+          ))}
+      </g>
+      <g fontSize="12.5" textAnchor="middle" fill={C.ink}>
+        <text x="110" y="226">{L('ไม้ระแนง + คานรัดเจาะโค้ง', 'Staves + cut-out yoke boards', '木条 + 开弧形口柱箍板')}</text>
+        <text x="330" y="226">{L('กรอบคานรัด + ไม้อุดมุม', 'Box of yokes + corner fillers', '矩形柱箍框 + 角部填块')}</text>
+        <text x="550" y="226">{L('คานรัดวงแหวนตามรูป', 'Ring of yokes along the faces', '沿边环形柱箍')}</text>
+      </g>
+      <g fontSize="11" textAnchor="middle" fill={C.muted} className="num">
+        <text x="110" y="243">F = wD/2 · M = wD²/8</text>
+        <text x="330" y="243">{L('= เสาสี่เหลี่ยม F × F', '= F × F rectangle', '= F × F 矩形柱')}</text>
+        <text x="550" y="243">T = wF/2 · M = wa²/8</text>
+      </g>
+    </svg>
+  )
+}
+
 // ---------------------------------------------------------------- mechanics
 
 export function ContinuousBeamFigure() {

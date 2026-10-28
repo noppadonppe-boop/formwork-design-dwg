@@ -6,7 +6,7 @@ import clsx from 'clsx'
 import { BookOpen, Languages, Lightbulb, TriangleAlert } from 'lucide-react'
 import { type ReactNode, useEffect, useState } from 'react'
 import { PressureDiagram } from '@/components/design/PressureDiagram'
-import { BeamSectionFigure, BucklingFigure, ContinuousBeamFigure, Figure, FootingFigure, LoadPathFigure, SlabSystemFigure, TieAreaFigure, WallSectionFigure } from '@/components/manual/Figures'
+import { BeamSectionFigure, BucklingFigure, ColumnShapesFigure, ContinuousBeamFigure, Figure, FootingFigure, LoadPathFigure, SlabSystemFigure, TieAreaFigure, WallSectionFigure } from '@/components/manual/Figures'
 import { RatioBar, StatusBadge } from '@/components/ui'
 import { REPORT_LANG_LABEL } from '@/data/types'
 import { fmt, MATERIALS, TIES } from '@/engine'
@@ -40,6 +40,7 @@ const toc = (L: Lfn): [string, string, [string, string][]?][] => [
       ['th-ties', L('Form tie', 'Form ties', '对拉螺栓')],
       ['th-shores', L('เสาค้ำและการโก่งเดาะ', 'Shores and buckling', '立杆与屈曲')],
       ['th-braces', L('ค้ำยันแบบ', 'Form bracing', '模板斜撑')],
+      ['th-column-shapes', L('เสากลมและเสาหลายเหลี่ยม', 'Round and polygonal columns', '圆柱与多边形柱')],
       ['th-beam', L('แบบหล่อคาน', 'Beam forms', '梁模板')],
       ['th-footing', L('แบบหล่อฐานราก', 'Footing forms', '基础模板')],
       ['th-materials', L('ค่าวัสดุ', 'Material values', '材料参数')],
@@ -887,6 +888,66 @@ export function ManualPage() {
           >
             {L('F = H × ระยะค้ำยัน / cos θ / จำนวนระดับ ≤ Fa·A', 'F = H × brace spacing / cos θ / number of levels ≤ Fa·A', 'F = H × 斜撑间距 / cos θ / 层数 ≤ Fa·A')}
           </Formula>
+
+          <H3 id="th-column-shapes">{L('เสากลมและเสาหลายเหลี่ยม', 'Round and polygonal columns', '圆柱与多边形柱')}</H3>
+          <p>
+            {L(
+              <>
+                ในกลุ่ม <b>ขนาดเสา</b> เลือกรูปหน้าตัดได้ 4 แบบ: สี่เหลี่ยม (b × h) กลม (กรอก D) หกเหลี่ยมและแปดเหลี่ยม (กรอก F = ระยะข้ามด้านแบน ระบบแสดงยาวด้าน a ให้) แรงดันคอนกรีตคิดด้วยความหนา d = D หรือ F
+              </>,
+              <>
+                In the <b>Column size</b> group pick one of four sections: rectangle (b × h), round (enter D), hexagon or octagon (enter F, the distance across the flats; the side a is shown). The concrete pressure uses d = D or F.
+              </>,
+              <>
+                在 <b>柱尺寸</b> 中可选 4 种截面:矩形(b × h)、圆形(输入 D)、六边形和八边形(输入 F = 对边距离,系统显示边长 a)。混凝土侧压力按 d = D 或 F 计算。
+              </>,
+            )}
+          </p>
+          <Figure title={L('ระบบแบบหล่อที่ระบบคำนวณ', 'Form systems the calculator designs', '系统计算的模板体系')} caption={L('ตามรูป 9.2 และตัวอย่าง 9.2', 'after Fig 9.2 and Example 9.2', '依据图 9.2 与例 9.2')}>
+            <ColumnShapesFigure />
+          </Figure>
+          <Table
+            head={L(['หน้าตัด', 'ระบบแบบหล่อ', 'สิ่งที่ตรวจ'], ['Section', 'Form system', 'What is checked'], ['截面', '模板体系', '验算内容'])}
+            rows={L(
+              [
+                ['กลม', 'ไม้ระแนงตั้ง + กรอบคานรัดไม้กระดานกว้างเจาะโค้ง (ค่าเริ่มต้น 1"×10")', 'ระแนงเป็นคานต่อเนื่องระหว่างคานรัด · คานรัดแต่ละแผ่นช่วง D: F = wD/2, M = wD²/8 บนหน้าตัดสุทธิที่รอยเจาะ'],
+                ['กลม', 'แบบเหล็กสำเร็จรูป 2 ซีก', 'แรงดัน ≤ ค่าที่ผู้ผลิตรับรอง · สลักปีกแบบ T = P × D/2 × ระยะสลัก'],
+                ['กลม', 'ท่อกระดาษ', 'แรงดัน ≤ ค่าที่ผู้ผลิตรับรอง'],
+                ['หก/แปดเหลี่ยม', 'กรอบคานรัดสี่เหลี่ยม + ไม้อุดมุม (ค่าเริ่มต้น)', 'เหมือนเสาสี่เหลี่ยมขนาดเท่ากรอบ (แปดเหลี่ยม F × F, หกเหลี่ยม 2R × F) ใช้ไทร์ได้'],
+                ['หก/แปดเหลี่ยม', 'คานรัดวงแหวนตามรูป', 'แต่ละด้านช่วง a: M = wa²/8 ร่วมกับแรงดึง T = wF/2 · ไม่ใช้ไทร์'],
+              ],
+              [
+                ['Round', 'Vertical staves + a frame of wide boards cut out to the circle (default 1"×10")', 'Staves as a continuous beam between yokes · each yoke board spans D: F = wD/2, M = wD²/8 on the net section at the cut-out'],
+                ['Round', 'Ready-made steel form in two halves', 'Pressure ≤ maker rating · flange bolts T = P × D/2 × bolt spacing'],
+                ['Round', 'Cardboard tube', 'Pressure ≤ maker rating'],
+                ['Hexagon/octagon', 'Box of yokes + corner fillers (default)', 'As a rectangular column the size of the box (octagon F × F, hexagon 2R × F); ties allowed'],
+                ['Hexagon/octagon', 'Ring of yokes along the faces', 'Each face spans a: M = wa²/8 with tension T = wF/2 · no ties'],
+              ],
+              [
+                ['圆形', '竖向木条 + 开弧形口的宽木板柱箍框(默认 1"×10")', '木条按柱箍间连续梁 · 每块柱箍板跨度 D:F = wD/2, M = wD²/8,按开口处净截面'],
+                ['圆形', '两半式定型钢模板', '压力 ≤ 厂家额定值 · 法兰螺栓 T = P × D/2 × 螺栓间距'],
+                ['圆形', '纸管模板', '压力 ≤ 厂家额定值'],
+                ['六/八边形', '矩形柱箍框 + 角部填块(默认)', '按与框同尺寸的矩形柱计算(八边形 F × F,六边形 2R × F),可用对拉螺栓'],
+                ['六/八边形', '沿边环形柱箍', '每边跨度 a:M = wa²/8 并受拉 T = wF/2 · 不用对拉螺栓'],
+              ],
+            )}
+          />
+          <Formula
+            note={L(
+              'ค่าเริ่มต้น: ขอบในของไม้ 4 ด้านพบกันบนวงกลมที่ 45° · r₀ = D/2 + ความหนาระแนง · กรอกเองได้ในช่อง “ความลึกสุทธิที่รอยเจาะ”',
+              'Default: the inner edges of the four boards meet on the circle at 45° · r₀ = D/2 + stave thickness · enter your own in “Net depth at the cut-out”',
+              '默认:四块板内边在圆上 45° 处相交 · r₀ = D/2 + 木条厚度 · 可在“开口处净高”中自行输入',
+            )}
+          >
+            {L('ความลึกสุทธิ = กว้างไม้ − r₀(1 − cos 45°)', 'net depth = board width − r₀(1 − cos 45°)', '净高 = 板宽 − r₀(1 − cos 45°)')}
+          </Formula>
+          <Tip warn>
+            {L(
+              'ไม้อัดดัดโค้งได้เฉพาะรัศมีใหญ่ (หนา 18 มม. ต้อง R ≥ 3.6 ม.) เสากลมจึงใช้ระแนงหรือไม้อัดตัดเป็นแถบ · ค่าแรงดันที่ผู้ผลิตรับรองของแบบเหล็ก/ท่อกระดาษเป็นค่าตัวอย่าง ต้องกรอกค่าจริงของผลิตภัณฑ์ที่ใช้',
+              'Plywood only bends to large radii (18 mm needs R ≥ 3.6 m), so a round column uses staves or plywood cut into strips · the rated pressure of a steel form or tube is a placeholder — enter the figure of the product used',
+              '胶合板只能弯成大半径(18 mm 需 R ≥ 3.6 m),所以圆柱采用木条或切成条的胶合板 · 钢模板/纸管的额定压力为示例值,须输入所用产品的实际数值',
+            )}
+          </Tip>
 
           <H3 id="th-beam">{L('แบบหล่อคาน', 'Beam forms', '梁模板')}</H3>
           <div className="grid grid-cols-1 items-start gap-4">

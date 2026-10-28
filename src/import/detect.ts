@@ -186,7 +186,7 @@ export function detect(d: DxfDrawing, roles: Record<string, Role>, opt: DetectOp
     const r2 = (v: number) => Math.round(v * 100) / 100
     switch (t) {
       case 'column':
-        items.push({ type: t, code: best?.code, shapeId: s.id, dims: { b: r2(s.short), h: r2(s.long), height: r2(opt.storeyH - opt.slabT) }, ...(s.kind === 'circle' ? { round: true, note: 'เสากลม — แบบหล่อไม้ระแนงตั้ง + ริบโค้ง' } : {}) })
+        items.push({ type: t, code: best?.code, shapeId: s.id, dims: { b: r2(s.short), h: r2(s.long), height: r2(opt.storeyH - opt.slabT) }, ...(s.kind === 'circle' ? { round: true, note: 'เสากลม — แบบหล่อไม้ระแนงตั้ง + คานรัดเจาะโค้ง' } : {}) })
         break
       case 'wall':
         items.push({ type: t, code: best?.code, shapeId: s.id, dims: { thickness: r2(s.short), length: r2(s.long), height: r2(opt.storeyH - opt.slabT) } })

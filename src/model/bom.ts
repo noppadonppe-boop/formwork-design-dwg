@@ -132,8 +132,8 @@ function partSpec(el: ElementData, p: Part): Spec | undefined {
   }
   const sm = pick()
   if (!sm) return undefined
-  const role = p.id.startsWith('rib')
-    ? 'ริบโค้งครึ่งวง'
+  const role = p.id.startsWith('yokeC')
+    ? 'คานรัดเจาะโค้ง'
     : g === 'stake'
       ? p.id.startsWith('kick')
         ? 'หลักตีนเคร่า'

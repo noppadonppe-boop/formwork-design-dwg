@@ -62,10 +62,10 @@ export function elementViews(el: ElementData, run: AnyDesign): { a: DrawingSpec;
     planDims.push(...(tieZ.length ? chain('v', tieZ.map((z) => -z), ext + 0.2) : []), ...(tieX.length ? chain('h', tieX, -extZ - 0.2) : []))
     const levels = d.layout.yokeLevels
     const elev: Dim[] = [...(levels.length ? chain('v', [0, ...levels, i.height], m.bounds.min[0] - 0.2) : [{ dir: 'v' as const, a: 0, b: i.height, at: m.bounds.min[0] - 0.2, text: `H = ${i.height.toFixed(2)}` }]), { dir: 'h', a: -cx / 2, b: cx / 2, at: i.height + 0.3, text: `${Math.round(cx * 100)}` }]
-    const what = round ? (shape.system === 'stave' ? 'ระแนง ริบโค้ง และสลัก' : shape.system === 'steel' ? 'แบบเหล็กและสลักปีก' : 'ท่อกระดาษ') : 'คานรัด เคร่า และไทร์'
+    const what = round ? (shape.system === 'stave' ? 'ระแนงและคานรัดเจาะโค้ง' : shape.system === 'steel' ? 'แบบเหล็กและสลักปีก' : 'ท่อกระดาษ') : 'คานรัด เคร่า และไทร์'
     return {
       a: { model: plan, view: 'top', dims: planDims, title: `แปลนเสา${shape.kind === 'rect' ? '' : SHAPE_NAME[shape.kind === 'circle' ? 'circle' : shape.n]} (Plan) — ${what} (ซม.)` },
-      b: { model: m, view: 'front', dims: elev, title: round && shape.system === 'stave' ? 'รูปด้านเสา (Elevation) — ระยะริบ (ซม.)' : 'รูปด้านเสา (Elevation) — ระยะคานรัด (ซม.)' },
+      b: { model: m, view: 'front', dims: elev, title: 'รูปด้านเสา (Elevation) — ระยะคานรัด (ซม.)' },
     }
   }
   if (el.type === 'slab' && run.type === 'slab') {

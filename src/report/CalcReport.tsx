@@ -126,7 +126,7 @@ function members(el: ElementData): MemberRow[] {
       return [
         { role: staves ? 'ไม้ระแนงตั้ง' : 'แผ่นผิวแบบ', materialId: i.sheathing.materialId, note: i.sheathing.type === 'plywood' ? `หนา ${i.sheathing.thicknessMm} มม.` : `ไม้กระดานหนา ${i.sheathing.thicknessCm} ซม.` },
         ...(i.sheathing.type === 'plywood' && i.stud && !staves ? [{ role: 'เคร่าตั้ง', sectionId: i.stud.sectionId, materialId: i.stud.materialId }] : []),
-        { role: staves ? 'ริบโค้งครึ่งวง' : 'คานรัดแบบ', sectionId: i.yoke.sectionId, materialId: i.yoke.materialId, note: i.yoke.count === 2 ? 'หน้าตัดคู่' : 'เดี่ยว' },
+        { role: staves ? 'คานรัดเจาะโค้ง' : 'คานรัดแบบ', sectionId: i.yoke.sectionId, materialId: i.yoke.materialId, note: i.yoke.count === 2 ? 'หน้าตัดคู่' : 'เดี่ยว' },
         brace,
       ]
     }
@@ -187,10 +187,10 @@ function columnTieText(tie: Extract<ElementData, { type: 'column' }>['input']['t
   return [s.long > 1 ? `${s.long - 1} แถว ผ่านด้านยาว` : '', s.short > 1 ? `${s.short - 1} แถว ผ่านด้านสั้น` : ''].filter(Boolean).join(' · ')
 }
 
-/** Does the column use the form tie: ties through it, or as the bolts of a round form's ribs / steel flanges. */
+/** Does the column use the form tie: ties through it, or as the flange bolts of a round steel form. */
 function columnBolted(i: Extract<ElementData, { type: 'column' }>['input']): boolean {
   const s = columnShapeOf(i)
-  if (s.kind === 'circle') return s.system !== 'tube'
+  if (s.kind === 'circle') return s.system === 'steel'
   return i.tie.enabled && !(s.kind === 'polygon' && s.yoke === 'ring')
 }
 

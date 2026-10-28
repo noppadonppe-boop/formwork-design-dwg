@@ -22,6 +22,7 @@ import {
   type ColumnInput,
   type ColumnShape,
   columnShapeOf,
+  cutYokeNetCm,
   plywoodBendRadius,
   POLYGON_YOKE_LABEL,
   polygonDims,
@@ -298,7 +299,7 @@ function ColumnFields({ inp, set }: { inp: ColumnInput; set: (fn: (i: ColumnInpu
             onChange={(v) => set((i) => ({ ...i, shape: { ...poly, yoke: v } }))}
           />
         )}
-        {round?.system === 'stave' && <p className="text-xs text-slate-500">ไม้อัดหนา 18 มม. ดัดโค้งได้ที่รัศมี ≥ {plywoodBendRadius(18)} ม. เสากลมจึงใช้ไม้ระแนงตั้ง (หรือไม้อัดตัดเป็นแถบ) รัดด้วยริบโค้งครึ่งวง</p>}
+        {round?.system === 'stave' && <p className="text-xs text-slate-500">ไม้อัดหนา 18 มม. ดัดโค้งได้ที่รัศมี ≥ {plywoodBendRadius(18)} ม. เสากลมจึงใช้ไม้ระแนงตั้ง (หรือไม้อัดตัดเป็นแถบ) รัดด้วยกรอบคานรัดไม้กระดานกว้างเจาะโค้งตามวงกลม ตอกลิ่มที่มุม (ตัวอย่าง 9.2)</p>}
         {poly && !ring && <p className="text-xs text-slate-500">คานรัดเป็นกรอบสี่เหลี่ยมรอบเสา ไม้อุดมุมหนุนด้านเอียง 4 ด้าน คำนวณคานรัดแบบเสาสี่เหลี่ยมขนาดเท่ากรอบ</p>}
         {ring && <p className="text-xs text-slate-500">คานรัดวิ่งตามทุกด้าน ต่อมุมด้วยเหล็กประกับ + น็อต รับแรงดึง T = w·F/2 ไม่ต้องใช้ Form tie</p>}
       </Group>
@@ -375,16 +376,24 @@ function ColumnTimberFields({ inp, set }: { inp: ColumnInput; set: (fn: (i: Colu
           <NumField label="ระยะเคร่า" unit="ซม." optional placeholder="อัตโนมัติ" value={inp.stud.spacingCm} min={5} max={100} onChange={(v) => set((i) => ({ ...i, stud: { ...i.stud!, spacingCm: v } }))} />
         </Group>
       )}
-      <Group title={staves ? 'ริบโค้งรัดแบบ (Hoop ribs)' : 'คานรัดแบบ (Yokes)'} part="yoke">
-        <MemberPicker label={staves ? 'ริบ' : 'คานรัด'} sectionId={inp.yoke.sectionId} materialId={inp.yoke.materialId} onChange={(v) => set((i) => ({ ...i, yoke: { ...i.yoke, ...v } }))} />
+      <Group title={staves ? 'คานรัดเจาะโค้ง (Yokes)' : 'คานรัดแบบ (Yokes)'} part="yoke">
+        <MemberPicker label={staves ? 'ไม้คานรัด (เจาะโค้ง)' : 'คานรัด'} sectionId={inp.yoke.sectionId} materialId={inp.yoke.materialId} onChange={(v) => set((i) => ({ ...i, yoke: { ...i.yoke, ...v } }))} />
         <Segmented label="จำนวนต่อชุด" value={String(inp.yoke.count) as '1' | '2'} options={[{ value: '1', label: 'เดี่ยว' }, { value: '2', label: 'หน้าตัดคู่' }]} onChange={(v) => set((i) => ({ ...i, yoke: { ...i.yoke, count: Number(v) as 1 | 2 } }))} />
-        <NumField label={staves ? 'ระยะริบ c/c' : 'ระยะคานรัด c/c'} unit="ซม." optional placeholder="อัตโนมัติ" value={inp.yoke.spacingCm} min={10} max={150} onChange={(v) => set((i) => ({ ...i, yoke: { ...i.yoke, spacingCm: v } }))} />
+        <NumField label="ระยะคานรัด c/c" unit="ซม." optional placeholder="อัตโนมัติ" value={inp.yoke.spacingCm} min={10} max={150} onChange={(v) => set((i) => ({ ...i, yoke: { ...i.yoke, spacingCm: v } }))} />
+        {shape.kind === 'circle' && (
+          <NumField
+            label="ความลึกสุทธิที่รอยเจาะ"
+            unit="ซม."
+            optional
+            placeholder={cutYokeNetCm(getSection(inp.yoke.sectionId).H, inp.b * 50 + (sh.type === 'plywood' ? sh.thicknessMm / 10 : sh.thicknessCm)).toFixed(1)}
+            hint="เว้นว่าง = ขอบในของไม้ 4 ด้านพบกันบนวงกลมที่ 45°"
+            value={shape.netCm}
+            min={3}
+            max={60}
+            onChange={(v) => set((i) => ({ ...i, shape: { ...shape, netCm: v } }))}
+          />
+        )}
       </Group>
-      {staves && (
-        <Group title="สลักยึดรอยต่อริบ" part="tie">
-          <TieSelect value={inp.tie.tieId} onChange={(v) => set((i) => ({ ...i, tie: { ...i.tie, tieId: v } }))} />
-        </Group>
-      )}
       {!staves && !ring && <ColumnTieGroup inp={inp} set={set} />}
     </>
   )

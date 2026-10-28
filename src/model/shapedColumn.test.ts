@@ -1,8 +1,8 @@
 // 3D model and BOM of round and polygonal columns.
 import { describe, expect, it } from 'vitest'
-import { newElement, runDesign } from '@/data/elements'
+import { newElement, runDesign, withRoundForm } from '@/data/elements'
 import { DEFAULT_CRITERIA, type ElementData } from '@/data/types'
-import { type ColumnShape, polygonDims } from '@/engine'
+import { type ColumnInput, type ColumnShape, polygonDims } from '@/engine'
 import { concreteVolume, elementBom } from './bom'
 import { boxPoints, type BoxPart } from './formModel'
 
@@ -16,17 +16,17 @@ function column(shape: ColumnShape, patch: Partial<Extract<ElementData, { type: 
 const line = (lines: ReturnType<typeof elementBom>['lines'], text: string) => lines.find((l) => l.description.includes(text))
 
 describe('round column model', () => {
-  const c = column({ kind: 'circle', system: 'stave' }, { sheathing: { type: 'board', materialId: 'timber-yang', thicknessCm: 2.5 } })
+  const c = column({ kind: 'circle', system: 'stave' }, { yoke: withRoundForm(newElement('column', DEFAULT_CRITERIA, []).input as ColumnInput).yoke, sheathing: { type: 'board', materialId: 'timber-yang', thicknessCm: 2.5 } })
 
   it('concrete volume is πD²/4 × H (to the 36-gon)', () => {
     expect(concreteVolume(c.model)).toBeCloseTo((Math.PI * 0.36 * 3) / 4, 2)
   })
 
-  it('one stave per design stave, each ring rib counted as two half-ring pieces', () => {
+  it('one stave per design stave, a square frame of 4 cut-out yoke boards per level', () => {
     expect(c.model.parts.filter((p) => p.id.startsWith('stave')).length).toBe(c.run.design.layout.staves)
-    const rib = line(c.lines, 'ริบโค้งครึ่งวง')!
-    expect(rib.qty).toBe(c.run.design.layout.yokeLevels.length * 2 * c.el.input.yoke.count)
-    expect(rib.lengthM).toBeGreaterThan(Math.PI * 0.3)
+    const yokes = line(c.lines, 'คานรัดเจาะโค้ง')!
+    expect(yokes.qty).toBe(c.run.design.layout.yokeLevels.length * 4 * c.el.input.yoke.count)
+    expect(yokes.description).toContain('1"×10"')
   })
 
   it('steel form: two halves; tube: one piece', () => {

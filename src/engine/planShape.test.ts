@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest'
 import { designColumn, type ColumnInput } from './column'
 import { DEFAULT_BRACE } from './design'
-import { getMaterial, getTie } from './materials'
+import { getMaterial } from './materials'
 import { columnSection, plywoodBendRadius, polygonBox, polygonDims, polygonFaces } from './planShape'
 import { multiple, timber } from './sections'
 
@@ -84,24 +84,42 @@ describe('octagon / hexagon column', () => {
 })
 
 describe('round column', () => {
-  const stave: ColumnInput = { ...base, b: 0.5, h: 0.5, shape: { kind: 'circle', system: 'stave' }, sheathing: { type: 'board', materialId: 'timber-yang', thicknessCm: 2.5 }, yoke: { ...base.yoke, count: 1 } }
+  const stave: ColumnInput = { ...base, b: 0.5, h: 0.5, shape: { kind: 'circle', system: 'stave' }, sheathing: { type: 'board', materialId: 'timber-yang', thicknessCm: 2.5 }, yoke: { sectionId: 'timber-1x10', materialId: 'timber-yang', count: 1 } }
   const d = designColumn(stave)
 
-  it('ribs in hoop tension T = P × s × D/2, joints bolted', () => {
-    const s = d.layout.yokeSpacing
-    const T = d.pressure.Pmax * (s / 100) * 0.25
-    const tie = comp(d, 'tie')!
-    expect(tie.rows[0].demand * d.layout.boltsPerJoint!).toBeCloseTo(T, 6)
-    expect(tie.rows[0].capacity).toBe(getTie('tie-3/8').swl)
-    expect(comp(d, 'yoke')!.rows[0].demand).toBeCloseTo(T / timber(1.5, 3).A, 6)
+  it('Example 9.2: D 0.60, H 3.0, staves 1", yokes 1"×10" cut to 17.5 cm — P 6,740, yokes @25, σ 71 / 48', () => {
+    const ex92: ColumnInput = {
+      ...stave,
+      b: 0.6,
+      h: 0.6,
+      height: 3,
+      pressure: { method: 'CEB', R: 4, T: 30, slump: 10 },
+      shape: { kind: 'circle', system: 'stave', netCm: 17.5 },
+      yoke: { sectionId: 'timber-1x10', materialId: 'timber-yang', count: 1 },
+    }
+    const r = designColumn(ex92)
+    expect(r.pressure.Pmax).toBeCloseTo(6740, 0)
+    // staves: bending a = 35 cm; the yokes bring it down to 25 (book: "use 25")
+    expect(comp(r, 'sheathing')!.spacing!.max).toBeCloseTo(35, 0)
+    expect(r.layout.yokeSpacing).toBe(25)
+    const y = comp(r, 'yoke')!
+    expect(y.rows[0].demand).toBeCloseTo(71.0, 0) // book 70.7 (11.5 + 59.2)
+    expect(y.rows[1].demand).toBeCloseTo(47.9, 0) // book 48
+    expect(y.maxRatio).toBeLessThanOrEqual(1)
+    expect(comp(r, 'tie')).toBeUndefined()
+  })
+
+  it('yoke boards are cut ro(1 − cos 45°) deep by default', () => {
+    const net = comp(d, 'yoke')!.trace.steps.find((s) => s.label.startsWith('ความลึกสุทธิ'))!.value
+    const ro = 25 + 2.5
+    expect(net).toBeCloseTo(25 - ro * (1 - Math.SQRT1_2), 6)
     expect(d.status).not.toBe('fail')
   })
 
-  it('pressure uses D, staves no wider than 7.5 cm', () => {
+  it('pressure uses D, staves no wider than 7.5 cm, a square frame of 4 yokes per level', () => {
     expect(d.layout.staves).toBe(Math.ceil((Math.PI * 50) / 7.5))
     expect(d.quantities.studs).toBe(0)
-    expect(d.quantities.ribs).toBe(d.layout.yokeLevels.length * 2)
-    expect(d.quantities.bolts).toBe(d.layout.yokeLevels.length * 2 * d.layout.boltsPerJoint!)
+    expect(d.quantities.yokes).toBe(d.layout.yokeLevels.length * 4)
     expect(d.quantities.formArea).toBeCloseTo(Math.PI * 0.5 * 3.5, 6)
     expect(d.quantities.plywoodArea).toBe(0)
   })
@@ -129,5 +147,12 @@ describe('rectangle unchanged', () => {
     const b = designColumn({ ...base, b: 0.3, h: 1.2, shape: { kind: 'rect' } })
     expect(JSON.stringify(b.components.map((c) => c.rows))).toBe(JSON.stringify(a.components.map((c) => c.rows)))
     expect(b.quantities).toEqual(a.quantities)
+  })
+})
+
+describe('round column with a narrow yoke board', () => {
+  it('warns that the board is too narrow for its cut-out', () => {
+    const r = designColumn({ ...base, b: 0.5, h: 0.5, shape: { kind: 'circle', system: 'stave' }, sheathing: { type: 'board', materialId: 'timber-yang', thicknessCm: 2.5 } })
+    expect(r.warnings.some((w) => w.includes('แคบเกินไปสำหรับรอยเจาะโค้ง'))).toBe(true)
   })
 })

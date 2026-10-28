@@ -75,6 +75,10 @@ export const TIMBER_SIZES: [number, number][] = [
   [3, 3],
   [3, 4],
   [4, 4],
+  // wide boards — yokes of a round column, cut out to the circle (Ex 9.2)
+  [1, 8],
+  [1, 10],
+  [1, 12],
 ]
 
 export const PLYWOOD_THICKNESS = [10, 12, 15, 18, 20, 25]
