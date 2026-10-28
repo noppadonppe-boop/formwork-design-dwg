@@ -1,31 +1,40 @@
 // Data access. Firestore when configured, otherwise browser localStorage ("Local mode").
 import {
+  arrayUnion,
   collection,
-  deleteDoc,
   doc,
   type DocumentReference,
   getDoc,
   getDocs,
   increment,
   onSnapshot,
+  query,
   runTransaction,
   setDoc,
   type Transaction,
+  where,
+  type WriteBatch,
   writeBatch,
 } from 'firebase/firestore'
-import { unassignProjectEverywhere } from '@/auth/authService'
+import { userRef } from '@/auth/authService'
 import { CATEGORY, db, firebaseEnabled, rootRef } from '@/lib/firebase'
-import { ConflictError } from './conflict'
+import { ConflictError, DuplicateProjectNoError } from './conflict'
 import { deleteFile, type UploadedFile } from './files'
 import type { ElementData, FormElement, Project, ProjectData } from './types'
 
 export type Unsubscribe = () => void
 
+/** Projects a user may list: every project (`all`, MasterAdmin) or only those whose `members` hold `uid`. */
+export interface ProjectScope {
+  uid: string
+  all: boolean
+}
+
 export interface Repo {
-  /** every project — callers filter by the user's assignments (see useProjects) */
-  watchProjects(cb: (p: Project[]) => void, onError?: (e: Error) => void): Unsubscribe
+  watchProjects(scope: ProjectScope, cb: (p: Project[]) => void, onError?: (e: Error) => void): Unsubscribe
   watchProject(id: string, cb: (p: Project | null) => void): Unsubscribe
-  createProject(uid: string, data: ProjectData): Promise<string>
+  /** throws DuplicateProjectNoError if the number is taken; `assignTo`: the creator's email, to assign them the new project */
+  createProject(uid: string, data: ProjectData, assignTo?: string): Promise<string>
   /** `baseVersion`: the version the edit started from — throws ConflictError if someone saved since (unless `force`) */
   updateProject(id: string, data: Partial<ProjectData>, baseVersion?: number, force?: boolean): Promise<number>
   deleteProject(id: string): Promise<void>
@@ -41,6 +50,8 @@ export interface Repo {
 const newId = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`).replace(/-/g, '').slice(0, 20)
 const byUpdated = <T extends { updatedAt: number }>(a: T, b: T) => b.updatedAt - a.updatedAt
 const byCode = (a: FormElement, b: FormElement) => a.code.localeCompare(b.code, undefined, { numeric: true })
+/** projectNumbers document id: case-insensitive, and safe for any characters ('/' included) */
+export const projectNoKey = (projectNo: string) => `n_${encodeURIComponent(projectNo.trim().toLowerCase())}`
 export const versionOf = (d: object | null | undefined) => {
   const v = (d as { version?: unknown } | null | undefined)?.version
   return typeof v === 'number' ? v : 0
@@ -48,7 +59,8 @@ export const versionOf = (d: object | null | undefined) => {
 
 // ---------------------------------------------------------------- Firestore
 // RC-FormWork-Design-Web-App/root/users/{email}                    — ผู้ใช้ (src/auth/authService.ts)
-// RC-FormWork-Design-Web-App/root/projects/{pid}                   — โครงการ (same level as users)
+// RC-FormWork-Design-Web-App/root/projects/{pid}                   — โครงการ (same level as users); `members` = uids allowed in
+// RC-FormWork-Design-Web-App/root/projectNumbers/{key}             — projectNo → projectId (unique project numbers)
 // RC-FormWork-Design-Web-App/root/projects/{pid}/elements/{eid}    — ชิ้นส่วนของโครงการ
 // RC-FormWork-Design-Web-App/root/projects/{pid}/uploads/{fid}     — ไฟล์ของโครงการ (src/data/files.ts)
 // RC-FormWork-Design-Web-App/root/settings/{key}                   — ค่าตั้งของแต่ละเมนู
@@ -59,6 +71,7 @@ function firestoreRepo(): Repo {
   const projects = collection(rootRef!, CATEGORY.projects)
   const elements = (pid: string) => collection(projects, pid, CATEGORY.elements)
   const settings = collection(rootRef!, CATEGORY.settings)
+  const numberRef = (projectNo: string) => doc(rootRef!, CATEGORY.projectNumbers, projectNoKey(projectNo))
   const logError = (what: string) => (e: Error) => console.error(`Firestore ${what}:`, e)
 
   /** versioned update in a transaction; `extra` writes (e.g. touching the parent project) go in the same transaction */
@@ -74,9 +87,10 @@ function firestoreRepo(): Repo {
     })
 
   return {
-    watchProjects(cb, onError) {
+    watchProjects(scope, cb, onError) {
+      // firestore.rules only allow a list query that is itself limited to the user's own projects
       return onSnapshot(
-        projects,
+        scope.all ? projects : query(projects, where('members', 'array-contains', scope.uid)),
         (snap) => cb(snap.docs.map((d) => ({ ...(d.data() as Omit<Project, 'id'>), id: d.id })).sort(byUpdated)),
         (e) => onError?.(e),
       )
@@ -91,15 +105,38 @@ function firestoreRepo(): Repo {
         },
       )
     },
-    async createProject(uid, data) {
+    async createProject(uid, data, assignTo) {
       const id = newId()
       const now = Date.now()
       const p: Omit<Project, 'id'> = { ...data, ownerUid: uid, members: [uid], elementCount: 0, createdAt: now, updatedAt: now, version: 1 }
-      await setDoc(doc(projects, id), p)
+      await runTransaction(fs, async (tx) => {
+        if ((await tx.get(numberRef(data.projectNo))).exists()) throw new DuplicateProjectNoError(data.projectNo)
+        tx.set(doc(projects, id), p)
+        tx.set(numberRef(data.projectNo), { projectId: id, projectNo: data.projectNo, updatedAt: now })
+        if (assignTo) tx.update(userRef(assignTo), { assignedProjects: arrayUnion(id), version: increment(1) })
+      })
       return id
     },
     updateProject(id, data, baseVersion, force = false) {
-      return versioned(doc(projects, id), data, baseVersion, force)
+      const ref = doc(projects, id)
+      return runTransaction(fs, async (tx) => {
+        const cur = await tx.get(ref)
+        if (!cur.exists()) throw new Error('ไม่พบข้อมูล (อาจถูกลบไปแล้ว)')
+        const v = versionOf(cur.data())
+        if (!force && baseVersion !== undefined && v !== baseVersion) throw new ConflictError()
+        // a new project number moves its projectNumbers entry (all reads before the writes)
+        const oldNo = String(cur.data().projectNo ?? '')
+        const newNo = data.projectNo
+        if (newNo !== undefined && projectNoKey(newNo) !== projectNoKey(oldNo)) {
+          const taken = await tx.get(numberRef(newNo))
+          if (taken.exists() && taken.data().projectId !== id) throw new DuplicateProjectNoError(newNo)
+          const old = oldNo ? await tx.get(numberRef(oldNo)) : undefined
+          tx.set(numberRef(newNo), { projectId: id, projectNo: newNo, updatedAt: Date.now() })
+          if (old?.exists() && old.data().projectId === id) tx.delete(old.ref)
+        }
+        tx.update(ref, { ...data, version: v + 1, updatedAt: Date.now() })
+        return v + 1
+      })
     },
     async deleteProject(id) {
       // client-side cascade; batches of ≤ 500 writes
@@ -112,8 +149,15 @@ function firestoreRepo(): Repo {
       // project files: Storage objects + their records
       const files = await getDocs(collection(projects, id, CATEGORY.uploads))
       await Promise.all(files.docs.map((d) => deleteFile(d.data() as UploadedFile).catch((e) => console.error('delete file', e))))
-      await unassignProjectEverywhere(id).catch((e) => console.error('unassign project', e))
-      await deleteDoc(doc(projects, id))
+      const batch = writeBatch(fs)
+      const no = (await getDoc(doc(projects, id))).data()?.projectNo
+      if (typeof no === 'string' && no) {
+        const entry = await getDoc(numberRef(no))
+        if (entry.data()?.projectId === id) batch.delete(entry.ref)
+      }
+      batch.delete(doc(projects, id))
+      await batch.commit()
+      // users' assignedProjects and anything left behind are cleaned up by the onProjectDeleted function
     },
     watchElements(projectId, cb) {
       return onSnapshot(
@@ -181,6 +225,44 @@ export async function migrateLegacyData(): Promise<number> {
   return moved
 }
 
+/**
+ * Rebuilds every project's `members` from the users' `assignedProjects` (so access stays exactly what the admin
+ * assigned) and adds missing projectNumbers entries. MasterAdmin only; needed once for projects created before
+ * per-project rules, harmless to repeat. Returns the number of documents written.
+ */
+export async function syncProjectAccess(): Promise<number> {
+  if (!db || !rootRef) return 0
+  const [users, projects, numbers] = await Promise.all([
+    getDocs(collection(rootRef, 'users')),
+    getDocs(collection(rootRef, CATEGORY.projects)),
+    getDocs(collection(rootRef, CATEGORY.projectNumbers)),
+  ])
+  const members = new Map<string, Set<string>>()
+  for (const u of users.docs) {
+    const { uid, assignedProjects } = u.data()
+    if (typeof uid !== 'string' || !uid || !Array.isArray(assignedProjects)) continue
+    for (const pid of assignedProjects.map(String)) members.set(pid, (members.get(pid) ?? new Set()).add(uid))
+  }
+  const indexed = new Set(numbers.docs.map((d) => d.id))
+  const writes: ((b: WriteBatch) => void)[] = []
+  for (const p of projects.docs) {
+    const want = [...(members.get(p.id) ?? [])].sort()
+    const have = Array.isArray(p.data().members) ? p.data().members.map(String).sort() : []
+    if (want.join() !== have.join()) writes.push((b) => b.update(p.ref, { members: want }))
+    const no = p.data().projectNo
+    if (typeof no === 'string' && no.trim() && !indexed.has(projectNoKey(no))) {
+      indexed.add(projectNoKey(no))
+      writes.push((b) => b.set(doc(rootRef!, CATEGORY.projectNumbers, projectNoKey(no)), { projectId: p.id, projectNo: no, updatedAt: Date.now() }))
+    }
+  }
+  for (let i = 0; i < writes.length; i += 450) {
+    const batch = writeBatch(db)
+    writes.slice(i, i + 450).forEach((w) => w(batch))
+    await batch.commit()
+  }
+  return writes.length
+}
+
 // ---------------------------------------------------------------- localStorage
 
 interface LocalDb {
@@ -225,7 +307,7 @@ function localRepo(): Repo {
     if (p) d.projects[pid] = { ...p, updatedAt: Date.now(), elementCount: Math.max(0, p.elementCount + delta) }
   }
   return {
-    watchProjects(cb) {
+    watchProjects(_scope, cb) {
       return subscribe(() => cb(Object.values(load().projects).sort(byUpdated)))
     },
     watchProject(id, cb) {
@@ -233,6 +315,7 @@ function localRepo(): Repo {
     },
     async createProject(uid, data) {
       const d = load()
+      if (Object.values(d.projects).some((p) => projectNoKey(p.projectNo) === projectNoKey(data.projectNo))) throw new DuplicateProjectNoError(data.projectNo)
       const id = newId()
       const now = Date.now()
       d.projects[id] = { ...data, id, ownerUid: uid, members: [uid], elementCount: 0, createdAt: now, updatedAt: now, version: 1 }
@@ -244,6 +327,8 @@ function localRepo(): Repo {
       const p = d.projects[id]
       if (!p) throw new Error('ไม่พบโครงการ')
       if (!force && baseVersion !== undefined && versionOf(p) !== baseVersion) throw new ConflictError()
+      const no = data.projectNo
+      if (no !== undefined && Object.values(d.projects).some((o) => o.id !== id && projectNoKey(o.projectNo) === projectNoKey(no))) throw new DuplicateProjectNoError(no)
       const version = versionOf(p) + 1
       d.projects[id] = { ...p, ...data, updatedAt: Date.now(), version }
       save(d)

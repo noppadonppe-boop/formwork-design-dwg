@@ -3,15 +3,20 @@ import { useAuth } from '@/auth/AuthProvider'
 import { repo } from './repo'
 import type { FormElement, Project } from './types'
 
-/** Every project when `all` (user management), otherwise only those the user may open (assigned, or MasterAdmin). */
-export function useProjects({ all = false }: { all?: boolean } = {}) {
-  const { user, canAccessProject } = useAuth()
+/**
+ * Projects the user may open: every project with "project.viewAll" (MasterAdmin), otherwise the ones whose `members`
+ * hold the user — the query firestore.rules allows — and that are also in their assignedProjects (what the routes check).
+ */
+export function useProjects() {
+  const { user, can, canAccessProject } = useAuth()
+  const all = can('project.viewAll')
   const [projects, setProjects] = useState<Project[] | undefined>()
   const [error, setError] = useState<string>()
+  const uid = user?.uid
   useEffect(() => {
-    if (!user) return
-    return repo.watchProjects(setProjects, (e) => setError(e.message))
-  }, [user])
+    if (!uid) return
+    return repo.watchProjects({ uid, all }, setProjects, (e) => setError(e.message))
+  }, [uid, all])
   const visible = all ? projects : projects?.filter((p) => canAccessProject(p.id))
   return { projects: visible, loading: projects === undefined && !error, error }
 }

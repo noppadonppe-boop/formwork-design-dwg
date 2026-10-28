@@ -7,3 +7,13 @@ export class ConflictError extends Error {
 }
 
 export const isConflict = (e: unknown): e is ConflictError => e instanceof ConflictError
+
+/** Thrown when another project already uses the project number (checked against the projectNumbers index). */
+export class DuplicateProjectNoError extends Error {
+  constructor(projectNo: string) {
+    super(`เลขที่โครงการ “${projectNo}” ใช้แล้ว`)
+    this.name = 'DuplicateProjectNoError'
+  }
+}
+
+export const isDuplicateProjectNo = (e: unknown): e is DuplicateProjectNoError => e instanceof DuplicateProjectNoError

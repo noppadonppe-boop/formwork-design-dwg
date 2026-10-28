@@ -1,12 +1,35 @@
 rules_version = '2';
 
 // NOTE: Storage rules are one ruleset per bucket; merge with other apps' rules before deploying if they use this bucket.
+// Reading Firestore from these rules needs the Storage service agent's Firestore role — `firebase deploy` offers to grant it.
 service firebase.storage {
   match /b/{bucket}/o {
-    // FormWork Studio files — shared by every signed-in user (anonymous included), ≤ 50 MB each
-    match /RC-FormWork-Design-Web-App/root/{allPaths=**} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null && (request.resource == null || request.resource.size < 50 * 1024 * 1024);
+    // FormWork Studio files, per project — same access as the project's Firestore documents (see firestore.rules)
+    match /RC-FormWork-Design-Web-App/root/projects/{pid}/{allPaths=**} {
+      function fwMe() {
+        return firestore.get(/databases/(default)/documents/RC-FormWork-Design-Web-App/root/users/$(request.auth.token.email.lower())).data;
+      }
+
+      function fwApproved() {
+        return request.auth != null && fwMe().uid == request.auth.uid && fwMe().status == 'approved';
+      }
+
+      function fwRoles() {
+        return fwMe().get('roles', [fwMe().get('role', 'Staff')]);
+      }
+
+      function fwMember() {
+        return fwApproved() && (fwRoles().hasAny(['MasterAdmin'])
+          || request.auth.uid in firestore.get(/databases/(default)/documents/RC-FormWork-Design-Web-App/root/projects/$(pid)).data.get('members', []));
+      }
+
+      allow read: if fwMember();
+      // ≤ 50 MB, tagged with the uploader (src/data/files.ts)
+      allow create: if fwMember() && request.resource.size < 50 * 1024 * 1024
+        && request.resource.metadata.uploadedBy == request.auth.uid;
+      // own files, or any file with "files.manage" (MasterAdmin, Admin)
+      allow delete: if fwMember()
+        && (resource.metadata.get('uploadedBy', '') == request.auth.uid || fwRoles().hasAny(['MasterAdmin', 'Admin']));
     }
   }
 }

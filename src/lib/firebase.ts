@@ -24,7 +24,8 @@ const config = {
 
 /**
  * All app data lives under one shared document: RC-FormWork-Design-Web-App/root/{category}/…
- * Every signed-in user (anonymous included) reads and writes the same tree — nothing is split per user.
+ * Access is per project: firestore.rules lets a user open a project only when their uid is in its `members`
+ * (MasterAdmin sees every project), and gates each write by the user's roles.
  */
 export const ROOT_COLLECTION = 'RC-FormWork-Design-Web-App'
 export const ROOT_DOC = 'root'
@@ -34,6 +35,8 @@ export const CATEGORY = {
   elements: 'elements',
   uploads: 'uploads',
   settings: 'settings',
+  /** projectNo → projectId index, so project numbers stay unique without listing every project */
+  projectNumbers: 'projectNumbers',
 } as const
 
 let app: FirebaseApp | undefined

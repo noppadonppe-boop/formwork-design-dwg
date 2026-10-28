@@ -36,7 +36,8 @@ export async function uploadFile(
   if (!uploadsEnabled) throw new Error('ยังไม่ได้ตั้งค่า Firebase Storage')
   const id = newId()
   const path = `${ROOT_COLLECTION}/${ROOT_DOC}/${CATEGORY.projects}/${opts.projectId}/${opts.category}/${id}-${safeName(file.name)}`
-  const task = uploadBytesResumable(ref(storage!, path), file, { contentType: file.type || 'application/octet-stream' })
+  // uploadedBy lets storage.rules allow the uploader to delete their own file
+  const task = uploadBytesResumable(ref(storage!, path), file, { contentType: file.type || 'application/octet-stream', customMetadata: { uploadedBy: opts.uid } })
   await new Promise<void>((resolve, reject) =>
     task.on('state_changed', (s) => opts.onProgress?.(s.totalBytes ? s.bytesTransferred / s.totalBytes : 0), reject, () => resolve()),
   )

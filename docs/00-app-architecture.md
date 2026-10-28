@@ -58,7 +58,8 @@ Member options: plywood (thickness, grain direction), timber (species groups, no
 ## 4. Firestore data model
 
 **As built (2026-10-27).** Users and projects are siblings under one root document; each project keeps its own data
-in sub-collections. Who sees a project is decided by the user's `assignedProjects` (MasterAdmin sees all).
+in sub-collections. Who may open a project is the project's `members` (uids), checked by `firestore.rules`; the user's
+`assignedProjects` mirrors it for the UI and routes (MasterAdmin sees all).
 
 ```
 RC-FormWork-Design-Web-App/root/                     Firebase project rc-design-ecosystem
@@ -68,6 +69,8 @@ RC-FormWork-Design-Web-App/root/                     Firebase project rc-design-
      assignedProjects[], photoURL (Google), isFirstUser, createdAt, updatedAt, version
   appMeta/config
      firstUserRegistered, totalUsers, createdAt      first-user detection (transaction)
+  projectNumbers/{n_<encoded lower-case projectNo>}
+     projectId, projectNo, updatedAt                    unique project numbers without listing every project
   activityLogs/{id}
      action: REGISTER|LOGIN|LOGOUT|PROFILE_UPDATE|USER_UPDATE, uid, email, detail, userAgent, at
   projects/{projectId}
@@ -75,7 +78,7 @@ RC-FormWork-Design-Web-App/root/                     Firebase project rc-design-
      criteria { pressureMethod, verticalMethod, R, T, slump, gamma, vibrationFactor, liveLoad,
                 formWeight, deflectionRatio, deflectionAbsMm, checkTimberShear, windLoad, defaults {...} },
      shop { company, drawnBy, checkedBy, approvedBy, revisionNote, waste, reuse, prices[] },
-     elementCount, ownerUid (creator), members[], createdAt, updatedAt, version
+     elementCount, ownerUid (creator), members[] (uids allowed in), createdAt, updatedAt, version
     elements/{elementId}
        projectId, code (C1, B2…), type: footing|column|wall|beam|slab, name, level, qty,
        input {...type-specific}, result { status, maxRatio, pressure }, createdAt, updatedAt, version
@@ -88,12 +91,17 @@ RC-FormWork-Design-Web-App/root/                     Firebase project rc-design-
 
 `version` is bumped by every content save inside a transaction that checks the version the edit started from
 (`ConflictError` otherwise); element saves touch the project's `updatedAt` but not its `version`, so the project form
-never sees false conflicts. Projects are listed in full and filtered client-side by the user's assignments.
+never sees false conflicts. MasterAdmin lists every project; everyone else queries
+`where('members', 'array-contains', uid)` — the only project list query the rules allow.
 
 Storage mirrors Firestore: `RC-FormWork-Design-Web-App/root/projects/{projectId}/{attachments|imports}/{fileId}-{name}`.
-Project delete is a client-side cascade: elements (batched), files (object + `uploads` record), the project id in
-every user's `assignedProjects`, then the project. The earlier flat `root/elements` and `root/uploads` are moved under
-their projects once, when a MasterAdmin opens the app (`migrateLegacyData`, errors ignored).
+Project delete is a client-side cascade: elements (batched), files (object + `uploads` record), then the project and
+its `projectNumbers` entry. The Cloud Function `onProjectDeleted` then removes the id from every user's
+`assignedProjects` (the deleter may not edit other users) and anything left behind. Assigning projects in
+จัดการผู้ใช้งาน writes the user's `assignedProjects` and each project's `members` in one transaction. When a MasterAdmin
+opens the app, the earlier flat `root/elements` and `root/uploads` are moved under their projects
+(`migrateLegacyData`) and every project's `members` is rebuilt from the users' assignments, with missing
+`projectNumbers` entries added (`syncProjectAccess`).
 
 Roles (`src/auth/roles.ts`, union of permissions when a user has several):
 
@@ -107,10 +115,18 @@ Roles (`src/auth/roles.ts`, union of permissions when a user has several):
 | Estimator | BOM incl. settings and prices, report, library |
 | Staff | assigned projects (read-only), library |
 
-Security rules: Firestore `match /RC-FormWork-Design-Web-App/{document=**}` and Storage
-`match /RC-FormWork-Design-Web-App/root/{allPaths=**}` allow any signed-in user (Storage writes ≤ 50 MB). Roles,
-approval and project assignment are enforced by the app (routes, hidden actions), not by these rules. The
-Firestore ruleset is shared with the other apps in `rc-design-ecosystem` (its default is deny-all), so
+Security rules enforce multi-project access server-side (`firestore.rules`, block `RC-FormWork-Design-Web-App/root`;
+`storage.rules`; tests in `tests/rules`, `npm run test:rules` on the emulators):
+
+- the caller's profile is `users/{lower-case token email}`; it must be `approved` and its `uid` must be the caller's;
+- a project, its elements, uploads and Storage files are open only to its `members` (MasterAdmin: all);
+- writes need the role permission (`fwCan`, mirrors `ROLE_PERMISSIONS`): project fields → project.edit, `shop` →
+  bom.edit, `elementCount` → element.edit / import, delete → project.delete; only MasterAdmin changes `members`;
+- users edit only their name, position, department and photo; roles, status and projects only by MasterAdmin. A new
+  profile is pending Staff, except the first user (MasterAdmin, created with `appMeta/config` in one transaction);
+- Storage uploads carry `uploadedBy` metadata; files are deleted by their uploader or files.manage (≤ 50 MB each).
+
+The AI import function checks the same profile (approved + import). The Firestore ruleset is shared with the other apps in `rc-design-ecosystem` (its default is deny-all), so
 `firestore.rules` in this repo is the full live ruleset plus this block — always merge with the live rules before
 deploying. `aiUsage/{uid}` (AI import quota, top level) is written only by the Cloud Function and is closed to clients.
 

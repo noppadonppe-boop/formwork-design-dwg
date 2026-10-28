@@ -1,13 +1,18 @@
 // Cloud Functions for FormWork Studio.
 // readDrawing — reads a structural drawing with Claude for the AI import. The Anthropic API key lives in Secret
-// Manager (ANTHROPIC_API_KEY) and never reaches the browser; callers must be signed in and are limited per day.
+// Manager (ANTHROPIC_API_KEY) and never reaches the browser; callers must be approved users allowed to import, and
+// are limited per day.
+// onProjectDeleted — after a project is deleted, unassigns it from every user and removes what it left behind.
 import Anthropic from '@anthropic-ai/sdk'
 import { initializeApp } from 'firebase-admin/app'
 import { FieldValue, getFirestore } from 'firebase-admin/firestore'
+import { getStorage } from 'firebase-admin/storage'
 import { logger } from 'firebase-functions'
+import { onDocumentDeleted } from 'firebase-functions/firestore'
 import { HttpsError, onCall } from 'firebase-functions/https'
 import { defineInt, defineSecret, defineString } from 'firebase-functions/params'
 import { z } from 'zod'
+import { isRole, type Permission, permissionsOf } from '../../src/auth/roles'
 import { AI_MODELS, DRAWING_TYPES, scheduleProblem, scheduleRequest } from '../../src/import/aiSchedule'
 
 initializeApp()
@@ -16,6 +21,10 @@ const ANTHROPIC_API_KEY = defineSecret('ANTHROPIC_API_KEY')
 /** reads per user per day (UTC) */
 const AI_DAILY_LIMIT = defineInt('AI_DAILY_LIMIT', { default: 30 })
 const REGION = defineString('FUNCTIONS_REGION', { default: 'asia-southeast1' })
+/** Firestore triggers run where the (default) database is */
+const FIRESTORE_REGION = defineString('FIRESTORE_REGION', { default: 'asia-southeast3' })
+/** the web app's data tree (src/lib/firebase.ts) */
+const ROOT = 'RC-FormWork-Design-Web-App/root'
 
 const Input = z.object({
   /** base64 file content; callable payloads are capped at 10 MB */
@@ -24,6 +33,15 @@ const Input = z.object({
   model: z.enum(AI_MODELS.map((m) => m.id) as [string, ...string[]]),
   hint: z.string().max(2000).optional(),
 })
+
+/** The caller's FormWork profile must be approved, bound to this account and grant `perm` — as firestore.rules check. */
+async function requirePermission(auth: { uid: string; token: { email?: string } }, perm: Permission, denied: string) {
+  const email = auth.token.email?.toLowerCase()
+  if (!email) throw new HttpsError('permission-denied', denied)
+  const u = (await getFirestore().doc(`${ROOT}/users/${email}`).get()).data()
+  const roles = (Array.isArray(u?.roles) ? u.roles : [u?.role]).filter(isRole)
+  if (!u || u.uid !== auth.uid || u.status !== 'approved' || !permissionsOf(roles).has(perm)) throw new HttpsError('permission-denied', denied)
+}
 
 /** Count one read for `uid` today; throws when the daily limit is reached. Returns reads left. */
 async function takeQuota(uid: string, limit: number): Promise<number> {
@@ -54,6 +72,7 @@ export const readDrawing = onCall(
     if (!parsed.success) throw new HttpsError('invalid-argument', 'ข้อมูลไม่ถูกต้อง', parsed.error.issues.slice(0, 3))
     const { data, mediaType, model, hint } = parsed.data
     const uid = request.auth.uid
+    await requirePermission(request.auth, 'import', 'ไม่มีสิทธิ์นำเข้าแบบ — ติดต่อ Master Admin')
 
     const remaining = await takeQuota(uid, AI_DAILY_LIMIT.value())
     const client = new Anthropic({ apiKey: ANTHROPIC_API_KEY.value() })
@@ -86,3 +105,23 @@ export const readDrawing = onCall(
     }
   },
 )
+
+/**
+ * Clean-up after a project is deleted from the app: drops it from every user's assignedProjects (the deleter may not
+ * edit other users), removes its projectNumbers entry and whatever elements, uploads and Storage files are left.
+ */
+export const onProjectDeleted = onDocumentDeleted({ document: `${ROOT}/projects/{pid}`, region: FIRESTORE_REGION }, async (event) => {
+  const pid = event.params.pid
+  const db = getFirestore()
+  const [users, numbers] = await Promise.all([
+    db.collection(`${ROOT}/users`).where('assignedProjects', 'array-contains', pid).get(),
+    db.collection(`${ROOT}/projectNumbers`).where('projectId', '==', pid).get(),
+  ])
+  const batch = db.batch()
+  users.docs.forEach((d) => batch.update(d.ref, { assignedProjects: FieldValue.arrayRemove(pid), version: FieldValue.increment(1) }))
+  numbers.docs.forEach((d) => batch.delete(d.ref))
+  await batch.commit()
+  await db.recursiveDelete(db.doc(`${ROOT}/projects/${pid}`))
+  await getStorage().bucket().deleteFiles({ prefix: `${ROOT}/projects/${pid}/` })
+  logger.info('onProjectDeleted', { pid, users: users.size, numbers: numbers.size })
+})

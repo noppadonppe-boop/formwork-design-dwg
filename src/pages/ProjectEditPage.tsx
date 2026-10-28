@@ -6,8 +6,7 @@ import { useForm } from 'react-hook-form'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { z } from 'zod'
 import { useAuth } from '@/auth/AuthProvider'
-import { assignProject } from '@/auth/authService'
-import { isConflict } from '@/data/conflict'
+import { isConflict, isDuplicateProjectNo } from '@/data/conflict'
 import { MethodCard } from '@/components/MethodCard'
 import { ProjectNav } from '@/components/ProjectNav'
 import { Button, Field, NumberInput, Select } from '@/components/ui'
@@ -93,7 +92,7 @@ export function ProjectEditPage() {
   const { projectId } = useParams()
   const isNew = !projectId
   const project = useProject(projectId)
-  const { projects } = useProjects({ all: true })
+  const { projects } = useProjects()
   const { user, userProfile, can } = useAuth()
   /** form values (JSON) and project version the edits are based on */
   const base = useRef<{ json: string; version: number }>(undefined)
@@ -155,9 +154,8 @@ export function ProjectEditPage() {
     try {
       const data = v as ProjectData
       if (isNew) {
-        const id = await repo.createProject(user!.uid, data)
         // creators without "see all projects" get the new project assigned so they can open it
-        if (userProfile && !can('project.viewAll')) await assignProject(userProfile.email, id).catch(() => {})
+        const id = await repo.createProject(user!.uid, data, userProfile && !can('project.viewAll') ? userProfile.email : undefined)
         navigate(`/projects/${id}`, { replace: true })
       } else {
         const version = await repo.updateProject(projectId!, data, force ? undefined : base.current?.version, force)
@@ -166,6 +164,7 @@ export function ProjectEditPage() {
       }
     } catch (e) {
       if (isConflict(e)) setConflict(true)
+      else if (isDuplicateProjectNo(e)) setError('projectNo', { message: e.message })
       else setSaveError((e as Error).message)
     }
   }

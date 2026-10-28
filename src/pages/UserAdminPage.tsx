@@ -44,7 +44,7 @@ function StatusBadge({ status }: { status: UserStatus }) {
 export function UserAdminPage() {
   const { userProfile: me, localMode } = useAuth()
   const { users, error } = useUsers(true)
-  const { projects } = useProjects({ all: true })
+  const { projects } = useProjects()
   const [filter, setFilter] = useState<(typeof FILTERS)[number]['id']>('all')
   const [q, setQ] = useState('')
   const [selected, setSelected] = useState<string>()

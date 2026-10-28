@@ -717,10 +717,190 @@ service cloud.firestore {
     }
 
     // ---- FormWork Studio (FormWork-Design-dwg repo, hosting:site-07) --------------------
-    // One shared tree for every signed-in user, anonymous included:
-    // RC-FormWork-Design-Web-App/root/{projects|elements|uploads|settings}/{id}
-    match /RC-FormWork-Design-Web-App/{document=**} {
-      allow read, write: if signedIn();
+    // RC-FormWork-Design-Web-App/root/{users|projects|projectNumbers|settings|appMeta|activityLogs}/…
+    // Multi-project: a project (and its elements / uploads) is open only to an approved user whose uid is in the
+    // project's `members`; MasterAdmin sees every project. Writes are gated by the user's roles, kept in their
+    // profile users/{lower-case email}, which only MasterAdmin may change. Tests: tests/rules (npm run test:rules).
+    match /RC-FormWork-Design-Web-App/root {
+      function fwEmail() {
+        return request.auth.token.email.lower();
+      }
+
+      function fwUserPath() {
+        return /databases/$(database)/documents/RC-FormWork-Design-Web-App/root/users/$(fwEmail());
+      }
+
+      function fwProjectPath(pid) {
+        return /databases/$(database)/documents/RC-FormWork-Design-Web-App/root/projects/$(pid);
+      }
+
+      function fwMe() {
+        return get(fwUserPath()).data;
+      }
+
+      // signed in, profile approved by MasterAdmin and bound to this account
+      function fwApproved() {
+        return signedIn() && exists(fwUserPath()) && fwMe().uid == request.auth.uid && fwMe().status == 'approved';
+      }
+
+      function fwRoles() {
+        return fwMe().get('roles', [fwMe().get('role', 'Staff')]);
+      }
+
+      function fwMaster() {
+        return fwApproved() && fwRoles().hasAny(['MasterAdmin']);
+      }
+
+      // roles holding each guarded write permission — mirrors ROLE_PERMISSIONS in src/auth/roles.ts
+      function fwCan(perm) {
+        return fwApproved() && fwRoles().hasAny({
+          'project.create': ['MasterAdmin', 'Admin', 'Engineer'],
+          'project.edit': ['MasterAdmin', 'Admin', 'Engineer', 'Checker'],
+          'project.delete': ['MasterAdmin', 'Admin'],
+          'element.edit': ['MasterAdmin', 'Admin', 'Engineer'],
+          'import': ['MasterAdmin', 'Admin', 'Engineer'],
+          'bom.edit': ['MasterAdmin', 'Admin', 'Estimator'],
+          'files.manage': ['MasterAdmin', 'Admin']
+        }[perm]);
+      }
+
+      // `project` is the project document's data
+      function fwMemberOf(project) {
+        return fwMaster() || (fwApproved() && request.auth.uid in project.get('members', []));
+      }
+
+      function fwMemberOfProject(pid) {
+        return fwMaster() || fwMemberOf(get(fwProjectPath(pid)).data);
+      }
+
+      function fwChanged() {
+        return request.resource.data.diff(resource.data).affectedKeys();
+      }
+
+      match /users/{email} {
+        function isSelf() {
+          return signedIn() && email == fwEmail() && resource.data.uid == request.auth.uid;
+        }
+
+        function configPath() {
+          return /databases/$(database)/documents/RC-FormWork-Design-Web-App/root/appMeta/config;
+        }
+
+        function newStaff() {
+          return request.resource.data.roles == ['Staff'] && request.resource.data.role == 'Staff'
+            && request.resource.data.status == 'pending' && request.resource.data.isFirstUser == false;
+        }
+
+        // the very first user becomes an approved MasterAdmin, in the same transaction that sets appMeta/config
+        function firstUser() {
+          return request.resource.data.roles == ['MasterAdmin'] && request.resource.data.role == 'MasterAdmin'
+            && request.resource.data.status == 'approved' && request.resource.data.isFirstUser == true
+            && (!exists(configPath()) || get(configPath()).data.get('firstUserRegistered', false) != true)
+            && getAfter(configPath()).data.firstUserRegistered == true;
+        }
+
+        function ownProfileEdit() {
+          return isSelf() && fwChanged().hasOnly(['firstName', 'lastName', 'position', 'department', 'photoURL', 'updatedAt', 'version']);
+        }
+
+        // the same verified email signing in with a new account (e.g. after the old one was deleted)
+        function relinkAccount() {
+          return signedIn() && email == fwEmail() && request.auth.token.email_verified == true
+            && request.resource.data.uid == request.auth.uid && fwChanged().hasOnly(['uid', 'photoURL']);
+        }
+
+        // a creator without "see all projects" adds the project they are creating in this same transaction
+        function assignOwnNewProject() {
+          let before = resource.data.get('assignedProjects', []);
+          let after = request.resource.data.assignedProjects;
+          let pid = after[after.size() - 1];
+          return isSelf() && fwApproved() && fwChanged().hasOnly(['assignedProjects', 'version'])
+            && after.size() == before.size() + 1 && after.hasAll(before) && !(pid in before)
+            && !exists(fwProjectPath(pid)) && getAfter(fwProjectPath(pid)).data.ownerUid == request.auth.uid;
+        }
+
+        allow get: if signedIn() && (email == fwEmail() || fwMaster());
+        allow list: if fwMaster();
+        allow create: if signedIn() && email == fwEmail()
+          && request.resource.data.uid == request.auth.uid && request.resource.data.email == email
+          && request.resource.data.assignedProjects == [] && (newStaff() || firstUser());
+        allow update: if fwMaster() || ownProfileEdit() || relinkAccount() || assignOwnNewProject();
+        allow delete: if false;
+      }
+
+      match /appMeta/config {
+        function registering() {
+          return signedIn() && !exists(fwUserPath()) && existsAfter(fwUserPath())
+            && request.resource.data.firstUserRegistered == true;
+        }
+
+        allow get: if signedIn();
+        allow create: if registering() && request.resource.data.totalUsers == 1;
+        allow update: if registering() && fwChanged().hasOnly(['firstUserRegistered', 'totalUsers'])
+          && request.resource.data.totalUsers == resource.data.get('totalUsers', 0) + 1;
+      }
+
+      match /activityLogs/{logId} {
+        allow create: if signedIn() && request.resource.data.uid == request.auth.uid;
+        allow read: if fwMaster();
+      }
+
+      match /settings/{key} {
+        allow get: if fwApproved();
+        allow write: if fwCan('element.edit');
+      }
+
+      match /projectNumbers/{key} {
+        allow get: if fwCan('project.create') || fwCan('project.edit');
+        allow list: if fwMaster();
+        // written with the project it points to, by someone who may edit that project
+        allow create, update: if (fwCan('project.create') || fwCan('project.edit'))
+          && fwMemberOf(getAfter(fwProjectPath(request.resource.data.projectId)).data);
+        allow delete: if fwMaster()
+          || ((fwCan('project.edit') || fwCan('project.delete')) && fwMemberOf(get(fwProjectPath(resource.data.projectId)).data));
+      }
+
+      match /projects/{pid} {
+        // fwMaster() first: a missing project (deleted id in a user's list) has no resource.data to check
+        allow get: if fwMaster() || fwMemberOf(resource.data);
+        // only queries limited to the user's own projects: where('members', 'array-contains', uid)
+        allow list: if fwMaster() || (fwApproved() && request.auth.uid in resource.data.members);
+        allow create: if fwCan('project.create')
+          && request.resource.data.ownerUid == request.auth.uid
+          && request.resource.data.members == [request.auth.uid]
+          && request.resource.data.elementCount == 0;
+        // MasterAdmin changes anything (members included); others only the fields their roles cover
+        allow update: if fwMaster() || (fwMemberOf(resource.data)
+          && !fwChanged().hasAny(['ownerUid', 'members', 'createdAt'])
+          && ((fwCan('project.edit') && !fwChanged().hasAny(['shop', 'elementCount']))
+            || (fwCan('bom.edit') && fwChanged().hasOnly(['shop', 'updatedAt', 'version']))
+            || ((fwCan('element.edit') || fwCan('import')) && fwChanged().hasOnly(['elementCount', 'updatedAt']))));
+        allow delete: if fwMemberOf(resource.data) && fwCan('project.delete');
+
+        match /elements/{eid} {
+          allow read: if fwMemberOfProject(pid);
+          allow create, update: if fwMemberOfProject(pid) && (fwCan('element.edit') || fwCan('import'))
+            && request.resource.data.projectId == pid;
+          allow delete: if fwMemberOfProject(pid) && fwCan('element.edit');
+        }
+
+        match /uploads/{fid} {
+          allow read: if fwMemberOfProject(pid);
+          allow create: if fwMemberOfProject(pid)
+            && request.resource.data.uploadedBy == request.auth.uid && request.resource.data.projectId == pid;
+          allow delete: if fwMemberOfProject(pid)
+            && (resource.data.uploadedBy == request.auth.uid || fwCan('files.manage'));
+        }
+      }
+
+      // earlier flat layout, moved into projects/{pid}/… by a MasterAdmin (migrateLegacyData)
+      match /elements/{eid} {
+        allow read, delete: if fwMaster();
+      }
+
+      match /uploads/{fid} {
+        allow read, delete: if fwMaster();
+      }
     }
 
     // The legacy shared rc-design-ecosystem/root hierarchy is intentionally

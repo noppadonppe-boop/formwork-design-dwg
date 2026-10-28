@@ -2,6 +2,7 @@
 import clsx from 'clsx'
 import { Check, Loader2, Play, RotateCcw } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
+import { useAuth } from '@/auth/AuthProvider'
 import { NumField } from '@/components/design/NumField'
 import { Toggle } from '@/components/ui'
 import { repo } from '@/data/repo'
@@ -29,6 +30,8 @@ function loadSettings(): OptSettings {
 
 export function OptimizerPanel({ draft, criteria, onApply }: { draft: ElementData; criteria: Criteria; onApply: (el: ElementData) => void }) {
   const [s, setS] = useState(loadSettings)
+  // the shared prices are saved only by users who may design elements (firestore.rules allow no one else)
+  const canSave = useAuth().can('element.edit')
   const [progress, setProgress] = useState<{ done: number; total: number }>()
   const [out, setOut] = useState<{ results: OptResult[]; tried: number; passed: number; current?: OptResult }>()
   const [error, setError] = useState<string>()
@@ -52,10 +55,10 @@ export function OptimizerPanel({ draft, criteria, onApply }: { draft: ElementDat
     } catch {
       /* private mode */
     }
-    if (!loaded.current) return
+    if (!loaded.current || !canSave) return
     const t = setTimeout(() => repo.setSetting('optimizer', s).catch((e) => console.error('save optimizer settings', e)), 800)
     return () => clearTimeout(t)
-  }, [s])
+  }, [s, canSave])
 
   const run = () => {
     worker.current?.terminate()

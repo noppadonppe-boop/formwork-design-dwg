@@ -18,19 +18,15 @@ import {
   collection,
   doc,
   getDoc,
-  getDocs,
   increment,
   onSnapshot,
-  query,
   runTransaction,
   serverTimestamp,
   type Timestamp,
   updateDoc,
-  where,
-  writeBatch,
 } from 'firebase/firestore'
 import { ConflictError } from '@/data/conflict'
-import { auth, db, rootRef } from '@/lib/firebase'
+import { auth, CATEGORY, db, rootRef } from '@/lib/firebase'
 import { isRole, sortRoles, type UserRole } from './roles'
 
 export type UserStatus = 'pending' | 'approved' | 'rejected'
@@ -65,7 +61,8 @@ export interface AppMetaConfig {
 export type ActivityAction = 'REGISTER' | 'LOGIN' | 'LOGOUT' | 'PROFILE_UPDATE' | 'USER_UPDATE'
 
 const users = () => collection(rootRef!, 'users')
-const userRef = (email: string) => doc(users(), email.trim().toLowerCase())
+/** users are keyed by lower-case email — firestore.rules finds the caller's profile the same way */
+export const userRef = (email: string) => doc(users(), email.trim().toLowerCase())
 const configRef = () => doc(rootRef!, 'appMeta', 'config')
 
 // ---------------------------------------------------------------- session expiry (persistent login, 30 days)
@@ -290,7 +287,11 @@ export function watchUsers(cb: (u: UserProfile[]) => void, onError?: (e: Error) 
 
 export type AdminPatch = Partial<Pick<UserProfile, 'firstName' | 'lastName' | 'position' | 'department' | 'roles' | 'status' | 'assignedProjects'>>
 
-/** Saves only if nobody else changed the user since `baseVersion` (unless `force`). */
+/**
+ * Saves only if nobody else changed the user since `baseVersion` (unless `force`). A new project list is written into
+ * each project's `members` in the same transaction: that list is what firestore.rules checks, `assignedProjects` mirrors it
+ * for the UI. Deleted projects are dropped from the list.
+ */
 export async function updateUserAdmin(email: string, patch: AdminPatch, baseVersion: number | undefined, force = false) {
   const ref = userRef(email)
   const data: Record<string, unknown> = { ...patch, updatedAt: serverTimestamp() }
@@ -304,23 +305,18 @@ export async function updateUserAdmin(email: string, patch: AdminPatch, baseVers
     if (!cur.exists()) throw new Error('ไม่พบผู้ใช้')
     const v = typeof cur.data().version === 'number' ? cur.data().version : 0
     if (!force && baseVersion !== undefined && v !== baseVersion) throw new ConflictError()
+    const uid = String(cur.data().uid ?? '')
+    const next = patch.assignedProjects
+    if (next && uid) {
+      const before = normalizeProfile(cur.data()).assignedProjects
+      const projects = await Promise.all([...new Set([...before, ...next])].map((id) => tx.get(doc(rootRef!, CATEGORY.projects, id))))
+      const live = projects.filter((p) => p.exists())
+      data.assignedProjects = next.filter((id) => live.some((p) => p.id === id))
+      live.forEach((p) => tx.update(p.ref, { members: next.includes(p.id) ? arrayUnion(uid) : arrayRemove(uid) }))
+    }
     tx.update(ref, { ...data, version: v + 1 })
   })
   logActivity('USER_UPDATE', auth?.currentUser ?? null, { target: email, fields: Object.keys(patch) })
-}
-
-/** Adds a project to a user's assignment list (e.g. the creator of a new project). */
-export async function assignProject(email: string, projectId: string) {
-  await updateDoc(userRef(email), { assignedProjects: arrayUnion(projectId), version: increment(1) })
-}
-
-/** Removes a deleted project from every user that had it. */
-export async function unassignProjectEverywhere(projectId: string) {
-  const snap = await getDocs(query(users(), where('assignedProjects', 'array-contains', projectId)))
-  if (snap.empty) return
-  const batch = writeBatch(db!)
-  snap.docs.forEach((d) => batch.update(d.ref, { assignedProjects: arrayRemove(projectId), version: increment(1) }))
-  await batch.commit()
 }
 
 /** Thai message for Firebase Auth errors. */

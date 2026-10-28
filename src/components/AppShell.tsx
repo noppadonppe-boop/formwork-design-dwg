@@ -3,7 +3,7 @@ import { BookOpen, FolderOpen, LogOut, Ruler, Sigma, UserCog, UserPen, Users } f
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { Link, NavLink } from 'react-router-dom'
 import { useAuth } from '@/auth/AuthProvider'
-import { migrateLegacyData } from '@/data/repo'
+import { migrateLegacyData, syncProjectAccess } from '@/data/repo'
 import { SidebarProjectNav } from './ProjectNav'
 import { Avatar, ProfileDialog, RoleChips, useUsers } from './UserBits'
 
@@ -61,13 +61,17 @@ export function AppShell({ children }: { children: ReactNode }) {
     return () => document.removeEventListener('mousedown', close)
   }, [menu])
 
-  // earlier flat layout (root/elements, root/uploads) → per-project sub-collections; never blocks loading
+  // earlier flat layout (root/elements, root/uploads) → per-project sub-collections, then project `members` rebuilt
+  // from the users' assignments (what firestore.rules check); never blocks loading
   useEffect(() => {
     if (!isMaster || localMode || migrationChecked) return
     migrationChecked = true
     migrateLegacyData()
       .then((n) => n && console.info(`moved ${n} legacy documents into projects/{id}/…`))
       .catch(() => {})
+      .then(syncProjectAccess)
+      .then((n) => n && console.info(`synced project access: ${n} documents updated`))
+      .catch((e) => console.error('sync project access', e))
   }, [isMaster, localMode])
 
   return (

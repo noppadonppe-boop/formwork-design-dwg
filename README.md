@@ -32,10 +32,12 @@ The app uses the Firebase project **`rc-design-ecosystem`** (shared with other a
 5. Deploy (run from this folder; `.firebaserc` sets the project and the hosting target):
    ```bash
    firebase login
+   npm run build && firebase deploy --only hosting:site-07,functions:formwork
+   # a MasterAdmin opens the new app once (fills each project's members), then:
    firebase deploy --only firestore:rules
    firebase deploy --only storage
-   npm run build && firebase deploy --only hosting:site-07
    ```
+   Access is per project (`members`); `npm run test:rules` checks the rules on the emulators.
 
 > **Rules are shared.** Firestore has one ruleset per Firebase project and `rc-design-ecosystem` hosts other apps.
 > `firestore.rules` here is the full live ruleset plus the FormWork Studio block — pull the live rules and merge before

@@ -9,5 +9,5 @@
     "esModuleInterop": true,
     "types": ["node"]
   },
-  "include": ["src", "../src/import/aiSchedule.ts"]
+  "include": ["src", "../src/import/aiSchedule.ts", "../src/auth/roles.ts"]
 }

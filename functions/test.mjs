@@ -20,4 +20,6 @@ await rejects({ auth, data: { data: 'x'.repeat(100), mediaType: 'image/tiff', mo
 await rejects({ auth, data: { data: 'x'.repeat(100), mediaType: 'image/png', model: 'gpt-x' } }, 'invalid-argument')
 await rejects({ auth, data: { data: 'short', mediaType: 'image/png', model: 'claude-opus-5-5' } }, 'invalid-argument')
 await rejects({ auth, data: { data: 'x'.repeat(100), mediaType: 'image/png', model: 'claude-opus-5-5', hint: 'h'.repeat(3000) } }, 'invalid-argument')
+// signed in but without an email: no FormWork profile to check → refused before any Firestore read
+await rejects({ auth, data: { data: 'x'.repeat(100), mediaType: 'image/png', model: 'claude-opus-5-5' } }, 'permission-denied')
 console.log('functions guards ok')
