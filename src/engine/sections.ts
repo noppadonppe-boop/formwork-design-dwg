@@ -220,7 +220,13 @@ export const LOGS: Section[] = [3, 4, 5, 6].map(roundLog)
 
 export const TIMBER_SECTIONS: Section[] = TIMBER_SIZES.map(([b, h]) => timber(b, h))
 
-export const ALL_SECTIONS: Section[] = [...TIMBER_SECTIONS, ...LOGS, ...STEEL_SECTIONS, ...PIPES]
+/** Ringlock standards (เสาตั้ง): their own ids, the plain pipe ids being taken by outside diameter. */
+export const RINGLOCK_TUBES: Section[] = [
+  { ...pipe(4.83, 4.19, 'ท่อ Ringlock Ø48.3×3.2 มม.'), id: 'rl-48.3x3.2' },
+  { ...pipe(6.03, 5.39, 'ท่อ Ringlock Ø60.3×3.2 มม.'), id: 'rl-60.3x3.2' },
+]
+
+export const ALL_SECTIONS: Section[] = [...TIMBER_SECTIONS, ...LOGS, ...STEEL_SECTIONS, ...PIPES, ...RINGLOCK_TUBES]
 
 /** Timber member laid flat (width = depth of the nominal size), e.g. beam-bottom stiffeners "วางนอน" (Table 7.3). */
 export function flat(s: Section): Section {

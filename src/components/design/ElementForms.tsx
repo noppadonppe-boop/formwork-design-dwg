@@ -52,6 +52,13 @@ import {
   PLYWOOD_THICKNESS,
   type PressureParams,
   RATED_SHORES,
+  DEFAULT_RINGLOCK,
+  ledgerText,
+  RINGLOCK_LIFTS,
+  RINGLOCK_SYSTEMS,
+  ringlockEta,
+  type RinglockSystemId,
+  ringlockSystem,
   type ShoreParams,
   type SlabInput,
   TIES,
@@ -631,10 +638,13 @@ function ShoreFields<S extends ShoreParams>({ s, onChange, children }: { s: S; o
         options={[
           { value: 'post', label: 'เสาค้ำไม้/ท่อเหล็ก (คำนวณ)' },
           { value: 'rated', label: 'นั่งร้าน / Steel prop (SWL)' },
+          { value: 'ringlock', label: 'นั่งร้าน Ringlock' },
         ]}
-        onChange={(k) => onChange({ ...s, kind: k })}
+        onChange={(k) => onChange({ ...s, kind: k, ...(k === 'ringlock' ? { ringlock: s.ringlock ?? DEFAULT_RINGLOCK } : {}) })}
       />
-      {s.kind === 'post' ? (
+      {s.kind === 'ringlock' ? (
+        <RinglockFields s={s} onChange={onChange} />
+      ) : s.kind === 'post' ? (
         <>
           <MemberPicker label="เสาค้ำ" sectionId={s.sectionId} materialId={s.materialId} pipes onChange={(v) => onChange({ ...s, ...v })} />
           <Field label="ค้ำยันทางข้างที่เสา">
@@ -697,6 +707,47 @@ function ShoreFields<S extends ShoreParams>({ s, onChange, children }: { s: S; o
   )
 }
 
+/** Ringlock: the ledger lengths a spacing across the beam has to match (× bays between the outer rows). */
+const ledgerHint = (s: ShoreParams, bays = 1) =>
+  s.kind === 'ringlock' ? `Ringlock: ${ringlockSystem(s.ringlock).ledgersCm.map((l) => ((l * bays) / 100).toFixed(2)).join(' / ')} ม.` : undefined
+
+function RinglockFields<S extends ShoreParams>({ s, onChange }: { s: S; onChange: (s: S) => void }) {
+  const rl = s.ringlock ?? DEFAULT_RINGLOCK
+  const sys = ringlockSystem(rl)
+  return (
+    <>
+      <div className="grid grid-cols-2 gap-2">
+        <Field label="ระบบ Ringlock">
+          <Select value={sys.id} onChange={(e) => onChange({ ...s, ringlock: { ...rl, system: e.target.value as RinglockSystemId } })}>
+            {RINGLOCK_SYSTEMS.map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.name}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field label="ระยะชั้นคานนอน" hint="จานโรเซตต์ทุก 0.5 ม.">
+          <Select value={rl.liftM} onChange={(e) => onChange({ ...s, ringlock: { ...rl, liftM: Number(e.target.value) } })}>
+            {RINGLOCK_LIFTS.map((v) => (
+              <option key={v} value={v}>
+                {v.toFixed(1)} ม.
+              </option>
+            ))}
+          </Select>
+        </Field>
+      </div>
+      <div className="fields3">
+        <NumField label="SWL ต่อเสาตั้งจากผู้ผลิต" unit="กก." optional placeholder="คำนวณ" hint="เว้นว่าง = คำนวณจากท่อเสาตั้ง" value={rl.swl} min={100} max={20000} onChange={(v) => onChange({ ...s, ringlock: { ...rl, swl: v } })} />
+        <NumField label="η (l₀ = η·h)" optional placeholder={String(ringlockEta(rl.liftM))} hint="เว้นว่าง = ตาม JGJ 231" value={rl.eta} min={0.5} max={3} onChange={(v) => onChange({ ...s, ringlock: { ...rl, eta: v } })} />
+        <NumField label="k (l₀ = h′ + 2k·a)" optional placeholder="0.7" hint="เว้นว่าง = ตาม JGJ 231" value={rl.k} min={0.3} max={2} onChange={(v) => onChange({ ...s, ringlock: { ...rl, k: v } })} />
+      </div>
+      <p className="text-xs leading-relaxed text-muted">
+        คานนอนมาตรฐาน {ledgerText(sys)} ม. — ระยะเสาค้ำที่ระบบเลือกจะปัดลงเป็นความยาวคานนอนเหล่านี้ (ระยะที่กรอกเองต้องตรงความยาวคานนอน). ความยาวประสิทธิผลของเสาตั้งตาม JGJ 231-2010 ข้อ 5.3.2: ใช้ค่ามากของ l₀ = η·h (η = 1.6 ที่ระยะชั้น 0.5/1.0 ม., 1.2 ที่ 1.5 ม.) และ l₀ = h′ + 2k·a (k = 0.7, a = ยูเฮดเหนือคานนอนบนสุด) แล้วคิดกำลังรับด้วย AISC ASD · ตรวจเกลียวแจ็คโผล่ ≤ 40 ซม. และยูเฮดเหนือคานนอนบนสุด ≤ 65 ซม. (ข้อ 6.1.5) — ถ้ามีตาราง SWL ของผู้ผลิตที่ใช้จริง ให้กรอกแทน
+      </p>
+    </>
+  )
+}
+
 // ---------------------------------------------------------------- slab
 
 function SlabFields({ inp, set }: { inp: SlabInput; set: (fn: (i: SlabInput) => SlabInput) => void }) {
@@ -722,11 +773,11 @@ function SlabFields({ inp, set }: { inp: SlabInput; set: (fn: (i: SlabInput) => 
         <MemberPicker label="คานรองรับ" sectionId={inp.stringer.sectionId} materialId={inp.stringer.materialId} onChange={(v) => set((i) => ({ ...i, stringer: { ...i.stringer, ...v } }))} />
         <div className="grid grid-cols-2 gap-2">
           <Segmented label="จำนวนต่อแนว" value={String(inp.stringer.count) as '1' | '2'} options={[{ value: '1', label: 'เดี่ยว' }, { value: '2', label: 'คู่' }]} onChange={(v) => set((i) => ({ ...i, stringer: { ...i.stringer, count: Number(v) as 1 | 2 } }))} />
-          <NumField label="ระยะคานรองรับ" unit="ซม." optional placeholder="อัตโนมัติ" value={inp.stringer.spacingCm} min={30} max={300} onChange={(v) => set((i) => ({ ...i, stringer: { ...i.stringer, spacingCm: v } }))} />
+          <NumField label="ระยะคานรองรับ" unit="ซม." optional placeholder="อัตโนมัติ" hint={ledgerHint(inp.shore)} value={inp.stringer.spacingCm} min={30} max={300} onChange={(v) => set((i) => ({ ...i, stringer: { ...i.stringer, spacingCm: v } }))} />
         </div>
       </Group>
       <ShoreFields s={inp.shore} onChange={(s) => set((i) => ({ ...i, shore: s }))}>
-        <NumField label="ระยะเสาค้ำตามแนวคานรองรับ" unit="ซม." optional placeholder="อัตโนมัติ" value={inp.shore.spacingCm} min={30} max={300} onChange={(v) => set((i) => ({ ...i, shore: { ...i.shore, spacingCm: v } }))} />
+        <NumField label="ระยะเสาค้ำตามแนวคานรองรับ" unit="ซม." optional placeholder="อัตโนมัติ" hint={ledgerHint(inp.shore)} value={inp.shore.spacingCm} min={30} max={300} onChange={(v) => set((i) => ({ ...i, shore: { ...i.shore, spacingCm: v } }))} />
       </ShoreFields>
       <Group title="ค้ำยันทางข้างระบบเสาค้ำ" part="bracing">
         <Toggle label="ออกแบบค้ำยันทแยง (ACI 347: 2% DL)" checked={inp.bracing.enabled} onChange={(v) => set((i) => ({ ...i, bracing: { ...i.bracing, enabled: v } }))} />
@@ -851,7 +902,7 @@ function BeamFields({ inp, set }: { inp: BeamInput; set: (fn: (i: BeamInput) => 
           <>
             <div className="grid grid-cols-2 gap-2">
               <Segmented label="จำนวนแถว" value={String(beamStringer(inp).rows) as '2' | '3'} options={[{ value: '2', label: '2 แถว' }, { value: '3', label: '3 แถว' }]} onChange={(v) => set((i) => ({ ...i, stringer: { ...beamStringer(i), rows: Number(v) as 2 | 3 } }))} />
-              <NumField label="ระยะแถวริม–ริม" unit="ม." value={inp.shore.postSpacingM} min={0.2} max={3} onChange={(v) => v && set((i) => ({ ...i, shore: { ...i.shore, postSpacingM: v } }))} />
+              <NumField label="ระยะแถวริม–ริม" unit="ม." hint={ledgerHint(inp.shore, beamStringer(inp).rows - 1)} value={inp.shore.postSpacingM} min={0.2} max={3} onChange={(v) => v && set((i) => ({ ...i, shore: { ...i.shore, postSpacingM: v } }))} />
             </div>
             <MemberPicker label="คานแนวยาว" sectionId={beamStringer(inp).sectionId} materialId={beamStringer(inp).materialId} onChange={(v) => set((i) => ({ ...i, stringer: { ...beamStringer(i), ...v } }))} />
             <div className="grid grid-cols-2 gap-2">
@@ -868,7 +919,7 @@ function BeamFields({ inp, set }: { inp: BeamInput; set: (fn: (i: BeamInput) => 
         {!beamStringer(inp).enabled && (
           <div className="grid grid-cols-2 gap-2">
             <Segmented label="รูปแบบ" value={inp.shore.layout} options={[{ value: 'single', label: 'ตุ๊กตาตัวที' }, { value: 'double', label: 'เสาคู่' }]} onChange={(v) => set((i) => ({ ...i, shore: { ...i.shore, layout: v } }))} />
-            {inp.shore.layout === 'double' && <NumField label="ระยะเสาคู่" unit="ม." value={inp.shore.postSpacingM} min={0.2} max={2.5} onChange={(v) => v && set((i) => ({ ...i, shore: { ...i.shore, postSpacingM: v } }))} />}
+            {inp.shore.layout === 'double' && <NumField label="ระยะเสาคู่" unit="ม." hint={ledgerHint(inp.shore)} value={inp.shore.postSpacingM} min={0.2} max={2.5} onChange={(v) => v && set((i) => ({ ...i, shore: { ...i.shore, postSpacingM: v } }))} />}
           </div>
         )}
       </ShoreFields>

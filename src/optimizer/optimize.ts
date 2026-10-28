@@ -3,7 +3,7 @@
 // them by material + handling cost per set (priced from the same BOM as the shop drawing).
 import { type AnyDesign, layoutSummary, runDesign } from '@/data/elements'
 import type { Criteria, ElementData } from '@/data/types'
-import { beamRunnerFlat, columnShapeOf, columnShapeSystem, getMaterial, getSection, isLegShape } from '@/engine'
+import { beamRunnerFlat, columnShapeOf, columnShapeSystem, getMaterial, getSection, isLegShape, shoreLabel } from '@/engine'
 import { elementBom, SHEET_AREA } from '@/model/bom'
 
 export interface OptPrices {
@@ -95,7 +95,7 @@ export function costOf(el: ElementData, run: AnyDesign, p: OptPrices): { cost: n
 export function describe(el: ElementData): string[] {
   const i = el.input as Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
   const sh = plyName(el.type === 'wall' ? { thicknessMm: i.sheathing.thicknessMm } : i.sheathing)
-  const shore = (s: any) => (s.kind === 'rated' ? s.ratedName : `เสาค้ำ ${label(s.sectionId)}${s.braceLevels ? ` ค้ำกลาง ${s.braceLevels} ระดับ` : ''}`) // eslint-disable-line @typescript-eslint/no-explicit-any
+  const shore = (s: any) => (s.kind === 'ringlock' ? shoreLabel(s) : s.kind === 'rated' ? s.ratedName : `เสาค้ำ ${label(s.sectionId)}${s.braceLevels ? ` ค้ำกลาง ${s.braceLevels} ระดับ` : ''}`) // eslint-disable-line @typescript-eslint/no-explicit-any
   switch (el.type) {
     case 'wall':
       return [sh, `เคร่า ${label(i.stud.sectionId)}`, `คานรับเคร่า ${i.wale.count === 2 ? '2-' : ''}${label(i.wale.sectionId)}`, `ไทร์ ${i.tie.tieId.replace('tie-', 'Ø')}`]
@@ -170,8 +170,8 @@ export function variants(el: ElementData, o: Pick<OptOptions, 'allowSteel'>): El
         for (const jid of STUDS)
           for (const sid of BIG)
             for (const n of [1, 2] as const)
-              for (const s of i.shore.kind === 'rated' ? [undefined] : shores)
-                for (const lv of i.shore.kind === 'rated' ? [i.shore.braceLevels] : [0, 1])
+              for (const s of i.shore.kind !== 'post' ? [undefined] : shores)
+                for (const lv of i.shore.kind !== 'post' ? [i.shore.braceLevels] : [0, 1])
                   out.push({
                     ...el,
                     input: { ...i, sheathing: sh, joist: { sectionId: jid, materialId: tm }, stringer: { sectionId: sid, materialId: tm, count: n }, shore: { ...i.shore, ...(s ?? {}), braceLevels: lv, spacingCm: undefined } },
@@ -194,7 +194,7 @@ export function variants(el: ElementData, o: Pick<OptOptions, 'allowSteel'>): El
         ['timber-3x4', tm, 1],
         ...(o.allowSteel ? ([['rhs-100×50×2.3', STEEL, 1]] as [string, string, 1 | 2][]) : []),
       ]
-      const shores = i.shore.kind === 'rated' ? [undefined] : [...SHORE_PIPES.map((s) => ({ sectionId: s, materialId: 'steel-a36' })), { sectionId: 'timber-3x3', materialId: tm }]
+      const shores = i.shore.kind !== 'post' ? [undefined] : [...SHORE_PIPES.map((s) => ({ sectionId: s, materialId: 'steel-a36' })), { sectionId: 'timber-3x3', materialId: tm }]
       for (const sh of sheets(i.sheathing))
         for (const sid of STUDS)
           for (const b of bottoms)

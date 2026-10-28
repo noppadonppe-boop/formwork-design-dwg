@@ -7,7 +7,8 @@ import { type CheckRow, checkBeam, columnCapacity, type DeflectionCriteria, maxS
 import type { PressureResult } from './pressure'
 import { flat, getSection, multiple, rect, type Section } from './sections'
 import { type DeckSheathing, deckSection, deckThicknessM, spread, type VerticalLoads } from './slab'
-import { braceBays, braceSets, DEFAULT_SHORE, designShore, designShoreBracing, type ShoreParams } from './shoring'
+import { isLedger, ledgerBelow, ledgerRow, ledgerText, ringlockSystem, snapToLedger } from './ringlock'
+import { braceBays, braceSets, DEFAULT_SHORE, designShore, designShoreBracing, type ShoreParams, shoreSwl } from './shoring'
 import { Trace } from './trace'
 import { floorTo, fmt, pressureToLineLoad } from './units'
 
@@ -417,18 +418,33 @@ export function designBeam(inp: BeamInput): BeamDesign {
     return { cHead, cShore, ok: [cHead, cShore].every((c) => c.rows.every((r) => r.ratio <= 1)) }
   }
 
-  const s0 = inp.head.spacingCm ?? (boLim.max >= a ? Math.floor(boLim.max / a + 1e-9) * a : floorTo(boLim.max, 5))
+  // Ringlock posts under the heads: the head spacing is the ledger between the standards along the beam
+  const rl = inp.shore.kind === 'ringlock' ? ringlockSystem(inp.shore.ringlock) : undefined
+  const rlHeads = rl && !onStringers ? rl : undefined
+  const sFree = boLim.max >= a ? Math.floor(boLim.max / a + 1e-9) * a : floorTo(boLim.max, 5)
+  const s0 = inp.head.spacingCm ?? (rlHeads ? snapToLedger(floorTo(boLim.max, 5), rlHeads) : sFree)
   let s = s0
   let fit0 = atSpacing(s)
   if (inp.head.spacingCm === undefined)
     while (!fit0.ok && s > 20) {
-      s = s >= 2 * a && s % a === 0 ? s - a : Math.max(20, floorTo(s - 5, 5))
+      if (rlHeads) {
+        const next = ledgerBelow(s, rlHeads)
+        if (next === undefined) break
+        s = next
+      } else s = s >= 2 * a && s % a === 0 ? s - a : Math.max(20, floorTo(s - 5, 5))
       fit0 = atSpacing(s)
     }
   const { cHead } = fit0
   tBo.add({
     label: 'ระยะคานขวางที่ใช้',
-    expr: s < s0 ? `ลดจาก ${s0} ซม. ${onStringers ? 'ให้คานขวางรับได้' : 'ให้คานขวางและเสาค้ำรับได้'}` : inp.head.spacingCm === undefined && boLim.max >= a ? `ทวีคูณของระยะเคร่า ${a} ซม.` : undefined,
+    expr:
+      s < s0
+        ? `ลดจาก ${s0} ซม. ${onStringers ? 'ให้คานขวางรับได้' : 'ให้คานขวางและเสาค้ำรับได้'}${rlHeads ? ' (ความยาวคานนอน Ringlock)' : ''}`
+        : inp.head.spacingCm === undefined && rlHeads
+          ? `ความยาวคานนอน Ringlock ไม่เกิน ${floorTo(boLim.max, 5)} ซม. (มี ${ledgerText(rlHeads)} ม.)`
+          : inp.head.spacingCm === undefined && boLim.max >= a
+            ? `ทวีคูณของระยะเคร่า ${a} ซม.`
+            : undefined,
     value: s,
     unit: 'ซม.',
   })
@@ -469,7 +485,7 @@ export function designBeam(inp: BeamInput): BeamDesign {
     // post capacity with k ledger levels (or the rated SWL), limited by the bearing under the base plate
     const post = inp.shore.kind === 'post'
     const capAt = (k: number) => {
-      let c = inp.shore.swl
+      let c = shoreSwl(inp.shore, shoreLength)
       if (post) {
         const ps = getSection(inp.shore.sectionId)
         const pm = getMaterial(ps.shape === 'pipe' && getMaterial(inp.shore.materialId).kind !== 'steel' ? 'steel-a36' : inp.shore.materialId)
@@ -482,8 +498,19 @@ export function designBeam(inp: BeamInput): BeamDesign {
     ledgerLevels = nMin
     if (post && sg.spacingCm === undefined) while (ledgerLevels < nMin + 3 && capAt(ledgerLevels) / w < stMax) ledgerLevels++
     const byShore = floorTo(capAt(ledgerLevels) / w, 5)
-    const L = sg.spacingCm ?? Math.max(20, Math.min(stMax, byShore))
-    tSg.add({ label: 'ระยะเสาค้ำที่ใช้ (ตามแนวคาน)', expr: sg.spacingCm === undefined && byShore < stMax ? `เสาค้ำรับได้ที่ ${byShore} ซม.` : undefined, value: L, unit: 'ซม.' })
+    const free = Math.max(20, Math.min(stMax, byShore))
+    const L = sg.spacingCm ?? (rl ? snapToLedger(free, rl) : free)
+    tSg.add({
+      label: 'ระยะเสาค้ำที่ใช้ (ตามแนวคาน)',
+      expr:
+        sg.spacingCm === undefined && rl
+          ? `ความยาวคานนอน Ringlock ไม่เกิน ${free} ซม. (มี ${ledgerText(rl)} ม.)`
+          : sg.spacingCm === undefined && byShore < stMax
+            ? `เสาค้ำรับได้ที่ ${byShore} ซม.`
+            : undefined,
+      value: L,
+      unit: 'ซม.',
+    })
     cStringer = component('stringer', 'คานแนวยาวรับคานขวาง (Stringers)', `${sgSec.label} ${sgRows} แถว ห่าง ${rowSpan.toFixed(2)} ม. (${sgMat.name})`, checkBeam(stm, w, L, tSg).rows, tSg, {
       label: 'ระยะเสาค้ำ',
       value: L,
@@ -507,7 +534,7 @@ export function designBeam(inp: BeamInput): BeamDesign {
       })
     cShore = designShore({ shore: { ...inp.shore, braceLevels: ledgerLevels }, P, lengthM: shoreLength, trace: tSo, layoutText: `@${L} ซม. × ${sgRows} แถว` })
 
-    const shoreX = spread(inp.length, L / 100, Math.min(0.2, L / 200))
+    const shoreX = rl ? ledgerRow(inp.length, L, rl, Math.min(0.2, L / 200)) : spread(inp.length, L / 100, Math.min(0.2, L / 200))
     const bays = shoreX.length - 1
     const k = Math.max(1, Math.min(braceBays(L / 100, shoreLength), bays))
     const sets = braceSets(bays, k)
@@ -540,7 +567,7 @@ export function designBeam(inp: BeamInput): BeamDesign {
 
   // 6) lateral bracing along the beam (ACI 347): one X per row of posts, the row carrying its share of the width
   const bracing = beamBracing(inp)
-  const headX = spread(inp.length, s / 100, Math.min(0.1, s / 200))
+  const headX = rlHeads ? ledgerRow(inp.length, s, rlHeads, Math.min(0.1, s / 200)) : spread(inp.length, s / 100, Math.min(0.1, s / 200))
   const bracingComps: ComponentResult[] = []
   if (sgLayout) {
     // stringer system: X-bracing along every stringer row and across the beam at the braced post lines
@@ -616,6 +643,14 @@ export function designBeam(inp: BeamInput): BeamDesign {
     if (!double && inp.b > 0.6) warnings.push('คานกว้างเกิน 60 ซม. บนเสาตัวที — ควรใช้เสาคู่คร่อมท้องคาน')
   }
   if (!across && inp.b > 0.8) warnings.push('คานกว้างเกิน 80 ซม. — พิจารณาใช้คร่าวขวาง (ตงขวาง → คร่าวตามยาว)')
+  if (rl) {
+    const off = (cm: number) => !isLedger(Math.round(cm), rl)
+    const lens = `(${ledgerText(rl)} ม.)`
+    if (!onStringers && inp.head.spacingCm !== undefined && off(s)) warnings.push(`ระยะคานขวาง ${s} ซม. ไม่ตรงความยาวคานนอน Ringlock ${lens}`)
+    if (double && off(inp.shore.postSpacingM * 100)) warnings.push(`ระยะเสาคู่ ${inp.shore.postSpacingM.toFixed(2)} ม. ไม่ตรงความยาวคานนอน Ringlock ${lens}`)
+    if (onStringers && off((rowSpan * 100) / (sgRows - 1))) warnings.push(`ระยะแถวเสาขวางคาน ${(rowSpan / (sgRows - 1)).toFixed(2)} ม. ไม่ตรงความยาวคานนอน Ringlock ${lens}`)
+    if (onStringers && sg.spacingCm !== undefined && off(sg.spacingCm)) warnings.push(`ระยะเสาค้ำตามแนวคาน ${sg.spacingCm} ซม. ไม่ตรงความยาวคานนอน Ringlock ${lens}`)
+  }
   if (double && inp.shore.postSpacingM < inp.b) warnings.push('ระยะเสาคู่แคบกว่าความกว้างคาน — ควรวางเสาให้คร่อมท้องคาน')
   if (onStringers && rowSpan < inp.b) warnings.push('ระยะแถวคานแนวยาวแคบกว่าความกว้างคาน — ควรวางคร่อมท้องคาน')
   if (inp.h > 0.9 && !rows) warnings.push('คานลึกเกิน 0.90 ม. — พิจารณาใช้ Form tie ยึดแบบข้าง (รูป 7.8)')

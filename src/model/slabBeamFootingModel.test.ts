@@ -1,8 +1,39 @@
 import { describe, expect, it } from 'vitest'
-import { BS_TUBE, DEFAULT_BEAM, DEFAULT_FOOTING, DEFAULT_SLAB, deckThicknessM, designBeam, designFooting, designSlab } from '@/engine'
+import { DEFAULT_CRITERIA, type ElementData } from '@/data/types'
+import { newElement } from '@/data/elements'
+import { BS_TUBE, DEFAULT_BEAM, DEFAULT_FOOTING, DEFAULT_SLAB, deckThicknessM, designBeam, designFooting, designSlab, ringlockStack } from '@/engine'
+import { modelBom } from './bom'
 import { applyBeamHandle, applyFootingHandle, applySlabHandle, beamModel, footingModel, slabModel } from './slabBeamFootingModel'
 
 const count = (parts: { group: string }[], g: string) => parts.filter((p) => p.group === g).length
+
+describe('Ringlock in 3D', () => {
+  const inp = { ...DEFAULT_SLAB, shore: { ...DEFAULT_SLAB.shore, kind: 'ringlock' as const, ringlock: { system: 'asia48' as const, liftM: 1.5 } } }
+  const d = designSlab(inp)
+  const parts = slabModel(inp, d).parts
+  const nx = d.layout.shoreX.length
+  const nz = d.layout.stringerY.length
+  const levels = ringlockStack(d.layout.shoreTop, 1.5).ledgers.length
+  it('ledgers between neighbouring standards both ways at every ledger level', () => {
+    expect(parts.filter((p) => p.id.startsWith('rl-ledger-x'))).toHaveLength(nz * (nx - 1) * levels)
+    expect(parts.filter((p) => p.id.startsWith('rl-ledger-z'))).toHaveLength(nx * (nz - 1) * levels)
+    // every ledger is one bay long, a ledger length of the system, the longest the designed spacing
+    const lens = parts.filter((q) => q.id.startsWith('rl-ledger') && q.shape === 'bar').map((q) => (q.shape === 'bar' ? Math.round(Math.hypot(q.to[0] - q.from[0], q.to[2] - q.from[2]) * 100) : 0))
+    expect(lens.every((l) => [60, 90, 120, 150, 180].includes(l))).toBe(true)
+    expect(Math.max(...lens.filter((_, i) => parts.filter((q) => q.id.startsWith('rl-ledger'))[i].id.startsWith('rl-ledger-x')))).toBe(d.layout.shoreSpacing)
+  })
+  it('diagonals in every lift of the braced bays, no separate bracing tubes', () => {
+    expect(parts.some((p) => p.id.startsWith('rl-diag'))).toBe(true)
+    expect(parts.some((p) => p.id.startsWith('brx') || p.id.startsWith('bry'))).toBe(false)
+  })
+  it('the BOM lists the ledgers and diagonals by length', () => {
+    const el = { ...newElement('slab', DEFAULT_CRITERIA, []), input: inp } as ElementData
+    const lines = modelBom(el, slabModel(inp, d))
+    const ledgers = lines.filter((l) => l.description.startsWith('คานนอน'))
+    expect(ledgers.reduce((a, l) => a + l.qty, 0)).toBe((nz * (nx - 1) + nx * (nz - 1)) * levels)
+    expect(lines.some((l) => l.description.startsWith('ค้ำทแยง Ringlock'))).toBe(true)
+  })
+})
 
 describe('slab model', () => {
   const d = designSlab(DEFAULT_SLAB)

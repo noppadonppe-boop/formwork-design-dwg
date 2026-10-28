@@ -2,7 +2,7 @@
 // cut length) and identical pieces are counted together. The shop drawing tags (marks) refer to these lines.
 import type { AnyDesign } from '@/data/elements'
 import type { ElementData } from '@/data/types'
-import { beamBracing, beamCrossJoist, getMaterial, getSection, getTie, type Section } from '@/engine'
+import { beamBracing, beamCrossJoist, getMaterial, getSection, getTie, ringlockSystem, type Section } from '@/engine'
 import { elementModel } from './elementModel'
 import { type FormModel, GROUP_LABEL, type Part, type PartGroup } from './formModel'
 
@@ -93,6 +93,9 @@ function partSpec(el: ElementData, p: Part): Spec | undefined {
   }
   if (g === 'shore') {
     const s = i.shore
+    // Ringlock ledgers and diagonals: counted by length (a ledger's length is its nominal size)
+    if (p.id.startsWith('rl-ledger')) return { category: 'shore', description: `คานนอน ${ringlockSystem(s.ringlock).name}`, unit: 'ท่อน' }
+    if (p.id.startsWith('rl-diag')) return { category: 'shore', description: `ค้ำทแยง ${ringlockSystem(s.ringlock).name}`, unit: 'ท่อน' }
     if (p.id.endsWith('-base')) return { category: 'accessory', description: `แป้นรองฐานเสาค้ำ ${s.baseCm}×${s.baseCm} ซม.`, unit: 'ตัว' }
     // stem, nut and side plates of a screw jack sit in the line of its plate without adding to the count
     const sub = /-(head|jack)-[a-z]$/.test(p.id)
@@ -101,6 +104,7 @@ function partSpec(el: ElementData, p: Part): Spec | undefined {
     if (p.id.startsWith('knee')) return { category: 'timber', description: 'ไม้เท้าแขนตุ๊กตา 1"×2½"', unit: 'ท่อน', nominal: [1, 2.5] }
     if (p.id.startsWith('xbr')) return { category: 'timber', description: 'ไม้ค้ำทแยงเสาคู่ 1"×3"', unit: 'ท่อน', nominal: [1, 3] }
     if (s.kind === 'rated') return { category: 'shore', description: s.ratedName, unit: 'ต้น' }
+    if (s.kind === 'ringlock') return { ...memberSpec(ringlockSystem(s.ringlock).sectionId, ringlockSystem(s.ringlock).materialId, `เสาตั้ง ${ringlockSystem(s.ringlock).name}`), category: 'shore', unit: 'ต้น' }
     return { ...memberSpec(s.sectionId, s.materialId, 'เสาค้ำ'), category: 'shore', unit: 'ต้น' }
   }
   const pick = (): [string, string] | undefined => {

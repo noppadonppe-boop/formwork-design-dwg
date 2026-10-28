@@ -30,6 +30,12 @@ const VARIANTS: [Types.ElementType, Patch][] = [
   ]),
   ['slab', (i) => i],
   ['slab', (i) => ({ ...i, shore: { ...i.shore, kind: 'rated' } })],
+  ['slab', (i) => ({ ...i, shore: { ...i.shore, kind: 'ringlock', ringlock: Engine.DEFAULT_RINGLOCK } })],
+  ['slab', (i) => ({ ...i, clearHeight: 0.6, shore: { ...i.shore, kind: 'ringlock', ringlock: { system: 'eu48', liftM: 2, swl: 2000 }, spacingCm: 100 }, stringer: { ...i.stringer, spacingCm: 95 } })],
+  ['beam', (i) => ({ ...i, shore: { ...i.shore, kind: 'ringlock', ringlock: Engine.DEFAULT_RINGLOCK, layout: 'double', postSpacingM: 0.7 }, head: { ...i.head, spacingCm: 100 } })],
+  ['beam', (i) => ({ ...i, length: 12, h: 1.2, clearHeight: 4, shore: { ...i.shore, kind: 'ringlock', ringlock: { system: 'asia60', liftM: 1 } } })],
+  ['beam', (i) => ({ ...i, clearHeight: 4.5, stringer: { ...Engine.DEFAULT_BEAM.stringer, enabled: true }, shore: { ...i.shore, kind: 'ringlock', ringlock: Engine.DEFAULT_RINGLOCK, postSpacingM: 0.8 } })],
+  ['beam', (i) => ({ ...i, stringer: { ...Engine.DEFAULT_BEAM.stringer, enabled: true, spacingCm: 100 }, shore: { ...i.shore, kind: 'ringlock', ringlock: Engine.DEFAULT_RINGLOCK, postSpacingM: 0.9 } })],
   ['slab', (i) => ({ ...i, shore: { ...i.shore, sectionId: 'timber-3x3', materialId: 'timber-yang', braceLevels: 1 } })],
   ['slab', (i) => ({ ...i, bracing: { ...i.bracing, enabled: false }, thickness: 0.3, clearHeight: 5 })],
   ['beam', (i) => i],
@@ -77,7 +83,7 @@ const SOURCES = [
   'src/report/Drawing.tsx',
   'src/report/views.ts',
   'src/data/elements.ts',
-  ...['wall', 'column', 'planShape', 'slab', 'beam', 'footing', 'design', 'member', 'pressure', 'shoring', 'loads', 'materials', 'sections', 'units', 'trace'].map((x) => `src/engine/${x}.ts`),
+  ...['wall', 'column', 'planShape', 'slab', 'beam', 'footing', 'design', 'member', 'pressure', 'shoring', 'ringlock', 'loads', 'materials', 'sections', 'units', 'trace'].map((x) => `src/engine/${x}.ts`),
 ]
 
 function collect(): Set<string> {

@@ -7,7 +7,7 @@ import { fmtVal } from '@/components/design/ResultsPanel'
 import type { AnyDesign } from '@/data/elements'
 import { elementHeight, elementSize, QUANTITY_LABEL, TYPE_LABEL } from '@/data/elements'
 import type { Criteria, ElementData, Project } from '@/data/types'
-import { beamBracing, beamCrossJoist, beamHasRunners, beamRunnerFlat, beamStringer, columnShapeOf, columnShapeSystem, footingShapeOf, isLegShape, columnSizeText, columnTieSpans, type ComponentResult, footingSystemLabel, getMaterial, getSection, getTie, type ShoreParams, type Status, type Trace } from '@/engine'
+import { beamBracing, beamCrossJoist, beamHasRunners, beamRunnerFlat, beamStringer, columnShapeOf, columnShapeSystem, footingShapeOf, isLegShape, columnSizeText, columnTieSpans, type ComponentResult, footingSystemLabel, getMaterial, getSection, getTie, ringlockSystem, type ShoreParams, type Status, type Trace } from '@/engine'
 import { Drawing } from './Drawing'
 import { elementViews } from './views'
 
@@ -104,7 +104,9 @@ type MemberRow = { role: string; sectionId?: string; materialId: string; note?: 
 
 const deckNote = (sh: { type: 'plywood'; thicknessMm: number } | { type: 'board'; thicknessCm: number }) => (sh.type === 'plywood' ? `หนา ${sh.thicknessMm} มม.` : `ไม้กระดานหนา ${sh.thicknessCm} ซม.`)
 const shoreRow = (s: ShoreParams): MemberRow[] =>
-  s.kind === 'post' ? [{ role: 'เสาค้ำ', sectionId: s.sectionId, materialId: getSection(s.sectionId).shape === 'pipe' && getMaterial(s.materialId).kind !== 'steel' ? 'steel-a36' : s.materialId }] : []
+  s.kind === 'ringlock'
+    ? [{ role: 'เสาตั้ง Ringlock', sectionId: ringlockSystem(s.ringlock).sectionId, materialId: ringlockSystem(s.ringlock).materialId, note: `ระยะชั้น ${(s.ringlock?.liftM ?? 1.5).toFixed(1)} ม.` }]
+    : s.kind === 'post' ? [{ role: 'เสาค้ำ', sectionId: s.sectionId, materialId: getSection(s.sectionId).shape === 'pipe' && getMaterial(s.materialId).kind !== 'steel' ? 'steel-a36' : s.materialId }] : []
 
 function members(el: ElementData): MemberRow[] {
   switch (el.type) {
