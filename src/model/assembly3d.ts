@@ -5,10 +5,10 @@
 import type { ElementData, FaceKey, FormPanel } from '@/data/types'
 import { getSection, WALE_PAIR_GAP } from '@/engine'
 import { type AssemblyResult, type FaceSpec, sectionDepth, waleSectionOf } from './assembly'
-import type { Vec3 } from './formModel'
+import { tiePlate, type Vec3 } from './formModel'
 import { panelLayout } from './panel'
 
-export type AsmKind = 'concrete' | 'ply' | 'stud' | 'wale' | 'tie'
+export type AsmKind = 'concrete' | 'ply' | 'stud' | 'wale' | 'tie' | 'plate'
 
 export interface AsmPart {
   id: string
@@ -106,17 +106,26 @@ export function assembly3d(r: AssemblyResult, el: ElementData): Asm3D {
     }
   }
 
-  // form ties: through the concrete, drawn once per pair of opposite faces (from the original of each link)
+  // form ties: through the concrete, drawn once per pair of opposite faces (from the original of each link), with a
+  // steel bearing plate (เหล็กประกับ) on the wales at both ends
   const tieFaces = specs.filter((f) => f.ties.length && !g.links.some(([, copy]) => copy === f.key))
   if (tieFaces.length) {
     const step = steps.push('ร้อย Form tie ใส่แผ่นประกับ แล้วขันแน่น') - 1
     const reach = depth + 2 * (ws ? sectionDepth(ws.sectionId) : 0.05) + 0.08
+    const out = depth + (ws ? sectionDepth(ws.sectionId) : 0) // outer face of the wales
+    const tp = tiePlate(ws?.count ?? 1, ws ? getSection(ws.sectionId).B / 100 : 0.08)
     for (const f of tieFaces) {
       const across = [0, 1, 2].reduce((a, i) => a + Math.abs(f.n[i]) * g.concrete.size[i], 0)
       for (const [i, t] of r.faces[f.key]!.ties.entries()) {
         const a = at(f, t.u, t.y, reach)
         const b = [0, 1, 2].map((k) => a[k] - f.n[k] * (across + 2 * reach)) as Vec3
         parts.push({ id: `${f.key}-tie-${i}`, kind: 'tie', center: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2], size: [0.014, 0.014, 0.014], from: a, to: b, step, course: 0, n: ZERO, v: ZERO })
+        // the plate on the opposite face is the same box moved across the concrete and both form depths
+        const near = box(f, t.u - tp.along / 2, t.u + tp.along / 2, t.y - tp.across / 2, t.y + tp.across / 2, out, out + tp.t)
+        const shift = across + 2 * out + tp.t
+        const far = [0, 1, 2].map((k) => near.center[k] - f.n[k] * shift) as Vec3
+        parts.push({ id: `${f.key}-tieplate-${i}-a`, kind: 'plate', ...near, step, course: 0, n: f.n, v: ZERO })
+        parts.push({ id: `${f.key}-tieplate-${i}-b`, kind: 'plate', center: far, size: near.size, step, course: 0, n: f.n.map((x) => -x) as Vec3, v: ZERO })
       }
     }
   }

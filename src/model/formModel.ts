@@ -153,6 +153,12 @@ export function bounds(parts: Part[]): FormModel['bounds'] {
 /** Offsets of the members in a set of `count` (1 or 2) members of width w, stacked vertically. */
 export const pairOffsets = (count: number, w: number) => (count === 2 ? [-(w / 2 + GAP / 2), w / 2 + GAP / 2] : [0])
 
+/** Steel bearing plate (เหล็กประกับ) under a tie nut, m: 8 cm along the wale; across a double wale it bridges the
+ *  pair (the tie passes through the gap), on a single wale it is an 8 × 8 cm washer plate. */
+export function tiePlate(count: number, waleB: number) {
+  return { along: 0.08, across: count === 2 ? Math.round((2 * waleB + GAP + 0.02) * 100) / 100 : Math.max(0.08, waleB), t: 0.009 }
+}
+
 /** Plywood sheets 1.22 × 2.44 laid in a grid over a face (u along the face, v up). */
 export function sheets(width: number, height: number): { u0: number; u1: number; v0: number; v1: number }[] {
   const out = []
@@ -196,11 +202,12 @@ export function wallModel(inp: WallInput, d: WallDesign): FormModel {
       ),
     )
   }
+  const tp = tiePlate(inp.wale.count, wb)
   waleLevels.forEach((y, i) =>
     tieX.forEach((x, j) => {
       parts.push({ id: `tie-${i}-${j}`, group: 'tie', kind: 'tie', shape: 'bar', from: [x, y, -(zOut + 0.06)], to: [x, y, zOut + 0.06], b: 0.012, d: 0.012, round: true })
       for (const s of [1, -1])
-        parts.push({ id: `tieplate${s}-${i}-${j}`, group: 'tie', kind: 'tie', shape: 'box', center: [x, y, s * (zOut + 0.008)], size: [0.08, 0.08, 0.016] })
+        parts.push({ id: `tieplate${s}-${i}-${j}`, group: 'tie', kind: 'steel', shape: 'box', center: [x, y, s * (zOut + tp.t / 2)], size: [tp.along, tp.across, tp.t] })
     }),
   )
 
@@ -282,6 +289,7 @@ export function columnModel(inp: ColumnInput, d: ColumnDesign): FormModel {
   }
   // corner bolts through the yoke ends
   const spans = columnTieSpans(inp.tie)
+  const tp = tiePlate(inp.yoke.count, yb)
   yokeLevels.forEach((y, i) => {
     for (const sx of [1, -1])
       for (const sz of [1, -1])
@@ -290,10 +298,12 @@ export function columnModel(inp: ColumnInput, d: ColumnDesign): FormModel {
     for (let j = 1; j < spans.long; j++) {
       const z = -h / 2 + (j * h) / spans.long
       parts.push({ id: `tie-${i}-${j}`, group: 'tie', kind: 'tie', shape: 'bar', from: [-(xOut + 0.06), y, z], to: [xOut + 0.06, y, z], b: 0.012, d: 0.012, round: true })
+      for (const s of [1, -1]) parts.push({ id: `tieplate${s}-${i}-${j}`, group: 'tie', kind: 'steel', shape: 'box', center: [s * (xOut + tp.t / 2), y, z], size: [tp.t, tp.across, tp.along] })
     }
     for (let j = 1; j < spans.short; j++) {
       const x = -b / 2 + (j * b) / spans.short
       parts.push({ id: `tieS-${i}-${j}`, group: 'tie', kind: 'tie', shape: 'bar', from: [x, y + pairH, -(zOut + 0.06)], to: [x, y + pairH, zOut + 0.06], b: 0.012, d: 0.012, round: true })
+      for (const s of [1, -1]) parts.push({ id: `tieplateS${s}-${i}-${j}`, group: 'tie', kind: 'steel', shape: 'box', center: [x, y + pairH, s * (zOut + tp.t / 2)], size: [tp.along, tp.across, tp.t] })
     }
   })
 

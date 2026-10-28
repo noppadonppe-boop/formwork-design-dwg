@@ -29,7 +29,7 @@ import {
   type SlabInput,
   spread,
 } from '@/engine'
-import { bounds, cm, type FormModel, type Handle, type HandleKey, pairOffsets, type Part, regularPlan, round3, roundPlan, sheets, snap, type Vec3, yawFacing } from './formModel'
+import { bounds, cm, type FormModel, type Handle, type HandleKey, pairOffsets, type Part, tiePlate, regularPlan, round3, roundPlan, sheets, snap, type Vec3, yawFacing } from './formModel'
 
 const kindOf = (materialId: string): MaterialKind => getMaterial(materialId).kind
 
@@ -353,13 +353,17 @@ export function beamModel(inp: BeamInput, d: BeamDesign): FormModel {
     const wsec = getSection(inp.tie.waleSectionId)
     const wb = cm(wsec.B)
     const wd = cm(wsec.H)
+    const tp = tiePlate(2, wb)
     tieLevels.forEach((lv, i) => {
       const y = Y + lv
       for (const s of [1, -1])
         pairOffsets(2, wb).forEach((o, k) =>
           parts.push({ id: `wale${s}-${i}-${k}`, group: 'wale', kind: kindOf(inp.tie.waleMaterialId), shape: 'box', center: [L / 2, y + o, s * (zFace + wd / 2)], size: [L, wb, wd] }),
         )
-      headX.forEach((x, j) => parts.push({ id: `tie-${i}-${j}`, group: 'tie', kind: 'tie', shape: 'bar', from: [x, y, -(zFace + wd + 0.06)], to: [x, y, zFace + wd + 0.06], b: 0.012, d: 0.012, round: true }))
+      headX.forEach((x, j) => {
+        parts.push({ id: `tie-${i}-${j}`, group: 'tie', kind: 'tie', shape: 'bar', from: [x, y, -(zFace + wd + 0.06)], to: [x, y, zFace + wd + 0.06], b: 0.012, d: 0.012, round: true })
+        for (const s of [1, -1]) parts.push({ id: `tieplate${s}-${i}-${j}`, group: 'tie', kind: 'steel', shape: 'box', center: [x, y, s * (zFace + wd + tp.t / 2)], size: [tp.along, tp.across, tp.t] })
+      })
     })
   } else if (inp.type !== 'slab') {
     const br = getSection(inp.brace.sectionId)
