@@ -19,6 +19,13 @@ describe('panel layout', () => {
     expect(L.overhangs).toHaveLength(0)
   })
 
+  it('steel studs: depth from the section, weight from its kg/m', () => {
+    const L = panelLayout(panel({ stud: { ...DEFAULT_PANEL.stud, sectionId: 'rhs-100×50×2.3', materialId: 'steel-a36' } }))
+    expect(L.studD).toBeCloseTo(0.1, 3)
+    const metres = L.members.reduce((a, m) => a + m.length, 0)
+    expect(L.weightKg).toBeCloseTo(2.4 * 1.2 * (DEFAULT_PANEL.plywood.thicknessMm / 1000) * 600 + metres * 5.14, 0)
+  })
+
   it('top and bottom caps shorten the studs and run the full width', () => {
     const L = panelLayout(panel({ edges: { left: true, right: true, top: true, bottom: true } }))
     const caps = L.members.filter((m) => m.kind === 'cap')
