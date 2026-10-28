@@ -20,6 +20,9 @@ const VARIANTS: [Types.ElementType, Patch][] = [
   ['column', (i) => ({ ...i, b: 0.9, h: 1.2, tie: { ...i.tie, enabled: true, spans: 3, shortSpans: 2 } })],
   ['column', (i) => ({ ...i, sheathing: { type: 'board', materialId: 'timber-yang', thicknessCm: 2.5 } })],
   ['column', (i) => ({ ...i, height: 6, b: 0.8, h: 1.2 })],
+  ...([['stave', 'board'], ['stave', 'plywood'], ['steel', 'board'], ['tube', 'board']] as const).map(([sys, sh]): [Types.ElementType, Patch] => ['column', (i) => ({ ...i, b: 0.5, h: 0.5, shape: { kind: 'circle', system: sys }, sheathing: sh === 'board' ? { type: 'board', materialId: 'timber-yang', thicknessCm: 2.5 } : i.sheathing })]),
+  ...([6, 8] as const).flatMap((n) => (['box', 'ring'] as const).map((y): [Types.ElementType, Patch] => ['column', (i) => ({ ...i, b: 0.6, h: 0.6, shape: { kind: 'polygon', n, yoke: y } })])),
+  ['column', (i) => ({ ...i, b: 0.6, h: 0.6, shape: { kind: 'polygon', n: 8, yoke: 'box' }, sheathing: { type: 'board', materialId: 'timber-yang', thicknessCm: 2.5 } })],
   ['slab', (i) => i],
   ['slab', (i) => ({ ...i, shore: { ...i.shore, kind: 'rated' } })],
   ['slab', (i) => ({ ...i, shore: { ...i.shore, sectionId: 'timber-3x3', materialId: 'timber-yang', braceLevels: 1 } })],
@@ -61,7 +64,7 @@ const SOURCES = [
   'src/report/Drawing.tsx',
   'src/report/views.ts',
   'src/data/elements.ts',
-  ...['wall', 'column', 'slab', 'beam', 'footing', 'design', 'member', 'pressure', 'shoring', 'loads', 'materials', 'sections', 'units', 'trace'].map((x) => `src/engine/${x}.ts`),
+  ...['wall', 'column', 'planShape', 'slab', 'beam', 'footing', 'design', 'member', 'pressure', 'shoring', 'loads', 'materials', 'sections', 'units', 'trace'].map((x) => `src/engine/${x}.ts`),
 ]
 
 function collect(): Set<string> {

@@ -1,10 +1,10 @@
 // Orthographic views of each element type with their dimension chains — shared by the calc report and the shop drawings.
 import type { AnyDesign } from '@/data/elements'
 import type { ElementData } from '@/data/types'
-import { BEAM_TYPE_LABEL, columnTieSpans, footingSystemLabel } from '@/engine'
+import { BEAM_TYPE_LABEL, columnShapeOf, columnTieSpans, footingSystemLabel, polygonBox, SHAPE_NAME } from '@/engine'
 import { elementModel } from '@/model/elementModel'
 import type { FormModel } from '@/model/formModel'
-import { chain, type Dim } from './Drawing'
+import { chain, corners, type Dim } from './Drawing'
 
 export type DrawingSpec = { model: FormModel; view: 'front' | 'side' | 'top'; dims: Dim[]; title: string }
 const without = (m: FormModel, ...groups: string[]): FormModel => ({ ...m, parts: m.parts.filter((p) => !groups.includes(p.group)) })
@@ -34,21 +34,38 @@ export function elementViews(el: ElementData, run: AnyDesign): { a: DrawingSpec;
     const i = el.input
     const d = run.design
     const plan = without(m, 'brace')
-    const ext = Math.max(...plan.parts.map((p) => (p.shape === 'box' ? Math.abs(p.center[0]) + p.size[0] / 2 : Math.max(Math.abs(p.from[0]), Math.abs(p.to[0])))))
-    const extZ = Math.max(...plan.parts.map((p) => (p.shape === 'box' ? Math.abs(p.center[2]) + p.size[2] / 2 : Math.max(Math.abs(p.from[2]), Math.abs(p.to[2])))))
-    const spans = columnTieSpans(i.tie)
-    const tieZ = spans.long > 1 ? Array.from({ length: spans.long + 1 }, (_, k) => -i.h / 2 + (k * i.h) / spans.long) : []
-    const tieX = spans.short > 1 ? Array.from({ length: spans.short + 1 }, (_, k) => -i.b / 2 + (k * i.b) / spans.short) : []
-    const planDims: Dim[] = [
-      { dir: 'h', a: -i.b / 2, b: i.b / 2, at: i.h / 2 + 0.35, text: `b = ${Math.round(i.b * 100)}` },
-      { dir: 'v', a: -i.h / 2, b: i.h / 2, at: -ext - 0.15, text: `h = ${Math.round(i.h * 100)}` },
-      ...(tieZ.length ? chain('v', tieZ.map((z) => -z), ext + 0.2) : []),
-      ...(tieX.length ? chain('h', tieX, -extZ - 0.2) : []),
-    ]
-    const elev: Dim[] = [...chain('v', [0, ...d.layout.yokeLevels, i.height], m.bounds.min[0] - 0.2), { dir: 'h', a: -i.b / 2, b: i.b / 2, at: i.height + 0.3, text: `${Math.round(i.b * 100)}` }]
+    const ext = Math.max(...plan.parts.flatMap((p) => corners(p).map((q) => Math.abs(q[0]))))
+    const extZ = Math.max(...plan.parts.flatMap((p) => corners(p).map((q) => Math.abs(q[2]))))
+    const shape = columnShapeOf(i)
+    const round = shape.kind === 'circle'
+    // plan extent of the concrete: a polygon's box (across the corners × F for the hexagon)
+    const [cx, cz] = shape.kind === 'polygon' ? polygonBox(shape.n, i.b) : [i.b, i.h]
+    const spans = shape.kind === 'rect' || (shape.kind === 'polygon' && shape.yoke === 'box') ? columnTieSpans(i.tie) : { long: 1, short: 1 }
+    const longZ = cz >= cx
+    const [L, S] = longZ ? [cz, cx] : [cx, cz]
+    const tieL = spans.long > 1 ? Array.from({ length: spans.long + 1 }, (_, k) => -L / 2 + (k * L) / spans.long) : []
+    const tieS = spans.short > 1 ? Array.from({ length: spans.short + 1 }, (_, k) => -S / 2 + (k * S) / spans.short) : []
+    const [tieZ, tieX] = longZ ? [tieL, tieS] : [tieS, tieL]
+    const size = Math.round(i.b * 100)
+    const planDims: Dim[] =
+      shape.kind === 'rect'
+        ? [
+            { dir: 'h', a: -i.b / 2, b: i.b / 2, at: i.h / 2 + 0.35, text: `b = ${size}` },
+            { dir: 'v', a: -i.h / 2, b: i.h / 2, at: -ext - 0.15, text: `h = ${Math.round(i.h * 100)}` },
+          ]
+        : round
+          ? [{ dir: 'h', a: -i.b / 2, b: i.b / 2, at: extZ + 0.15, text: `Ø ${size}` }]
+          : [
+              { dir: 'v', a: -i.b / 2, b: i.b / 2, at: -ext - 0.15, text: `F = ${size}` },
+              { dir: 'h', a: -cx / 2, b: cx / 2, at: extZ + 0.15, text: `${Math.round(cx * 100)}` },
+            ]
+    planDims.push(...(tieZ.length ? chain('v', tieZ.map((z) => -z), ext + 0.2) : []), ...(tieX.length ? chain('h', tieX, -extZ - 0.2) : []))
+    const levels = d.layout.yokeLevels
+    const elev: Dim[] = [...(levels.length ? chain('v', [0, ...levels, i.height], m.bounds.min[0] - 0.2) : [{ dir: 'v' as const, a: 0, b: i.height, at: m.bounds.min[0] - 0.2, text: `H = ${i.height.toFixed(2)}` }]), { dir: 'h', a: -cx / 2, b: cx / 2, at: i.height + 0.3, text: `${Math.round(cx * 100)}` }]
+    const what = round ? (shape.system === 'stave' ? 'ระแนง ริบโค้ง และสลัก' : shape.system === 'steel' ? 'แบบเหล็กและสลักปีก' : 'ท่อกระดาษ') : 'คานรัด เคร่า และไทร์'
     return {
-      a: { model: plan, view: 'top', dims: planDims, title: 'แปลนเสา (Plan) — คานรัด เคร่า และไทร์ (ซม.)' },
-      b: { model: m, view: 'front', dims: elev, title: 'รูปด้านเสา (Elevation) — ระยะคานรัด (ซม.)' },
+      a: { model: plan, view: 'top', dims: planDims, title: `แปลนเสา${shape.kind === 'rect' ? '' : SHAPE_NAME[shape.kind === 'circle' ? 'circle' : shape.n]} (Plan) — ${what} (ซม.)` },
+      b: { model: m, view: 'front', dims: elev, title: round && shape.system === 'stave' ? 'รูปด้านเสา (Elevation) — ระยะริบ (ซม.)' : 'รูปด้านเสา (Elevation) — ระยะคานรัด (ซม.)' },
     }
   }
   if (el.type === 'slab' && run.type === 'slab') {

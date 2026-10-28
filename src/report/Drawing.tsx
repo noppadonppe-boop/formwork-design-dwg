@@ -1,6 +1,6 @@
 // Orthographic SVG drawing of a formwork model (elevation / end view / plan) with dimension lines.
 // Painter's algorithm: parts are drawn far → near along the view direction.
-import type { FormModel, Part, Vec3 } from '@/model/formModel'
+import { boxPoints, type FormModel, type Part, type Vec3 } from '@/model/formModel'
 
 export type OrthoView = 'front' | 'side' | 'top'
 
@@ -24,14 +24,38 @@ export const PROJ: Record<OrthoView, (p: Vec3) => [number, number, number]> = {
   top: ([x, y, z]) => [x, -z, y],
 }
 
+/** Bounding corners of a part (min, max), or the ends of a bar. */
 export function corners(p: Part): Vec3[] {
   if (p.shape === 'bar') return [p.from, p.to]
+  if (p.yaw || p.plan) {
+    const q = boxPoints(p)
+    return [[0, 1, 2].map((k) => Math.min(...q.map((v) => v[k]))) as Vec3, [0, 1, 2].map((k) => Math.max(...q.map((v) => v[k]))) as Vec3]
+  }
   const [cx, cy, cz] = p.center
   const [sx, sy, sz] = p.size.map((s) => s / 2)
   return [
     [cx - sx, cy - sy, cz - sz],
     [cx + sx, cy + sy, cz + sz],
   ]
+}
+
+export type Pt = [number, number]
+
+/** Convex hull (monotone chain), counter-clockwise. */
+export function hull(points: Pt[]): Pt[] {
+  const p = [...points].sort((a, b) => a[0] - b[0] || a[1] - b[1])
+  const cross = (o: Pt, a: Pt, b: Pt) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+  const lower: Pt[] = []
+  for (const q of p) {
+    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], q) <= 0) lower.pop()
+    lower.push(q)
+  }
+  const upper: Pt[] = []
+  for (const q of [...p].reverse()) {
+    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], q) <= 0) upper.pop()
+    upper.push(q)
+  }
+  return [...lower.slice(0, -1), ...upper.slice(0, -1)]
 }
 
 export function Drawing({ model, view, width = 640, height = 360, dims = [], title, scaleNote }: { model: FormModel; view: OrthoView; width?: number; height?: number; dims?: Dim[]; title: string; scaleNote?: string }) {
@@ -81,6 +105,10 @@ export function Drawing({ model, view, width = 640, height = 360, dims = [], tit
         </defs>
         {view !== 'top' && <line x1={0} x2={width} y1={Y(0)} y2={Y(0)} stroke="#64748b" strokeWidth={1} />}
         {items.map(({ p, pts }) => {
+          if (p.shape === 'box' && (p.yaw || p.plan)) {
+            const q = hull(boxPoints(p).map((v) => P(v).slice(0, 2) as Pt))
+            return <polygon key={p.id} points={q.map(([u, v]) => `${X(u).toFixed(2)},${Y(v).toFixed(2)}`).join(' ')} fill={p.kind === 'concrete' ? `url(#hatch-${view})` : FILL[p.kind]} stroke={STROKE[p.kind]} strokeWidth={0.5} />
+          }
           if (p.shape === 'box') {
             const [a, b] = pts
             const x = X(Math.min(a[0], b[0]))

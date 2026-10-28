@@ -1,7 +1,7 @@
 // A drawing view for the shop drawing sheet, in paper millimetres: orthographic views at a standard scale
 // (1:5 … 1:500) or an isometric view, with dimension chains and numbered callout tags tied to the BOM marks.
-import type { FormModel, Part, Vec3 } from '@/model/formModel'
-import { corners, type Dim, FILL, type OrthoView, PROJ, STROKE } from './Drawing'
+import { boxPoints, type FormModel, type Part, type Vec3 } from '@/model/formModel'
+import { corners, type Dim, FILL, hull, type OrthoView, PROJ, type Pt, STROKE } from './Drawing'
 
 export type ShopViewKind = OrthoView | 'iso'
 export const SCALES = [5, 10, 15, 20, 25, 30, 40, 50, 60, 75, 100, 125, 150, 200, 250, 300, 400, 500] as const
@@ -16,14 +16,6 @@ function shade(hex: string, f: number): string {
   const n = parseInt(hex.slice(1), 16)
   const c = (k: number) => Math.round(((n >> k) & 255) * f)
   return `rgb(${c(16)},${c(8)},${c(0)})`
-}
-
-function boxCorners(p: Part & { shape: 'box' }): Vec3[] {
-  const [cx, cy, cz] = p.center
-  const [sx, sy, sz] = p.size.map((s) => s / 2)
-  const out: Vec3[] = []
-  for (const dx of [-1, 1]) for (const dy of [-1, 1]) for (const dz of [-1, 1]) out.push([cx + dx * sx, cy + dy * sy, cz + dz * sz])
-  return out
 }
 
 export interface Tag {
@@ -41,31 +33,12 @@ export const VIEW_PAD = 7
 
 /** World-space bounding box of a part, m. */
 function aabb(p: Part): [Vec3, Vec3] {
-  if (p.shape === 'box') return [p.center.map((c, k) => c - p.size[k] / 2) as Vec3, p.center.map((c, k) => c + p.size[k] / 2) as Vec3]
+  if (p.shape === 'box') return corners(p) as [Vec3, Vec3]
   const r = Math.max(p.b, p.d) / 2
   return [[0, 1, 2].map((k) => Math.min(p.from[k], p.to[k]) - r) as Vec3, [0, 1, 2].map((k) => Math.max(p.from[k], p.to[k]) + r) as Vec3]
 }
 
 type Item = { p: Part; pts: [number, number, number][]; depth: number }
-type Pt = [number, number]
-
-/** Convex hull (monotone chain), counter-clockwise. */
-function hull(points: Pt[]): Pt[] {
-  const p = [...points].sort((a, b) => a[0] - b[0] || a[1] - b[1])
-  const cross = (o: Pt, a: Pt, b: Pt) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
-  const lower: Pt[] = []
-  for (const q of p) {
-    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], q) <= 0) lower.pop()
-    lower.push(q)
-  }
-  const upper: Pt[] = []
-  for (const q of [...p].reverse()) {
-    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], q) <= 0) upper.pop()
-    upper.push(q)
-  }
-  return [...lower.slice(0, -1), ...upper.slice(0, -1)]
-}
-
 const polyArea = (q: Pt[]) => Math.abs(q.reduce((s, a, i) => s + a[0] * q[(i + 1) % q.length][1] - q[(i + 1) % q.length][0] * a[1], 0)) / 2
 
 /** Area common to two convex polygons (Sutherland–Hodgman). */
@@ -176,7 +149,7 @@ function isoOrder(items: Item[]): Item[] {
 export function project(model: FormModel, view: ShopViewKind) {
   const P = view === 'iso' ? iso : PROJ[view]
   const items: Item[] = model.parts.map((p) => {
-    const pts = (p.shape === 'box' && view === 'iso' ? boxCorners(p) : corners(p)).map(P)
+    const pts = (p.shape === 'box' && (view === 'iso' || p.yaw || p.plan) ? boxPoints(p) : corners(p)).map(P)
     const depth = view === 'iso' ? P(p.shape === 'box' ? p.center : ([(p.from[0] + p.to[0]) / 2, (p.from[1] + p.to[1]) / 2, (p.from[2] + p.to[2]) / 2] as Vec3))[2] : Math.max(...pts.map((q) => q[2]))
     return { p, pts, depth }
   })
@@ -237,6 +210,11 @@ export function ShopView({ model, view, w, h, dims = [], tags = [], title, denom
 
   const shapes = items.map(({ p, pts }) => {
     const conc = p.kind === 'concrete'
+    if (p.shape === 'box' && (p.yaw || p.plan)) {
+      // turned box or prism: its outline in one shade
+      const q = hull(pts.map((r) => [r[0], r[1]] as Pt))
+      return <polygon key={p.id} points={q.map((r) => `${X(r[0]).toFixed(2)},${Y(r[1]).toFixed(2)}`).join(' ')} fill={conc ? (view === 'iso' ? FILL.concrete : `url(#${hatch})`) : shade(FILL[p.kind], view === 'iso' ? 0.9 : 1)} stroke={STROKE[p.kind]} strokeWidth={lw} strokeLinejoin="round" opacity={conc && view === 'iso' ? 0.35 : 1} />
+    }
     if (p.shape === 'box' && view === 'iso') {
       // visible faces of the box: top (+y), front (+z), right (+x); corners ordered dx, dy, dz ∈ {−1, 1}
       const c = (dx: number, dy: number, dz: number) => pts[(dx > 0 ? 4 : 0) + (dy > 0 ? 2 : 0) + (dz > 0 ? 1 : 0)]

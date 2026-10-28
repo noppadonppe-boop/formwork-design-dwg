@@ -66,6 +66,14 @@ function partSpec(el: ElementData, p: Part): Spec | undefined {
   const g = p.group
   const i = el.input as Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
   if (g === 'concrete') return undefined
+  const dia = `Ø${Math.round((i.b ?? 0) * 100)} ซม.`
+  if (p.id.startsWith('shell') || p.id.startsWith('flange')) return { category: 'accessory', description: `แบบเหล็กเสากลม ${dia} ครึ่งวง`, unit: 'ชิ้น' }
+  if (p.id.startsWith('tube')) return { category: 'accessory', description: `ท่อกระดาษหล่อเสา ${dia}`, unit: 'ท่อน' }
+  if (p.id.startsWith('bracket')) return { category: 'accessory', description: 'เหล็กประกับมุมคานรัด + น็อต', unit: 'ชุด' }
+  if (p.id.startsWith('filler') && p.shape === 'box') {
+    const [w, t] = [p.size[0], p.size[2]].map((x) => Math.round(x * 100))
+    return { category: 'timber', description: `ไม้อุดมุม ${w}×${t} ซม. ${shortName(i.stud?.materialId ?? 'timber-yang')}`, unit: 'ท่อน', nominal: [w / 2.5, t / 2.5] }
+  }
   if (g === 'sheathing') {
     if (p.kind === 'plywood') return { category: 'plywood', description: `ไม้อัด ${'thicknessMm' in i.sheathing ? i.sheathing.thicknessMm : ''} มม. ${shortName(i.sheathing.materialId)}`, unit: 'แผ่น' }
     const t = 'thicknessCm' in i.sheathing ? i.sheathing.thicknessCm : 2.5
@@ -124,8 +132,9 @@ function partSpec(el: ElementData, p: Part): Spec | undefined {
   }
   const sm = pick()
   if (!sm) return undefined
-  const role =
-    g === 'stake'
+  const role = p.id.startsWith('rib')
+    ? 'ริบโค้งครึ่งวง'
+    : g === 'stake'
       ? p.id.startsWith('kick')
         ? 'หลักตีนเคร่า'
         : 'หลักรับค้ำยัน'
@@ -148,10 +157,17 @@ const GROUP_ORDER: PartGroup[] = ['sheathing', 'stud', 'joist', 'bottom', 'wale'
 
 export function modelBom(el: ElementData, model: FormModel): BomLine[] {
   const lines = new Map<string, BomLine & { order: number }>()
+  /** piece id → its line (a piece drawn in several parts counts once) */
+  const pieces = new Map<string, BomLine>()
   for (const p of model.parts) {
     const spec = partSpec(el, p)
     if (!spec) continue
-    const d = partDims(p)
+    const seen = p.piece && pieces.get(p.piece.id)
+    if (seen) {
+      seen.partIds.push(p.id)
+      continue
+    }
+    const d = p.piece ? { ...partDims(p), length: p.piece.lengthM } : partDims(p)
     const sheet = spec.category === 'plywood' || spec.category === 'board'
     const accessory = spec.category === 'accessory' || spec.category === 'tie'
     const L = Math.round(d.length * 100) / 100
@@ -180,6 +196,7 @@ export function modelBom(el: ElementData, model: FormModel): BomLine[] {
       lines.set(key, line)
     }
     line.partIds.push(p.id)
+    if (p.piece) pieces.set(p.piece.id, line)
     if (spec.sub) continue
     line.qty++
     const nom = spec.nominal ?? (spec.section ? nominalInches(spec.section) : undefined)
@@ -250,7 +267,8 @@ export function summarize(items: { lines: BomLine[]; qty: number; concreteM3?: n
 
 /** Concrete volume of the element, m³ (from the model's concrete parts, lean concrete excluded). */
 export function concreteVolume(model: FormModel): number {
-  return model.parts.filter((p) => p.group === 'concrete' && p.shape === 'box' && p.id !== 'lean').reduce((v, p) => v + (p.shape === 'box' ? p.size[0] * p.size[1] * p.size[2] : 0), 0)
+  const plan = (q: [number, number][]) => Math.abs(q.reduce((s, a, k) => s + a[0] * q[(k + 1) % q.length][1] - q[(k + 1) % q.length][0] * a[1], 0)) / 2
+  return model.parts.filter((p) => p.group === 'concrete' && p.shape === 'box' && p.id !== 'lean').reduce((v, p) => v + (p.shape === 'box' ? (p.plan ? plan(p.plan) * p.size[1] : p.size[0] * p.size[1] * p.size[2]) : 0), 0)
 }
 
 export const groupLabel = (g: PartGroup) => GROUP_LABEL[g]

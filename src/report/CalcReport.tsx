@@ -7,7 +7,7 @@ import { fmtVal } from '@/components/design/ResultsPanel'
 import type { AnyDesign } from '@/data/elements'
 import { elementHeight, elementSize, QUANTITY_LABEL, TYPE_LABEL } from '@/data/elements'
 import type { Criteria, ElementData, Project } from '@/data/types'
-import { beamBracing, beamCrossJoist, beamHasRunners, beamRunnerFlat, beamStringer, columnTieSpans, type ComponentResult, footingSystemLabel, getMaterial, getSection, getTie, type ShoreParams, type Status, type Trace } from '@/engine'
+import { beamBracing, beamCrossJoist, beamHasRunners, beamRunnerFlat, beamStringer, columnShapeOf, columnShapeSystem, columnSizeText, columnTieSpans, type ComponentResult, footingSystemLabel, getMaterial, getSection, getTie, type ShoreParams, type Status, type Trace } from '@/engine'
 import { Drawing } from './Drawing'
 import { elementViews } from './views'
 
@@ -119,11 +119,15 @@ function members(el: ElementData): MemberRow[] {
     }
     case 'column': {
       const i = el.input
+      const s = columnShapeOf(i)
+      const brace = { role: 'ค้ำยัน', sectionId: i.brace.sectionId, materialId: i.brace.materialId }
+      if (s.kind === 'circle' && s.system !== 'stave') return [brace]
+      const staves = s.kind === 'circle'
       return [
-        { role: 'แผ่นผิวแบบ', materialId: i.sheathing.materialId, note: i.sheathing.type === 'plywood' ? `หนา ${i.sheathing.thicknessMm} มม.` : `ไม้กระดานหนา ${i.sheathing.thicknessCm} ซม.` },
-        ...(i.sheathing.type === 'plywood' && i.stud ? [{ role: 'เคร่าตั้ง', sectionId: i.stud.sectionId, materialId: i.stud.materialId }] : []),
-        { role: 'คานรัดแบบ', sectionId: i.yoke.sectionId, materialId: i.yoke.materialId, note: i.yoke.count === 2 ? 'หน้าตัดคู่' : 'เดี่ยว' },
-        { role: 'ค้ำยัน', sectionId: i.brace.sectionId, materialId: i.brace.materialId },
+        { role: staves ? 'ไม้ระแนงตั้ง' : 'แผ่นผิวแบบ', materialId: i.sheathing.materialId, note: i.sheathing.type === 'plywood' ? `หนา ${i.sheathing.thicknessMm} มม.` : `ไม้กระดานหนา ${i.sheathing.thicknessCm} ซม.` },
+        ...(i.sheathing.type === 'plywood' && i.stud && !staves ? [{ role: 'เคร่าตั้ง', sectionId: i.stud.sectionId, materialId: i.stud.materialId }] : []),
+        { role: staves ? 'ริบโค้งครึ่งวง' : 'คานรัดแบบ', sectionId: i.yoke.sectionId, materialId: i.yoke.materialId, note: i.yoke.count === 2 ? 'หน้าตัดคู่' : 'เดี่ยว' },
+        brace,
       ]
     }
     case 'slab': {
@@ -183,6 +187,22 @@ function columnTieText(tie: Extract<ElementData, { type: 'column' }>['input']['t
   return [s.long > 1 ? `${s.long - 1} แถว ผ่านด้านยาว` : '', s.short > 1 ? `${s.short - 1} แถว ผ่านด้านสั้น` : ''].filter(Boolean).join(' · ')
 }
 
+/** Does the column use the form tie: ties through it, or as the bolts of a round form's ribs / steel flanges. */
+function columnBolted(i: Extract<ElementData, { type: 'column' }>['input']): boolean {
+  const s = columnShapeOf(i)
+  if (s.kind === 'circle') return s.system !== 'tube'
+  return i.tie.enabled && !(s.kind === 'polygon' && s.yoke === 'ring')
+}
+
+/** Section shape and tie arrangement of a column. */
+function columnShapeRows(i: Extract<ElementData, { type: 'column' }>['input']): [string, ReactNode][] {
+  const s = columnShapeOf(i)
+  if (s.kind === 'rect') return [['การวางไทร์', columnTieText(i.tie)]]
+  const rows: [string, ReactNode][] = [['รูปหน้าตัด', `${columnSizeText(i)} · ${columnShapeSystem(s)}`]]
+  if (s.kind === 'polygon' && s.yoke === 'box') rows.push(['การวางไทร์', columnTieText(i.tie)])
+  return rows
+}
+
 /** Criteria rows that depend on the element type. */
 function criteriaRows(el: ElementData, run: AnyDesign): [string, ReactNode][] {
   if (el.type === 'slab' || el.type === 'beam') {
@@ -199,14 +219,14 @@ function criteriaRows(el: ElementData, run: AnyDesign): [string, ReactNode][] {
     ['แรงดันด้านข้าง', PRESSURE_LABEL[p.method] ?? p.method],
     ['อัตราเท R / อุณหภูมิ T', `${p.R} ม./ชม. · ${p.T} °C`],
     ['Slump', `${p.slump} ซม.`],
-    ...(el.type === 'column' ? ([['การวางไทร์', columnTieText(el.input.tie)]] as [string, ReactNode][]) : []),
+    ...(el.type === 'column' ? columnShapeRows(el.input) : []),
     ...(el.type === 'footing' ? footingCriteria(el, run) : ([['แรงลม', `${el.input.brace.wind} กก./ม.²`]] as [string, ReactNode][])),
   ]
 }
 
 function tieNote(el: ElementData): string {
   const id = el.type === 'wall' || el.type === 'column' || el.type === 'footing' || (el.type === 'beam' && el.input.tie.enabled) ? el.input.tie.tieId : undefined
-  if (!id || (el.type === 'column' && !el.input.tie.enabled) || (el.type === 'footing' && (el.input.support !== 'tied' || el.input.tie.layout === 'none'))) return ''
+  if (!id || (el.type === 'column' && !columnBolted(el.input)) || (el.type === 'footing' && (el.input.support !== 'tied' || el.input.tie.layout === 'none'))) return ''
   const t = getTie(id)
   return ` · Form tie: ${t.name} (SWL ${t.swl.toLocaleString()} กก.)`
 }

@@ -5,6 +5,7 @@ import {
   type BeamInput,
   type ColumnDesign,
   type ColumnInput,
+  columnSizeText,
   DEFAULT_BEAM,
   DEFAULT_BRACE,
   DEFAULT_COLUMN,
@@ -136,12 +137,17 @@ export function runDesign(el: ElementData, c: Criteria, opts: { advise?: boolean
   }
 }
 
+/** Column input on a round form of staves and ribs (b = h = D); boards for the staves. */
+export function withRoundForm(i: ColumnInput): ColumnInput {
+  return { ...i, shape: { kind: 'circle', system: 'stave' }, sheathing: i.sheathing.type === 'board' ? i.sheathing : { type: 'board', materialId: 'timber-yang', thicknessCm: 2.5 } }
+}
+
 export function elementSize(el: ElementData): string {
   switch (el.type) {
     case 'wall':
       return `t ${(el.input.thickness * 100).toFixed(0)} · H ${el.input.height.toFixed(2)} · L ${el.input.length.toFixed(2)} ม.`
     case 'column':
-      return `${(el.input.b * 100).toFixed(0)}×${(el.input.h * 100).toFixed(0)} ซม. · H ${el.input.height.toFixed(2)} ม.`
+      return `${columnSizeText(el.input)} · H ${el.input.height.toFixed(2)} ม.`
     case 'slab':
       return `t ${(el.input.thickness * 100).toFixed(0)} ซม. · ${el.input.lengthX.toFixed(2)}×${el.input.lengthY.toFixed(2)} ม. · สูง ${el.input.clearHeight.toFixed(2)} ม.`
     case 'beam':
@@ -170,6 +176,11 @@ export const QUANTITY_LABEL: Record<string, [string, string]> = {
   plywoodArea: ['พื้นที่ไม้อัด', 'ม.²'],
   plywoodSheets: ['ไม้อัด 1.22×2.44', 'แผ่น'],
   studs: ['เคร่า', 'ท่อน'],
+  staves: ['ไม้ระแนงตั้ง', 'ชิ้น'],
+  fillers: ['ไม้อุดมุม', 'ท่อน'],
+  formArea: ['พื้นที่แบบหล่อ', 'ม.²'],
+  ribs: ['ริบโค้งครึ่งวง', 'ชิ้น'],
+  bolts: ['สลักเกลียว', 'ชุด'],
   studLength: ['ความยาวเคร่ารวม', 'ม.'],
   waleLength: ['ความยาวคานรับเคร่ารวม', 'ม.'],
   yokes: ['คานรัด', 'ท่อน'],
@@ -199,8 +210,20 @@ export function layoutSummary(r: AnyDesign): { label: string; value: string }[] 
     case 'column':
       return [
         ...(r.design.layout.studSpacing ? [{ label: 'เคร่า @', value: `${r.design.layout.studSpacing}` }] : []),
-        { label: 'คานรัด @', value: `${r.design.layout.yokeSpacing} ซม.` },
-        { label: 'จำนวนคานรัด', value: `${r.design.layout.yokeLevels.length} ชุด` },
+        ...(r.design.layout.staves
+          ? [
+              { label: 'ระแนง', value: `${r.design.layout.staves} ชิ้น` },
+              { label: 'ริบ @', value: `${r.design.layout.yokeSpacing} ซม.` },
+              { label: 'จำนวนริบ', value: `${r.design.layout.yokeLevels.length} ชุด` },
+            ]
+          : r.design.layout.yokeLevels.length
+            ? [
+                { label: 'คานรัด @', value: `${r.design.layout.yokeSpacing} ซม.` },
+                { label: 'จำนวนคานรัด', value: `${r.design.layout.yokeLevels.length} ชุด` },
+              ]
+            : r.design.layout.yokeSpacing
+              ? [{ label: 'สลักปีกแบบ @', value: `${r.design.layout.yokeSpacing} ซม.` }]
+              : []),
       ]
     case 'slab':
       return [

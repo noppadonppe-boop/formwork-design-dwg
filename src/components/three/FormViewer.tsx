@@ -9,7 +9,7 @@ import * as THREE from 'three'
 /** the part of drei's OrbitControls we touch */
 type OrbitControlsImpl = { enabled: boolean; target: THREE.Vector3; update: () => void }
 import type { Status } from '@/engine'
-import { type BarPart, type FormModel, GROUP_LABEL, type Handle, type HandleKey, type Part, type PartGroup, type Vec3 } from '@/model/formModel'
+import { type BarPart, type BoxPart, type FormModel, GROUP_LABEL, type Handle, type HandleKey, type Part, type PartGroup, type Vec3 } from '@/model/formModel'
 
 export type ColorMode = 'material' | 'status'
 type View = 'iso' | 'front' | 'side' | 'top'
@@ -35,6 +35,24 @@ function barTransform(p: BarPart) {
   const len = dir.length()
   const q = new THREE.Quaternion().setFromUnitVectors(UP, dir.normalize())
   return { position: a.add(b).multiplyScalar(0.5), quaternion: q, scale: new THREE.Vector3(p.b, len, p.d) }
+}
+
+/** Prism of a box part with a plan outline (round / polygonal concrete), extruded from its base up. */
+function PlanMesh({ part, material, edges, ...ev }: { part: BoxPart; material: THREE.Material; edges: boolean } & Record<string, unknown>) {
+  const geo = useMemo(() => {
+    // shape in (x, −z), extruded along +z, then turned so the extrusion runs up +y
+    const s = new THREE.Shape(part.plan!.map(([x, z]) => new THREE.Vector2(x, -z)))
+    const g = new THREE.ExtrudeGeometry(s, { depth: part.size[1], bevelEnabled: false })
+    g.rotateX(-Math.PI / 2)
+    return g
+  }, [part])
+  useEffect(() => () => geo.dispose(), [geo])
+  const [cx, cy, cz] = part.center
+  return (
+    <mesh geometry={geo} material={material} position={[cx, cy - part.size[1] / 2, cz]} rotation={[0, part.yaw ?? 0, 0]} receiveShadow {...ev}>
+      {edges && <Edges color="#00000033" threshold={20} />}
+    </mesh>
+  )
 }
 
 interface Props {
@@ -246,9 +264,10 @@ function Parts({
         if (hidden.has(p.group)) return null
         const mat = materials.get(`${p.group}|${p.kind}`)!
         const edges = p.kind !== 'tie' && p.kind !== 'concrete'
+        if (p.shape === 'box' && p.plan) return <PlanMesh key={p.id} part={p} material={mat} edges={edges} {...events(p.group)} />
         if (p.shape === 'box')
           return (
-            <mesh key={p.id} geometry={boxGeo} material={mat} position={p.center} scale={p.size} castShadow={p.kind !== 'concrete'} receiveShadow {...events(p.group)}>
+            <mesh key={p.id} geometry={boxGeo} material={mat} position={p.center} rotation={[0, p.yaw ?? 0, 0]} scale={p.size} castShadow={p.kind !== 'concrete'} receiveShadow {...events(p.group)}>
               {edges && <Edges color="#00000033" threshold={20} />}
             </mesh>
           )

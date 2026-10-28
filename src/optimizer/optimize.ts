@@ -3,7 +3,7 @@
 // them by material + handling cost per set (priced from the same BOM as the shop drawing).
 import { type AnyDesign, layoutSummary, runDesign } from '@/data/elements'
 import type { Criteria, ElementData } from '@/data/types'
-import { beamRunnerFlat, getMaterial, getSection } from '@/engine'
+import { beamRunnerFlat, columnShapeOf, columnShapeSystem, getMaterial, getSection } from '@/engine'
 import { elementBom, SHEET_AREA } from '@/model/bom'
 
 export interface OptPrices {
@@ -97,8 +97,12 @@ export function describe(el: ElementData): string[] {
   switch (el.type) {
     case 'wall':
       return [sh, `เคร่า ${label(i.stud.sectionId)}`, `คานรับเคร่า ${i.wale.count === 2 ? '2-' : ''}${label(i.wale.sectionId)}`, `ไทร์ ${i.tie.tieId.replace('tie-', 'Ø')}`]
-    case 'column':
-      return [sh, ...(i.sheathing.type === 'plywood' && i.stud ? [`เคร่า ${label(i.stud.sectionId)}`] : []), `คานรัด ${i.yoke.count === 2 ? '2-' : ''}${label(i.yoke.sectionId)}`, i.tie.enabled ? `ไทร์ ${i.tie.spans - 1} แถว${(i.tie.shortSpans ?? 1) > 1 ? ` + ด้านสั้น ${i.tie.shortSpans - 1} แถว` : ''}` : 'ไม่ใช้ไทร์']
+    case 'column': {
+      const s = columnShapeOf(el.input)
+      if (s.kind === 'circle') return s.system === 'stave' ? [sh, `ริบ ${i.yoke.count === 2 ? '2-' : ''}${label(i.yoke.sectionId)}`, `สลัก ${i.tie.tieId.replace('tie-', 'Ø')}`] : [columnShapeSystem(s)]
+      const ring = s.kind === 'polygon' && s.yoke === 'ring'
+      return [sh, ...(i.sheathing.type === 'plywood' && i.stud ? [`เคร่า ${label(i.stud.sectionId)}`] : []), `คานรัด ${i.yoke.count === 2 ? '2-' : ''}${label(i.yoke.sectionId)}${ring ? ' วงแหวน' : ''}`, ring ? 'ไม่ใช้ไทร์' : i.tie.enabled ? `ไทร์ ${i.tie.spans - 1} แถว${(i.tie.shortSpans ?? 1) > 1 ? ` + ด้านสั้น ${i.tie.shortSpans - 1} แถว` : ''}` : 'ไม่ใช้ไทร์']
+    }
     case 'slab':
       return [sh, `ตง ${label(i.joist.sectionId)}`, `คานรองรับ ${i.stringer.count === 2 ? '2-' : ''}${label(i.stringer.sectionId)}`, shore(i.shore)]
     case 'beam':
@@ -129,14 +133,24 @@ export function variants(el: ElementData, o: Pick<OptOptions, 'allowSteel'>): El
     }
     case 'column': {
       const i = el.input
+      const shape = columnShapeOf(i)
+      // a ready-made round form has no members to choose
+      if (shape.kind === 'circle' && shape.system !== 'stave') {
+        out.push({ ...el, input: { ...i, yoke: { ...i.yoke, spacingCm: undefined } } })
+        break
+      }
       const tm = timberOf(i.yoke.materialId)
-      const ties = [
-        { ...i.tie, enabled: false },
-        ...(Math.max(i.b, i.h) >= 0.6 ? [{ ...i.tie, enabled: true, spans: 2, shortSpans: undefined }] : []),
-        ...(Math.min(i.b, i.h) >= 0.6 ? [{ ...i.tie, enabled: true, spans: 2, shortSpans: 2 }] : []),
-      ]
+      // ties go through a rectangle or a polygon's box only; staves are bolted with the chosen tie
+      const tied = shape.kind === 'rect' || (shape.kind === 'polygon' && shape.yoke === 'box')
+      const ties = tied
+        ? [
+            { ...i.tie, enabled: false },
+            ...(Math.max(i.b, i.h) >= 0.6 ? [{ ...i.tie, enabled: true, spans: 2, shortSpans: undefined }] : []),
+            ...(Math.min(i.b, i.h) >= 0.6 ? [{ ...i.tie, enabled: true, spans: 2, shortSpans: 2 }] : []),
+          ]
+        : [i.tie]
       for (const sh of sheets(i.sheathing))
-        for (const sid of i.sheathing.type === 'plywood' ? STUDS : [undefined])
+        for (const sid of i.sheathing.type === 'plywood' && shape.kind !== 'circle' ? STUDS : [undefined])
           for (const yid of BIG)
             for (const n of [1, 2] as const)
               for (const tie of ties)

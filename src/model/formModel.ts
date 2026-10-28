@@ -1,6 +1,20 @@
 // Geometric model of a designed formwork: a flat list of parts in metres (x right, y up, z out of the wall face).
 // Shared by the 3D viewer and the 2D drawings in the calc report (and later the shop drawings).
-import { type ColumnDesign, type ColumnInput, columnTieSpans, getMaterial, getSection, type MaterialKind, type WallDesign, type WallInput } from '@/engine'
+import {
+  type ColumnDesign,
+  type ColumnInput,
+  type ColumnShape,
+  columnShapeOf,
+  columnTieSpans,
+  getMaterial,
+  getSection,
+  type MaterialKind,
+  polygonBox,
+  polygonDims,
+  polygonFaces,
+  type WallDesign,
+  type WallInput,
+} from '@/engine'
 
 export type PartGroup = 'concrete' | 'sheathing' | 'stud' | 'wale' | 'yoke' | 'tie' | 'brace' | 'joist' | 'stringer' | 'shore' | 'bracing' | 'bottom' | 'head' | 'stake'
 export type Vec3 = [number, number, number]
@@ -9,12 +23,18 @@ interface PartBase {
   id: string
   group: PartGroup
   kind: MaterialKind | 'concrete' | 'tie'
+  /** one physical piece drawn as several parts (a curved rib in segments): the BOM counts it once at `lengthM` */
+  piece?: { id: string; lengthM: number }
 }
-/** axis-aligned box */
+/** box, axis-aligned unless turned about the vertical axis */
 export interface BoxPart extends PartBase {
   shape: 'box'
   center: Vec3
   size: Vec3
+  /** turn about +y through the centre, radians (three.js rotation.y) */
+  yaw?: number
+  /** prism instead of a box: convex plan outline [x, z] about the centre (size = its bounding box) */
+  plan?: [number, number][]
 }
 /** prismatic member between two points (braces, ties) */
 export interface BarPart extends PartBase {
@@ -69,6 +89,33 @@ export interface FormModel {
 export const cm = (v: number) => v / 100
 export const GAP = 0.015 // gap between the two members of a double wale/yoke (tie passes through)
 
+/** [x, z] turned about +y by `yaw` (as three.js rotation.y). */
+export const rotY = ([x, z]: [number, number], yaw: number): [number, number] => [x * Math.cos(yaw) + z * Math.sin(yaw), -x * Math.sin(yaw) + z * Math.cos(yaw)]
+/** Yaw that turns a box's local +z (its thickness) to the plan direction at angle φ from +x towards +z. */
+export const yawFacing = (phi: number) => Math.PI / 2 - phi
+
+/** Corners of a box part in world space: the 8 corners (dx, dy, dz ∈ {−1, 1}, dz fastest), or the prism's outline at the bottom then the top. */
+export function boxPoints(p: BoxPart): Vec3[] {
+  const [cx, cy, cz] = p.center
+  const [sx, sy, sz] = p.size.map((s) => s / 2)
+  const at = (u: [number, number], y: number): Vec3 => {
+    const [x, z] = p.yaw ? rotY(u, p.yaw) : u
+    return [cx + x, y, cz + z]
+  }
+  if (p.plan) return [...p.plan.map((u) => at(u, cy - sy)), ...p.plan.map((u) => at(u, cy + sy))]
+  const out: Vec3[] = []
+  for (const dx of [-1, 1]) for (const dy of [-1, 1]) for (const dz of [-1, 1]) out.push(at([dx * sx, dz * sz], cy + dy * sy))
+  return out
+}
+
+/** Plan outline points of a regular polygon (n sides, circumradius R) with a flat facing +z. */
+export function regularPlan(n: number, R: number): [number, number][] {
+  return Array.from({ length: n }, (_, k) => {
+    const a = Math.PI / 2 + (2 * Math.PI * k) / n + Math.PI / n
+    return [R * Math.cos(a), R * Math.sin(a)] as [number, number]
+  })
+}
+
 export function bounds(parts: Part[]): FormModel['bounds'] {
   const min: Vec3 = [Infinity, Infinity, Infinity]
   const max: Vec3 = [-Infinity, -Infinity, -Infinity]
@@ -80,8 +127,11 @@ export function bounds(parts: Part[]): FormModel['bounds'] {
   }
   for (const p of parts) {
     if (p.shape === 'box') {
-      grow([p.center[0] - p.size[0] / 2, p.center[1] - p.size[1] / 2, p.center[2] - p.size[2] / 2])
-      grow([p.center[0] + p.size[0] / 2, p.center[1] + p.size[1] / 2, p.center[2] + p.size[2] / 2])
+      if (p.yaw || p.plan) boxPoints(p).forEach((q) => grow(q))
+      else {
+        grow([p.center[0] - p.size[0] / 2, p.center[1] - p.size[1] / 2, p.center[2] - p.size[2] / 2])
+        grow([p.center[0] + p.size[0] / 2, p.center[1] + p.size[1] / 2, p.center[2] + p.size[2] / 2])
+      }
     } else {
       grow(p.from, p.b)
       grow(p.to, p.b)
@@ -178,6 +228,8 @@ export function wallModel(inp: WallInput, d: WallDesign): FormModel {
 
 /** Column: b along x, h (long side, tie direction splits it) along z, centred at the origin. */
 export function columnModel(inp: ColumnInput, d: ColumnDesign): FormModel {
+  const shape = columnShapeOf(inp)
+  if (shape.kind !== 'rect') return shapedColumnModel(inp, d, shape)
   const parts: Part[] = []
   const { b, h, height: H } = inp
   const ply = inp.sheathing.type === 'plywood' ? inp.sheathing.thicknessMm / 1000 : inp.sheathing.thicknessCm / 100
@@ -266,6 +318,188 @@ export function columnModel(inp: ColumnInput, d: ColumnDesign): FormModel {
   return { parts, handles, bounds: bounds(parts) }
 }
 
+/** Vertical box of plan width w × thickness t on the plan direction φ, its centre at radius r. */
+function onFace(id: string, group: PartGroup, kind: Part['kind'], phi: number, r: number, along: number, y: number, size: Vec3): BoxPart {
+  const n: [number, number] = [Math.cos(phi), Math.sin(phi)]
+  const t: [number, number] = [-n[1], n[0]]
+  return { id, group, kind, shape: 'box', center: [n[0] * r + t[0] * along, y, n[1] * r + t[1] * along], size, yaw: yawFacing(phi) }
+}
+
+/**
+ * Round or polygonal column, centred at the origin; a polygon's flats face ±z (and ±x for the octagon).
+ * Staves + ribs in segments (one BOM piece per half ring), a steel form in two halves, or a cardboard tube;
+ * a polygon in a box of yokes with corner fillers, or in a ring of yokes along its faces.
+ */
+function shapedColumnModel(inp: ColumnInput, d: ColumnDesign, shape: Exclude<ColumnShape, { kind: 'rect' }>): FormModel {
+  const parts: Part[] = []
+  const { b: F, height: H } = inp
+  const ply = inp.sheathing.type === 'plywood' ? inp.sheathing.thicknessMm / 1000 : inp.sheathing.thicknessCm / 100
+  const shKind = inp.sheathing.type === 'plywood' ? 'plywood' : 'timber'
+  const yoke = getSection(inp.yoke.sectionId)
+  const yKind = getMaterial(inp.yoke.materialId).kind
+  const yb = cm(yoke.B)
+  const yd = cm(yoke.H)
+  const { yokeLevels } = d.layout
+  const pairH = inp.yoke.count === 2 ? 2 * yb + GAP : yb
+  const bolt = (id: string, from: Vec3, to: Vec3): BarPart => ({ id, group: 'tie', kind: 'tie', shape: 'bar', from, to, b: 0.012, d: 0.012, round: true })
+  let xOut: number
+  let zOut: number
+  let faceW: [number, number] // width of the ±x / ±z faces for the braces
+
+  if (shape.kind === 'circle') {
+    const r = F / 2
+    parts.push({ id: 'concrete', group: 'concrete', kind: 'concrete', shape: 'box', center: [0, H / 2, 0], size: [F, H, F], plan: regularPlan(36, r) })
+    if (shape.system === 'stave') {
+      const N = d.layout.staves ?? 24
+      const w = 2 * (r + ply / 2) * Math.tan(Math.PI / N)
+      for (let k = 0; k < N; k++) parts.push(onFace(`stave-${k}`, 'sheathing', shKind, (2 * Math.PI * k) / N, r + ply / 2, 0, H / 2, [w * 0.985, H, ply]))
+      // ribs: two half rings per set, each drawn in M straight segments
+      const M = 8
+      const rr = r + ply + yd / 2
+      const seg = 2 * rr * Math.tan(Math.PI / (2 * M))
+      const nb = d.layout.boltsPerJoint ?? 1
+      yokeLevels.forEach((y, i) => {
+        pairOffsets(inp.yoke.count, yb).forEach((off, ko) => {
+          for (let h = 0; h < 2; h++)
+            for (let k = 0; k < M; k++)
+              parts.push({ ...onFace(`rib-${i}-${h}-${k}-${ko}`, 'yoke', yKind, h * Math.PI + ((k + 0.5) * Math.PI) / M, rr, 0, y + off, [seg, yb, yd]), piece: { id: `rib-${i}-${h}-${ko}`, lengthM: Math.PI * rr } })
+        })
+        // bolts across the two joints
+        for (const sx of [1, -1])
+          for (let j = 0; j < nb; j++) {
+            const yy = y + (nb === 2 ? (j ? 1 : -1) * (pairH / 2) : 0)
+            parts.push(bolt(`ribbolt-${i}-${sx}-${j}`, [sx * rr, yy, -0.07], [sx * rr, yy, 0.07]))
+          }
+      })
+      xOut = zOut = r + ply + yd
+    } else if (shape.system === 'steel') {
+      const t = 0.004
+      const M = 12
+      const seg = 2 * (r + t / 2) * Math.tan(Math.PI / (2 * M))
+      for (let h = 0; h < 2; h++) {
+        for (let k = 0; k < M; k++) parts.push({ ...onFace(`shell-${h}-${k}`, 'sheathing', 'steel', h * Math.PI + ((k + 0.5) * Math.PI) / M, r + t / 2, 0, H / 2, [seg * 1.01, H, t]), piece: { id: `shell-${h}`, lengthM: H } })
+        // flanges along both seams (φ = 0 and π); half 0 lies on +z
+        for (const sx of [1, -1]) parts.push({ id: `flange-${h}-${sx}`, group: 'sheathing', kind: 'steel', shape: 'box', center: [sx * (r + 0.03), H / 2, (h ? -1 : 1) * 0.004], size: [0.06, H, 0.006], piece: { id: `shell-${h}`, lengthM: H } })
+      }
+      const s = d.layout.yokeSpacing / 100
+      let j = 0
+      for (let y = s / 2; y < H; y += s) for (const sx of [1, -1]) parts.push(bolt(`flbolt-${j++}`, [sx * (r + 0.035), y, -0.025], [sx * (r + 0.035), y, 0.025]))
+      xOut = r + 0.06
+      zOut = r + t
+    } else {
+      const t = 0.008
+      const M = 24
+      const seg = 2 * (r + t / 2) * Math.tan(Math.PI / M)
+      for (let k = 0; k < M; k++) parts.push({ ...onFace(`tube-${k}`, 'sheathing', 'timber', (2 * Math.PI * k) / M, r + t / 2, 0, H / 2, [seg * 1.01, H, t]), piece: { id: 'tube', lengthM: H } })
+      xOut = zOut = r + t
+    }
+    faceW = [F, F]
+  } else {
+    const { n } = shape
+    const { R, a } = polygonDims(n, F)
+    const faces = polygonFaces(n, F)
+    const [bx, bz] = polygonBox(n, F)
+    const tanH = Math.tan(Math.PI / n)
+    const stud = inp.sheathing.type === 'plywood' && inp.stud ? getSection(inp.stud.sectionId) : undefined
+    const studKind = inp.stud ? getMaterial(inp.stud.materialId).kind : 'timber'
+    const sb = stud ? cm(stud.B) : 0
+    const sd = stud ? cm(stud.H) : 0
+    const o = ply + sd
+    const ring = shape.yoke === 'ring'
+    parts.push({ id: 'concrete', group: 'concrete', kind: 'concrete', shape: 'box', center: [0, H / 2, 0], size: [bx, H, bz], plan: regularPlan(n, R) })
+    faces.forEach((f, k) => {
+      parts.push(onFace(`ply-${k}`, 'sheathing', shKind, f.phi, F / 2 + ply / 2, 0, H / 2, [a + 2 * ply * tanH, H, ply]))
+      const flat = Math.abs(Math.cos(f.phi)) < 1e-6 || Math.abs(Math.sin(f.phi)) < 1e-6
+      if (ring || flat) {
+        const m = d.layout.faceStuds ?? 0
+        if (stud && m) for (let j = 0; j < m; j++) parts.push(onFace(`stud-${k}-${j}`, 'stud', studKind, f.phi, F / 2 + ply + sd / 2, m === 1 ? 0 : -a / 2 + sb / 2 + (j * (a - sb)) / (m - 1), H / 2, [sb, H, sd]))
+        return
+      }
+      // filler behind a sloping face, out to the box of yokes (both outer corners inside the box)
+      const hx = bx / 2 + o
+      const hz = bz / 2 + o
+      const w = a / 2
+      const nx = Math.abs(Math.cos(f.phi))
+      const nz = Math.abs(Math.sin(f.phi))
+      const rOut = Math.min(nx > 1e-6 ? (hx - (w / 2) * nz) / nx : Infinity, nz > 1e-6 ? (hz - (w / 2) * nx) / nz : Infinity)
+      const rIn = F / 2 + ply
+      parts.push(onFace(`filler-${k}`, 'stud', studKind, f.phi, (rIn + rOut) / 2, 0, H / 2, [w, H, rOut - rIn]))
+    })
+    if (ring) {
+      const rr = F / 2 + o + yd / 2
+      yokeLevels.forEach((y, i) => {
+        pairOffsets(inp.yoke.count, yb).forEach((off, ko) => faces.forEach((f, k) => parts.push(onFace(`yokeR-${i}-${k}-${ko}`, 'yoke', yKind, f.phi, rr, 0, y + off, [a + 2 * (o + yd / 2) * tanH, yb, yd]))))
+        // corner brackets
+        const rc = (F / 2 + o + yd) / Math.cos(Math.PI / n)
+        faces.forEach((f, k) => {
+          const c = f.phi + Math.PI / n
+          parts.push(bolt(`bracket-${i}-${k}`, [rc * Math.cos(c), y - 0.02 - yb, rc * Math.sin(c)], [rc * Math.cos(c), y + pairH + 0.02, rc * Math.sin(c)]))
+        })
+      })
+      // the hexagon's ±x sides end in a corner
+      xOut = n === 8 ? F / 2 + o + yd : (F / 2 + o + yd) / Math.cos(Math.PI / n)
+      zOut = F / 2 + o + yd
+    } else {
+      // box of yokes round the polygon's box, as round a rectangular column
+      xOut = bx / 2 + o + yd
+      zOut = bz / 2 + o + yd
+      const spans = columnTieSpans(inp.tie)
+      const longZ = bz >= bx
+      yokeLevels.forEach((y, i) => {
+        pairOffsets(inp.yoke.count, yb).forEach((off, k) => {
+          for (const s of [1, -1]) {
+            parts.push({ id: `yokeL${s}-${i}-${k}`, group: 'yoke', kind: yKind, shape: 'box', center: [s * (bx / 2 + o + yd / 2), y + off, 0], size: [yd, yb, 2 * zOut + 0.2] })
+            parts.push({ id: `yokeS${s}-${i}-${k}`, group: 'yoke', kind: yKind, shape: 'box', center: [0, y + pairH + off, s * (bz / 2 + o + yd / 2)], size: [2 * xOut + 0.2, yb, yd] })
+          }
+        })
+        for (const sx of [1, -1]) for (const sz of [1, -1]) parts.push(bolt(`bolt-${i}-${sx}${sz}`, [sx * (xOut + 0.05), y - 0.02, sz * (zOut + 0.05)], [sx * (xOut + 0.05), y + 2 * pairH + 0.02, sz * (zOut + 0.05)]))
+        // ties split the long yokes (through the long faces), and the short ones when asked
+        const [L, S] = longZ ? [bz, bx] : [bx, bz]
+        for (let j = 1; j < spans.long; j++) {
+          const u = -L / 2 + (j * L) / spans.long
+          parts.push(longZ ? bolt(`tie-${i}-${j}`, [-(xOut + 0.06), y, u], [xOut + 0.06, y, u]) : bolt(`tie-${i}-${j}`, [u, y + pairH, -(zOut + 0.06)], [u, y + pairH, zOut + 0.06]))
+        }
+        for (let j = 1; j < spans.short; j++) {
+          const u = -S / 2 + (j * S) / spans.short
+          parts.push(longZ ? bolt(`tieS-${i}-${j}`, [u, y + pairH, -(zOut + 0.06)], [u, y + pairH, zOut + 0.06]) : bolt(`tieS-${i}-${j}`, [-(xOut + 0.06), y, u], [xOut + 0.06, y, u]))
+        }
+      })
+    }
+    faceW = [bz, bx]
+  }
+
+  // braces, as on a rectangular column: the ±x faces first
+  const br = getSection(inp.brace.sectionId)
+  const brKind = getMaterial(inp.brace.materialId).kind
+  const th = (inp.brace.angleDeg * Math.PI) / 180
+  const hTop = Math.min(inp.brace.heightM ?? H, H)
+  const run = hTop / Math.tan(th)
+  const sides: { n: Vec3; out: number; w: number }[] = [
+    { n: [1, 0, 0], out: xOut, w: faceW[0] },
+    { n: [-1, 0, 0], out: xOut, w: faceW[0] },
+    { n: [0, 0, 1], out: zOut, w: faceW[1] },
+    { n: [0, 0, -1], out: zOut, w: faceW[1] },
+  ]
+  sides.slice(0, inp.brace.sides).forEach((f, fi) => {
+    for (let i = 0; i < inp.brace.perSide; i++) {
+      // braces on a round or polygonal face bear near its middle
+      const u = inp.brace.perSide === 1 ? 0 : (-f.w / 4 + (i * f.w) / 2 / (inp.brace.perSide - 1)) * (shape.kind === 'circle' ? 0.8 : 1)
+      const along: Vec3 = f.n[0] !== 0 ? [0, 0, u] : [u, 0, 0]
+      const at = (r: number, y: number): Vec3 => [along[0] + f.n[0] * r, y, along[2] + f.n[2] * r]
+      parts.push({ id: `brace${fi}-${i}`, group: 'brace', kind: brKind, shape: 'bar', from: at(f.out, hTop), to: at(f.out + run, 0), b: cm(br.B), d: cm(br.H), round: br.shape === 'pipe' })
+    }
+  })
+
+  const label = shape.kind === 'circle' ? 'เส้นผ่านศูนย์กลาง D' : 'ระยะข้ามด้านแบน F'
+  const handles: Handle[] = [
+    { key: 'height', label: 'ความสูง H', position: [0, H + 0.2, 0], axis: [0, 1, 0], value: H, min: 0.3, max: 15, step: 0.05 },
+    { key: 'b', label, position: [F / 2, H + 0.05, 0], axis: [1, 0, 0], value: F / 2, min: 0.075, max: 1.5, step: 0.025 },
+  ]
+  if (yokeLevels.length > 1)
+    handles.push({ key: 'yokeSpacing', label: shape.kind === 'circle' ? 'ระยะริบ' : 'ระยะคานรัด', position: [xOut + 0.15, yokeLevels[1], 0], axis: [0, 1, 0], value: yokeLevels[1] - yokeLevels[0], min: 0.1, max: 1.5, step: 0.05 })
+  return { parts, handles, bounds: bounds(parts) }
+}
+
 // ---------------------------------------------------------------- editing through handles
 
 export const snap = (v: number, step: number) => Math.round(v / step) * step
@@ -296,8 +530,11 @@ export function applyColumnHandle(inp: ColumnInput, key: HandleKey, value: numbe
   switch (key) {
     case 'height':
       return { ...inp, height: round3(snap(value, 0.05)) }
-    case 'b':
-      return { ...inp, b: round3(snap(value * 2, 0.05)) }
+    case 'b': {
+      const b = round3(snap(value * 2, 0.05))
+      // round / polygon: one size, b = h
+      return columnShapeOf(inp).kind === 'rect' ? { ...inp, b } : { ...inp, b, h: b }
+    }
     case 'h':
       return { ...inp, h: round3(snap(value * 2, 0.05)) }
     case 'yokeSpacing':

@@ -1,9 +1,11 @@
 // Input forms for wall / column elements. Each group is tagged with the 3D part group it edits so the
 // 3D inspector can show just that group (`only`).
+import clsx from 'clsx'
 import { createContext, type ReactNode, useContext } from 'react'
 import { MemberPicker } from '@/components/design/MemberPicker'
 import { NumField } from '@/components/design/NumField'
 import { Field, Segmented, Select, Toggle } from '@/components/ui'
+import { withRoundForm } from '@/data/elements'
 import type { ElementData } from '@/data/types'
 import {
   BEAM_TYPE_LABEL,
@@ -16,7 +18,14 @@ import {
   getSection,
   LEDGER_LIFT,
   type BraceParams,
+  CIRCLE_SYSTEM_LABEL,
   type ColumnInput,
+  type ColumnShape,
+  columnShapeOf,
+  plywoodBendRadius,
+  POLYGON_YOKE_LABEL,
+  polygonDims,
+  RATED_PRESSURE,
   type DeckSheathing,
   FOOTING_BRACE_AT_LABEL,
   FOOTING_SUPPORT_LABEL,
@@ -188,26 +197,147 @@ function WallFields({ inp, set }: { inp: WallInput; set: (fn: (i: WallInput) => 
 
 // ---------------------------------------------------------------- column
 
+type ShapeKey = 'rect' | 'circle' | 'hex' | 'oct'
+const SHAPE_OPTIONS: { key: ShapeKey; label: string; icon: ReactNode }[] = [
+  { key: 'rect', label: 'สี่เหลี่ยม', icon: <path d="M5 9h24v16H5z" /> },
+  { key: 'circle', label: 'กลม', icon: <circle cx="17" cy="17" r="12" /> },
+  { key: 'hex', label: 'หกเหลี่ยม', icon: <path d="M10 6h14l6.5 11L24 28H10L3.5 17z" /> },
+  { key: 'oct', label: 'แปดเหลี่ยม', icon: <path d="M12 4h10l8 8v10l-8 8H12l-8-8V12z" /> },
+]
+const shapeKey = (s: ColumnShape): ShapeKey => (s.kind === 'polygon' ? (s.n === 6 ? 'hex' : 'oct') : s.kind)
+
+/** Column input switched to another plan shape: one size b = h for round/polygon; staves for a round column. */
+function withShape(i: ColumnInput, key: ShapeKey): ColumnInput {
+  const was = columnShapeOf(i)
+  if (key === 'rect') {
+    const { shape: _s, ...rest } = i
+    return rest
+  }
+  const size = was.kind === 'rect' ? Math.min(i.b, i.h) : i.b
+  if (key === 'circle') return withRoundForm({ ...i, b: size, h: size })
+  const n = key === 'hex' ? 6 : 8
+  return { ...i, b: size, h: size, shape: { kind: 'polygon', n, yoke: was.kind === 'polygon' ? was.yoke : 'box' } }
+}
+
+function ShapePicker({ value, onChange }: { value: ShapeKey; onChange: (k: ShapeKey) => void }) {
+  return (
+    <div role="radiogroup" aria-label="รูปหน้าตัดเสา" className="grid grid-cols-4 gap-1.5">
+      {SHAPE_OPTIONS.map((o) => {
+        const on = o.key === value
+        return (
+          <button
+            key={o.key}
+            type="button"
+            role="radio"
+            aria-checked={on}
+            onClick={() => onChange(o.key)}
+            className={clsx('flex flex-col items-center gap-1 rounded-lg border px-1 pb-1.5 pt-2 text-xs transition', on ? 'border-sel bg-blue-50 font-semibold text-ink ring-1 ring-sel' : 'border-slate-300 text-slate-600 hover:border-slate-400 hover:text-ink')}
+          >
+            <svg viewBox="0 0 34 34" className={clsx('size-8 fill-slate-200 stroke-[1.6]', on ? 'stroke-sel' : 'stroke-slate-500')} aria-hidden="true">
+              {o.icon}
+            </svg>
+            {o.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
 function ColumnFields({ inp, set }: { inp: ColumnInput; set: (fn: (i: ColumnInput) => ColumnInput) => void }) {
-  const sh = inp.sheathing
+  const shape = columnShapeOf(inp)
+  const round = shape.kind === 'circle' ? shape : undefined
+  const poly = shape.kind === 'polygon' ? shape : undefined
+  const ring = poly?.yoke === 'ring'
+  /** ready-made round form: no timber members */
+  const madeForm = round && round.system !== 'stave'
+  const setSize = (v: number | undefined) => v && set((i) => ({ ...i, b: v, h: v }))
   return (
     <>
       <Group title="ขนาดเสา" part="concrete">
+        <ShapePicker value={shapeKey(shape)} onChange={(k) => set((i) => withShape(i, k))} />
         <div className="fields3">
-          <NumField label="ด้าน b" unit="ซม." scale={100} value={inp.b} min={10} max={300} onChange={(v) => v && set((i) => ({ ...i, b: v }))} />
-          <NumField label="ด้าน h" unit="ซม." scale={100} value={inp.h} min={10} max={300} onChange={(v) => v && set((i) => ({ ...i, h: v }))} />
+          {shape.kind === 'rect' ? (
+            <>
+              <NumField label="ด้าน b" unit="ซม." scale={100} value={inp.b} min={10} max={300} onChange={(v) => v && set((i) => ({ ...i, b: v }))} />
+              <NumField label="ด้าน h" unit="ซม." scale={100} value={inp.h} min={10} max={300} onChange={(v) => v && set((i) => ({ ...i, h: v }))} />
+            </>
+          ) : round ? (
+            <NumField label="เส้นผ่านศูนย์กลาง D" unit="ซม." scale={100} value={inp.b} min={15} max={300} onChange={setSize} />
+          ) : (
+            <NumField label="ระยะข้ามด้านแบน F" unit="ซม." scale={100} value={inp.b} min={20} max={300} hint={`ยาวด้าน a = ${(polygonDims(poly!.n, inp.b).a * 100).toFixed(1)} ซม.`} onChange={setSize} />
+          )}
           <NumField label="ความสูงเท H" unit="ม." value={inp.height} min={0.3} max={15} onChange={(v) => v && set((i) => ({ ...i, height: v }))} />
         </div>
+        {round && (
+          <Segmented
+            label="ระบบแบบหล่อเสากลม"
+            value={round.system}
+            options={(['stave', 'steel', 'tube'] as const).map((v) => ({ value: v, label: CIRCLE_SYSTEM_LABEL[v] }))}
+            onChange={(v) => set((i) => ({ ...i, shape: { kind: 'circle', system: v, ratedKgM2: v === 'stave' ? undefined : round.ratedKgM2 } }))}
+          />
+        )}
+        {madeForm && (
+          <NumField
+            label="แรงดันที่ผู้ผลิตรับรอง"
+            unit="กก./ม.²"
+            hint="ตามข้อมูลผู้ผลิตแบบหล่อ"
+            value={round.ratedKgM2}
+            optional
+            placeholder={RATED_PRESSURE[round.system as 'steel' | 'tube'].toLocaleString()}
+            min={500}
+            max={20000}
+            onChange={(v) => set((i) => ({ ...i, shape: { ...round, ratedKgM2: v } }))}
+          />
+        )}
+        {poly && (
+          <Segmented
+            label="คานรัดเสาหลายเหลี่ยม"
+            value={poly.yoke}
+            options={(['box', 'ring'] as const).map((v) => ({ value: v, label: POLYGON_YOKE_LABEL[v] }))}
+            onChange={(v) => set((i) => ({ ...i, shape: { ...poly, yoke: v } }))}
+          />
+        )}
+        {round?.system === 'stave' && <p className="text-xs text-slate-500">ไม้อัดหนา 18 มม. ดัดโค้งได้ที่รัศมี ≥ {plywoodBendRadius(18)} ม. เสากลมจึงใช้ไม้ระแนงตั้ง (หรือไม้อัดตัดเป็นแถบ) รัดด้วยริบโค้งครึ่งวง</p>}
+        {poly && !ring && <p className="text-xs text-slate-500">คานรัดเป็นกรอบสี่เหลี่ยมรอบเสา ไม้อุดมุมหนุนด้านเอียง 4 ด้าน คำนวณคานรัดแบบเสาสี่เหลี่ยมขนาดเท่ากรอบ</p>}
+        {ring && <p className="text-xs text-slate-500">คานรัดวิ่งตามทุกด้าน ต่อมุมด้วยเหล็กประกับ + น็อต รับแรงดึง T = w·F/2 ไม่ต้องใช้ Form tie</p>}
       </Group>
       <PressureGroup p={inp.pressure} onChange={(p) => set((i) => ({ ...i, pressure: p }))} />
-      <Group title="แผ่นผิวแบบ" part="sheathing">
+      {!madeForm && <ColumnTimberFields inp={inp} set={set} />}
+      {round?.system === 'steel' && (
+        <Group title="สลักเกลียวปีกแบบเหล็ก" part="tie">
+          <TieSelect value={inp.tie.tieId} onChange={(v) => set((i) => ({ ...i, tie: { ...i.tie, tieId: v } }))} />
+          <NumField label="ระยะสลักตามความสูง" unit="ซม." optional placeholder="อัตโนมัติ" value={inp.yoke.spacingCm} min={10} max={100} onChange={(v) => set((i) => ({ ...i, yoke: { ...i.yoke, spacingCm: v } }))} />
+        </Group>
+      )}
+      <ColumnBraceGroup inp={inp} set={set} />
+    </>
+  )
+}
+
+/** Sheathing, studs, yokes and ties — the timber form (any shape but a ready-made round form). */
+function ColumnTimberFields({ inp, set }: { inp: ColumnInput; set: (fn: (i: ColumnInput) => ColumnInput) => void }) {
+  const sh = inp.sheathing
+  const shape = columnShapeOf(inp)
+  const staves = shape.kind === 'circle'
+  const ring = shape.kind === 'polygon' && shape.yoke === 'ring'
+  return (
+    <>
+      <Group title={staves ? 'ไม้ระแนงตั้ง (Staves)' : 'แผ่นผิวแบบ'} part="sheathing">
         <Segmented
           label="ชนิดแผ่นผิว"
           value={sh.type}
-          options={[
-            { value: 'plywood', label: 'ไม้อัด + เคร่า' },
-            { value: 'board', label: 'ไม้กระดาน (ไม่มีเคร่า)' },
-          ]}
+          options={
+            staves
+              ? [
+                  { value: 'board', label: 'ไม้กระดาน' },
+                  { value: 'plywood', label: 'ไม้อัดตัดเป็นแถบ' },
+                ]
+              : [
+                  { value: 'plywood', label: 'ไม้อัด + เคร่า' },
+                  { value: 'board', label: 'ไม้กระดาน (ไม่มีเคร่า)' },
+                ]
+          }
           onChange={(t) =>
             set((i) => ({
               ...i,
@@ -239,17 +369,30 @@ function ColumnFields({ inp, set }: { inp: ColumnInput; set: (fn: (i: ColumnInpu
           </div>
         )}
       </Group>
-      {sh.type === 'plywood' && inp.stud && (
+      {sh.type === 'plywood' && inp.stud && !staves && (
         <Group title="เคร่าตั้ง (Studs)" part="stud">
           <MemberPicker label="เคร่า" sectionId={inp.stud.sectionId} materialId={inp.stud.materialId} onChange={(v) => set((i) => ({ ...i, stud: { ...i.stud!, ...v } }))} />
           <NumField label="ระยะเคร่า" unit="ซม." optional placeholder="อัตโนมัติ" value={inp.stud.spacingCm} min={5} max={100} onChange={(v) => set((i) => ({ ...i, stud: { ...i.stud!, spacingCm: v } }))} />
         </Group>
       )}
-      <Group title="คานรัดแบบ (Yokes)" part="yoke">
-        <MemberPicker label="คานรัด" sectionId={inp.yoke.sectionId} materialId={inp.yoke.materialId} onChange={(v) => set((i) => ({ ...i, yoke: { ...i.yoke, ...v } }))} />
+      <Group title={staves ? 'ริบโค้งรัดแบบ (Hoop ribs)' : 'คานรัดแบบ (Yokes)'} part="yoke">
+        <MemberPicker label={staves ? 'ริบ' : 'คานรัด'} sectionId={inp.yoke.sectionId} materialId={inp.yoke.materialId} onChange={(v) => set((i) => ({ ...i, yoke: { ...i.yoke, ...v } }))} />
         <Segmented label="จำนวนต่อชุด" value={String(inp.yoke.count) as '1' | '2'} options={[{ value: '1', label: 'เดี่ยว' }, { value: '2', label: 'หน้าตัดคู่' }]} onChange={(v) => set((i) => ({ ...i, yoke: { ...i.yoke, count: Number(v) as 1 | 2 } }))} />
-        <NumField label="ระยะคานรัด c/c" unit="ซม." optional placeholder="อัตโนมัติ" value={inp.yoke.spacingCm} min={10} max={150} onChange={(v) => set((i) => ({ ...i, yoke: { ...i.yoke, spacingCm: v } }))} />
+        <NumField label={staves ? 'ระยะริบ c/c' : 'ระยะคานรัด c/c'} unit="ซม." optional placeholder="อัตโนมัติ" value={inp.yoke.spacingCm} min={10} max={150} onChange={(v) => set((i) => ({ ...i, yoke: { ...i.yoke, spacingCm: v } }))} />
       </Group>
+      {staves && (
+        <Group title="สลักยึดรอยต่อริบ" part="tie">
+          <TieSelect value={inp.tie.tieId} onChange={(v) => set((i) => ({ ...i, tie: { ...i.tie, tieId: v } }))} />
+        </Group>
+      )}
+      {!staves && !ring && <ColumnTieGroup inp={inp} set={set} />}
+    </>
+  )
+}
+
+function ColumnTieGroup({ inp, set }: { inp: ColumnInput; set: (fn: (i: ColumnInput) => ColumnInput) => void }) {
+  return (
+    <>
       <Group title="การยึดรั้ง (Form tie)" part="tie">
         <Toggle label="ใช้ Form tie ผ่านด้านยาว" checked={inp.tie.enabled} onChange={(v) => set((i) => ({ ...i, tie: { ...i.tie, enabled: v, spans: Math.max(i.tie.spans, 2) } }))} />
         {inp.tie.enabled && (
@@ -285,6 +428,13 @@ function ColumnFields({ inp, set }: { inp: ColumnInput; set: (fn: (i: ColumnInpu
           </>
         )}
       </Group>
+    </>
+  )
+}
+
+function ColumnBraceGroup({ inp, set }: { inp: ColumnInput; set: (fn: (i: ColumnInput) => ColumnInput) => void }) {
+  return (
+    <>
       <BraceGroup
         b={inp.brace}
         onChange={(b) => set((i) => ({ ...i, brace: b }))}

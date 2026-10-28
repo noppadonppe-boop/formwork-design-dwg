@@ -1,7 +1,7 @@
 // Turn a plan drawing into formwork elements: find rectangles / circles, classify them by layer (or by shape when
 // the layer says nothing), read nearby labels such as "C1 40x40" or "B2 30x60", and merge identical items into one
 // element with a quantity. Shared with the AI import, which produces the same `Candidate` list.
-import { newElement } from '@/data/elements'
+import { newElement, withRoundForm } from '@/data/elements'
 import type { Criteria, ElementData, ElementType, FormElement } from '@/data/types'
 import type { DxfDrawing, DxfEntity, Pt } from './dxfRead'
 
@@ -26,6 +26,8 @@ export interface Candidate {
   name: string
   qty: number
   /** metres */
+  /** round column (a circle in the drawing): designed with a round form, b = h = D */
+  round?: boolean
   dims: { b?: number; h?: number; thickness?: number; length?: number; height?: number; lengthX?: number; lengthY?: number; depth?: number; slabT?: number }
   source: 'dxf' | 'ai'
   note?: string
@@ -161,7 +163,7 @@ export function detect(d: DxfDrawing, roles: Record<string, Role>, opt: DetectOp
     return l ? [l] : []
   })
   const assigned = new Map<string, ElementType>()
-  type Item = { type: ElementType; code?: string; dims: Candidate['dims']; shapeId?: string; note?: string }
+  type Item = { type: ElementType; code?: string; dims: Candidate['dims']; shapeId?: string; note?: string; round?: boolean }
   const items: Item[] = []
   const used = new Set<Label>()
   for (const s of shapes) {
@@ -184,7 +186,7 @@ export function detect(d: DxfDrawing, roles: Record<string, Role>, opt: DetectOp
     const r2 = (v: number) => Math.round(v * 100) / 100
     switch (t) {
       case 'column':
-        items.push({ type: t, code: best?.code, shapeId: s.id, dims: { b: r2(s.short), h: r2(s.long), height: r2(opt.storeyH - opt.slabT) }, note: s.kind === 'circle' ? 'เสากลม — ออกแบบด้วยหน้าตัดสี่เหลี่ยมเท่าเส้นผ่านศูนย์กลาง' : undefined })
+        items.push({ type: t, code: best?.code, shapeId: s.id, dims: { b: r2(s.short), h: r2(s.long), height: r2(opt.storeyH - opt.slabT) }, ...(s.kind === 'circle' ? { round: true, note: 'เสากลม — แบบหล่อไม้ระแนงตั้ง + ริบโค้ง' } : {}) })
         break
       case 'wall':
         items.push({ type: t, code: best?.code, shapeId: s.id, dims: { thickness: r2(s.short), length: r2(s.long), height: r2(opt.storeyH - opt.slabT) } })
@@ -230,19 +232,19 @@ export function detect(d: DxfDrawing, roles: Record<string, Role>, opt: DetectOp
 }
 
 /** Merge identical items (type + code + dimensions) into candidates with a quantity. */
-export function group(items: { type: ElementType; code?: string; dims: Candidate['dims']; shapeId?: string; note?: string; qty?: number; name?: string }[], source: Candidate['source']): Candidate[] {
+export function group(items: { type: ElementType; code?: string; dims: Candidate['dims']; shapeId?: string; note?: string; qty?: number; name?: string; round?: boolean }[], source: Candidate['source']): Candidate[] {
   const map = new Map<string, Candidate>()
   for (const it of items) {
     const dimKey = Object.entries(it.dims)
       .filter(([, v]) => v !== undefined)
       .map(([k, v]) => `${k}${Math.round((v as number) * 100)}`)
       .join(',')
-    const k = `${it.type}|${it.code ?? ''}|${dimKey}`
+    const k = `${it.type}|${it.code ?? ''}|${dimKey}${it.round ? '|round' : ''}`
     const c = map.get(k)
     if (c) {
       c.qty += it.qty ?? 1
       if (it.shapeId) c.shapeIds.push(it.shapeId)
-    } else map.set(k, { key: k, type: it.type, code: it.code ?? '', name: it.name ?? '', qty: it.qty ?? 1, dims: it.dims, source, note: it.note, shapeIds: it.shapeId ? [it.shapeId] : [], include: true })
+    } else map.set(k, { key: k, type: it.type, code: it.code ?? '', name: it.name ?? '', qty: it.qty ?? 1, dims: it.dims, source, note: it.note, ...(it.round ? { round: true } : {}), shapeIds: it.shapeId ? [it.shapeId] : [], include: true })
   }
   // one code per group: a code shared by groups of different size gets a suffix (W1, W1-2, …)
   const seenCode = new Map<string, number>()
@@ -272,7 +274,7 @@ export const dimsText = (c: Candidate): string => {
   const m = (v?: number) => (v === undefined ? '?' : v.toFixed(2))
   switch (c.type) {
     case 'column':
-      return `${cm(c.dims.b)}×${cm(c.dims.h)} ซม. · H ${m(c.dims.height)} ม.`
+      return c.round ? `Ø${cm(c.dims.b)} ซม. · H ${m(c.dims.height)} ม.` : `${cm(c.dims.b)}×${cm(c.dims.h)} ซม. · H ${m(c.dims.height)} ม.`
     case 'wall':
       return `t ${cm(c.dims.thickness)} ซม. · L ${m(c.dims.length)} · H ${m(c.dims.height)} ม.`
     case 'footing':
@@ -291,6 +293,11 @@ export function candidateToElement(c: Candidate, criteria: Criteria, existing: F
   const base = { ...el, code: c.code || el.code, name: c.name || el.name, qty: c.qty }
   switch (el.type) {
     case 'column':
+      if (c.round) {
+        const D = d.b ?? el.input.b
+        const circle = withRoundForm({ ...el.input, b: D, h: D })
+        return { ...base, type: 'column', input: { ...circle, height: d.height ?? el.input.height, brace: { ...el.input.brace, heightM: Math.max(0.5, (d.height ?? el.input.height) - 0.5) } } }
+      }
       return { ...base, type: 'column', input: { ...el.input, b: d.b ?? el.input.b, h: d.h ?? el.input.h, height: d.height ?? el.input.height, brace: { ...el.input.brace, heightM: Math.max(0.5, (d.height ?? el.input.height) - 0.5) } } }
     case 'wall':
       return { ...base, type: 'wall', input: { ...el.input, thickness: d.thickness ?? el.input.thickness, length: d.length ?? el.input.length, height: d.height ?? el.input.height } }

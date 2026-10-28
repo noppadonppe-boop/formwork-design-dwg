@@ -1,6 +1,6 @@
 // One entry point per element type: geometry, the part groups shown in the 3D layer list, and handle edits.
 import type { AnyDesign } from '@/data/elements'
-import { beamBracing, beamHasRunners, beamStringer } from '@/engine'
+import { beamBracing, beamHasRunners, beamStringer, columnShapeOf } from '@/engine'
 import type { ElementData } from '@/data/types'
 import { applyColumnHandle, applyWallHandle, columnModel, type FormModel, type HandleKey, type PartGroup, wallModel } from './formModel'
 import { applyBeamHandle, applyFootingHandle, applySlabHandle, beamModel, footingModel, slabModel } from './slabBeamFootingModel'
@@ -18,8 +18,13 @@ export function elementGroups(el: ElementData): PartGroup[] {
   switch (el.type) {
     case 'wall':
       return ['concrete', 'sheathing', 'stud', 'wale', 'tie', 'brace']
-    case 'column':
-      return ['concrete', 'sheathing', ...(el.input.sheathing.type === 'plywood' ? (['stud'] as const) : []), 'yoke', 'tie', 'brace']
+    case 'column': {
+      const s = columnShapeOf(el.input)
+      if (s.kind === 'circle') return s.system === 'stave' ? ['concrete', 'sheathing', 'yoke', 'tie', 'brace'] : s.system === 'steel' ? ['concrete', 'sheathing', 'tie', 'brace'] : ['concrete', 'sheathing', 'brace']
+      // polygon in a box: the corner fillers show with the studs
+      const studs = el.input.sheathing.type === 'plywood' || (s.kind === 'polygon' && s.yoke === 'box')
+      return ['concrete', 'sheathing', ...(studs ? (['stud'] as const) : []), 'yoke', 'tie', 'brace']
+    }
     case 'slab':
       return ['concrete', 'sheathing', 'joist', 'stringer', 'shore', ...(el.input.bracing.enabled ? (['bracing'] as const) : [])]
     case 'beam': {
