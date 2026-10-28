@@ -36,6 +36,8 @@ export const CATEGORY = {
   uploads: 'uploads',
   /** Form Assembly: prefabricated panels kept in the project's stock */
   panels: 'panels',
+  /** Form Assembly: panels assembled into the form of an element */
+  assemblies: 'assemblies',
   settings: 'settings',
   /** projectNo → projectId index, so project numbers stay unique without listing every project */
   projectNumbers: 'projectNumbers',

@@ -85,6 +85,14 @@ RC-FormWork-Design-Web-App/root/                     Firebase project rc-design-
     uploads/{fileId}
        projectId, category: attachments|imports, name, size, contentType, path (Storage), url,
        uploadedBy, createdAt
+    panels/{panelId}                                 Form Assembly: the project's panel stock
+       projectId, code (P-2412…), name, width, height, plywood { materialId, thicknessMm, lay },
+       stud { sectionId, materialId, dir, spacingCm }, edges { left, right, top, bottom }, stock, note,
+       refElementId (element the panel is checked against), createdAt, updatedAt, version
+    assemblies/{assemblyId}                          Form Assembly: panels laid out on an element's faces
+       projectId, code (ASM-F1…), name, elementId, through: x|y (faces that run past the corners),
+       linked (C = A, D = B), faces { A|B|C|D: { courses: [{ panels: [panelId…] }] } }, note,
+       createdAt, updatedAt, version
   settings/{key}
      value, updatedAt                                   e.g. settings/optimizer = Optimizer prices
 ```

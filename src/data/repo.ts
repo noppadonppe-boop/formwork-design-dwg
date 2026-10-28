@@ -2,6 +2,8 @@
 import {
   arrayUnion,
   collection,
+  type CollectionReference,
+  deleteDoc,
   doc,
   type DocumentReference,
   getDoc,
@@ -20,7 +22,7 @@ import { userRef } from '@/auth/authService'
 import { CATEGORY, db, firebaseEnabled, rootRef } from '@/lib/firebase'
 import { ConflictError, DuplicateProjectNoError } from './conflict'
 import { deleteFile, type UploadedFile } from './files'
-import type { ElementData, FormElement, FormPanel, PanelData, Project, ProjectData } from './types'
+import type { AssemblyData, ElementData, FormAssembly, FormElement, FormPanel, PanelData, Project, ProjectData } from './types'
 
 export type Unsubscribe = () => void
 
@@ -46,6 +48,10 @@ export interface Repo {
   createPanel(projectId: string, data: PanelData): Promise<string>
   updatePanel(projectId: string, id: string, data: Partial<PanelData>, baseVersion?: number, force?: boolean): Promise<number>
   deletePanel(projectId: string, id: string): Promise<void>
+  watchAssemblies(projectId: string, cb: (a: FormAssembly[]) => void): Unsubscribe
+  createAssembly(projectId: string, data: AssemblyData): Promise<string>
+  updateAssembly(projectId: string, id: string, data: Partial<AssemblyData>, baseVersion?: number, force?: boolean): Promise<number>
+  deleteAssembly(projectId: string, id: string): Promise<void>
   /** per-menu settings shared by all users (e.g. optimizer prices) */
   getSetting<T>(key: string): Promise<T | undefined>
   setSetting<T>(key: string, value: T): Promise<void>
@@ -68,6 +74,7 @@ export const versionOf = (d: object | null | undefined) => {
 // RC-FormWork-Design-Web-App/root/projects/{pid}/elements/{eid}    — ชิ้นส่วนของโครงการ
 // RC-FormWork-Design-Web-App/root/projects/{pid}/uploads/{fid}     — ไฟล์ของโครงการ (src/data/files.ts)
 // RC-FormWork-Design-Web-App/root/projects/{pid}/panels/{id}       — แผงแบบหล่อในคลังของโครงการ (Form Assembly)
+// RC-FormWork-Design-Web-App/root/projects/{pid}/assemblies/{id}   — ชุดประกอบแผงของชิ้นงาน (Form Assembly)
 // RC-FormWork-Design-Web-App/root/settings/{key}                   — ค่าตั้งของแต่ละเมนู
 // `version` on projects and elements is bumped by every content save, so concurrent edits are detected.
 
@@ -76,9 +83,27 @@ function firestoreRepo(): Repo {
   const projects = collection(rootRef!, CATEGORY.projects)
   const elements = (pid: string) => collection(projects, pid, CATEGORY.elements)
   const panels = (pid: string) => collection(projects, pid, CATEGORY.panels)
+  const assemblies = (pid: string) => collection(projects, pid, CATEGORY.assemblies)
   const settings = collection(rootRef!, CATEGORY.settings)
   const numberRef = (projectNo: string) => doc(rootRef!, CATEGORY.projectNumbers, projectNoKey(projectNo))
   const logError = (what: string) => (e: Error) => console.error(`Firestore ${what}:`, e)
+
+  /** Form Assembly sub-collections (panels, assemblies): documents sorted by code */
+  const watchSub = <T extends { code: string }>(col: CollectionReference, projectId: string, cb: (d: T[]) => void, what: string) =>
+    onSnapshot(
+      col,
+      (snap) => cb(snap.docs.map((d) => ({ ...d.data(), id: d.id, projectId }) as unknown as T).sort(byCode)),
+      (e) => {
+        logError(what)(e)
+        cb([])
+      },
+    )
+  const createSub = async (col: CollectionReference, projectId: string, data: object) => {
+    const id = newId()
+    const now = Date.now()
+    await setDoc(doc(col, id), { ...data, projectId, createdAt: now, updatedAt: now, version: 1 })
+    return id
+  }
 
   /** versioned update in a transaction; `extra` writes (e.g. touching the parent project) go in the same transaction */
   const versioned = (ref: DocumentReference, data: object, baseVersion: number | undefined, force: boolean, extra?: (tx: Transaction) => void) =>
@@ -146,7 +171,7 @@ function firestoreRepo(): Repo {
     },
     async deleteProject(id) {
       // client-side cascade; batches of ≤ 500 writes
-      for (const sub of [elements(id), panels(id)]) {
+      for (const sub of [elements(id), panels(id), assemblies(id)]) {
         const snap = await getDocs(sub)
         for (let i = 0; i < snap.docs.length; i += 450) {
           const batch = writeBatch(fs)
@@ -196,30 +221,14 @@ function firestoreRepo(): Repo {
       batch.update(doc(projects, projectId), { elementCount: increment(-1), updatedAt: Date.now() })
       await batch.commit()
     },
-    watchPanels(projectId, cb) {
-      return onSnapshot(
-        panels(projectId),
-        (snap) => cb(snap.docs.map((d) => ({ ...d.data(), id: d.id, projectId }) as FormPanel).sort(byCode)),
-        (e) => {
-          logError('watchPanels')(e)
-          cb([])
-        },
-      )
-    },
-    async createPanel(projectId, data) {
-      const id = newId()
-      const now = Date.now()
-      await setDoc(doc(panels(projectId), id), { ...data, projectId, createdAt: now, updatedAt: now, version: 1 })
-      return id
-    },
-    updatePanel(projectId, id, data, baseVersion, force = false) {
-      return versioned(doc(panels(projectId), id), data, baseVersion, force)
-    },
-    async deletePanel(projectId, id) {
-      const batch = writeBatch(fs)
-      batch.delete(doc(panels(projectId), id))
-      await batch.commit()
-    },
+    watchPanels: (pid, cb) => watchSub<FormPanel>(panels(pid), pid, cb, 'watchPanels'),
+    createPanel: (pid, data) => createSub(panels(pid), pid, data),
+    updatePanel: (pid, id, data, baseVersion, force = false) => versioned(doc(panels(pid), id), data, baseVersion, force),
+    deletePanel: (pid, id) => deleteDoc(doc(panels(pid), id)),
+    watchAssemblies: (pid, cb) => watchSub<FormAssembly>(assemblies(pid), pid, cb, 'watchAssemblies'),
+    createAssembly: (pid, data) => createSub(assemblies(pid), pid, data),
+    updateAssembly: (pid, id, data, baseVersion, force = false) => versioned(doc(assemblies(pid), id), data, baseVersion, force),
+    deleteAssembly: (pid, id) => deleteDoc(doc(assemblies(pid), id)),
     async getSetting(key) {
       const d = await getDoc(doc(settings, key))
       return d.exists() ? d.data().value : undefined
@@ -301,6 +310,7 @@ interface LocalDb {
   projects: Record<string, Project>
   elements: Record<string, Record<string, FormElement>>
   panels?: Record<string, Record<string, FormPanel>>
+  assemblies?: Record<string, Record<string, FormAssembly>>
   settings?: Record<string, unknown>
 }
 
@@ -334,6 +344,33 @@ function localRepo(): Repo {
       listeners.delete(fn)
       window.removeEventListener('storage', onStorage)
     }
+  }
+  // Form Assembly sub-collections
+  type Sub = 'panels' | 'assemblies'
+  const createSub = async (name: Sub, pid: string, data: object) => {
+    const d = load()
+    const id = newId()
+    const now = Date.now()
+    const col = ((d[name] ??= {})[pid] ??= {}) as Record<string, object>
+    col[id] = { ...data, id, projectId: pid, createdAt: now, updatedAt: now, version: 1 }
+    save(d)
+    return id
+  }
+  const updateSub = async (name: Sub, pid: string, id: string, data: object, baseVersion: number | undefined, force: boolean) => {
+    const d = load()
+    const col = d[name]?.[pid] as Record<string, object> | undefined
+    const cur = col?.[id]
+    if (!col || !cur) throw new Error('ไม่พบข้อมูล (อาจถูกลบไปแล้ว)')
+    if (!force && baseVersion !== undefined && versionOf(cur) !== baseVersion) throw new ConflictError()
+    const version = versionOf(cur) + 1
+    col[id] = { ...cur, ...data, updatedAt: Date.now(), version }
+    save(d)
+    return version
+  }
+  const deleteSub = async (name: Sub, pid: string, id: string) => {
+    const d = load()
+    delete d[name]?.[pid]?.[id]
+    save(d)
   }
   const touch = (d: LocalDb, pid: string, delta = 0) => {
     const p = d.projects[pid]
@@ -372,6 +409,7 @@ function localRepo(): Repo {
       delete d.projects[id]
       delete d.elements[id]
       delete d.panels?.[id]
+      delete d.assemblies?.[id]
       save(d)
     },
     watchElements(projectId, cb) {
@@ -404,34 +442,14 @@ function localRepo(): Repo {
       touch(d, projectId, -1)
       save(d)
     },
-    watchPanels(projectId, cb) {
-      return subscribe(() => cb(Object.values(load().panels?.[projectId] ?? {}).sort(byCode)))
-    },
-    async createPanel(projectId, data) {
-      const d = load()
-      const id = newId()
-      const now = Date.now()
-      d.panels ??= {}
-      d.panels[projectId] ??= {}
-      d.panels[projectId][id] = { ...data, id, projectId, createdAt: now, updatedAt: now, version: 1 }
-      save(d)
-      return id
-    },
-    async updatePanel(projectId, id, data, baseVersion, force = false) {
-      const d = load()
-      const p = d.panels?.[projectId]?.[id]
-      if (!p) throw new Error('ไม่พบแผง')
-      if (!force && baseVersion !== undefined && versionOf(p) !== baseVersion) throw new ConflictError()
-      const version = versionOf(p) + 1
-      d.panels![projectId][id] = { ...p, ...data, updatedAt: Date.now(), version }
-      save(d)
-      return version
-    },
-    async deletePanel(projectId, id) {
-      const d = load()
-      delete d.panels?.[projectId]?.[id]
-      save(d)
-    },
+    watchPanels: (pid, cb) => subscribe(() => cb(Object.values(load().panels?.[pid] ?? {}).sort(byCode))),
+    createPanel: (pid, data) => createSub('panels', pid, data),
+    updatePanel: (pid, id, data, baseVersion, force = false) => updateSub('panels', pid, id, data, baseVersion, force),
+    deletePanel: (pid, id) => deleteSub('panels', pid, id),
+    watchAssemblies: (pid, cb) => subscribe(() => cb(Object.values(load().assemblies?.[pid] ?? {}).sort(byCode))),
+    createAssembly: (pid, data) => createSub('assemblies', pid, data),
+    updateAssembly: (pid, id, data, baseVersion, force = false) => updateSub('assemblies', pid, id, data, baseVersion, force),
+    deleteAssembly: (pid, id) => deleteSub('assemblies', pid, id),
     async getSetting<T>(key: string) {
       return load().settings?.[key] as T | undefined
     },

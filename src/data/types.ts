@@ -207,3 +207,31 @@ export const DEFAULT_PANEL: PanelData = {
   stock: 0,
   note: '',
 }
+
+// ---------------------------------------------------------------- Form Assembly: assemblies (ชุดประกอบ)
+
+/** footing faces seen in plan: A front and C back run along X, B right and D left run along Y */
+export type FaceKey = 'A' | 'B' | 'C' | 'D'
+export const FACE_KEYS: FaceKey[] = ['A', 'B', 'C', 'D']
+
+/** one face: courses stacked bottom → top, each a row of panel ids left → right seen from outside */
+export interface FaceLayout {
+  courses: { panels: string[] }[]
+}
+
+/** Panels from the stock assembled into the complete form of one element (footings for now). */
+export interface AssemblyData {
+  code: string
+  name: string
+  elementId: string
+  /** the pair of faces that runs past the corners (the other pair fits between them) */
+  through: 'x' | 'y'
+  /** faces C and D repeat A and B */
+  linked: boolean
+  faces: Record<FaceKey, FaceLayout>
+  note: string
+}
+
+export type FormAssembly = AssemblyData & { id: string; projectId: string; createdAt: number; updatedAt: number; version?: number }
+
+export const emptyFaces = (): Record<FaceKey, FaceLayout> => ({ A: { courses: [] }, B: { courses: [] }, C: { courses: [] }, D: { courses: [] } })

@@ -139,6 +139,9 @@ describe('writes follow roles', () => {
     await assertFails(db(people.eng).doc(`${ROOT}/projects/p2/panels/k2`).set({ projectId: 'p2', code: 'P-2012' }))
     await assertFails(db(people.eng).doc(`${ROOT}/projects/p1/panels/k3`).set({ projectId: 'p2', code: 'P-2012' }))
     await assertFails(db(people.staff).collection(`${ROOT}/projects/p1/panels`).get())
+    await assertSucceeds(db(people.eng).doc(`${ROOT}/projects/p1/assemblies/a1`).set({ projectId: 'p1', code: 'ASM-F1' }))
+    await assertFails(db(people.est).doc(`${ROOT}/projects/p1/assemblies/a2`).set({ projectId: 'p1', code: 'ASM-F2' }))
+    await assertFails(db(people.eng).doc(`${ROOT}/projects/p1/other/x1`).set({ projectId: 'p1' }))
   })
   it('adding an element bumps the project counter in the same batch (repo.createElement)', async () => {
     const fs = db(people.eng)

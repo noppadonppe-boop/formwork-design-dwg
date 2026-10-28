@@ -1,18 +1,19 @@
 // Form Assembly — the project's panel stock (แผงแบบหล่อ) and the panel editor. Panels are prefabricated pieces with a
 // code, re-used by any assembly; each is checked against the design of an element of the project.
-// Assemblies of panels into a complete form (phase 2) will build on the same stock.
+// Assemblies (?view=asm) lay the stock panels out on the faces of an element (components/assembly/AssemblyView).
 import clsx from 'clsx'
 import { Check, ChevronLeft, Copy, Layers, Loader2, Plus, Save, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { useAuth } from '@/auth/AuthProvider'
+import { AssemblyView } from '@/components/assembly/AssemblyView'
 import { MEMBER_SWATCH, PanelDrawing } from '@/components/assembly/PanelDrawing'
 import { NumField } from '@/components/design/NumField'
 import { ProjectNav } from '@/components/ProjectNav'
 import { Button, Empty, Field, Modal, Segmented, Select, StatusBadge } from '@/components/ui'
 import { isConflict } from '@/data/conflict'
 import { runDesign, TYPE_LABEL } from '@/data/elements'
-import { useElements, usePanels, useProject } from '@/data/hooks'
+import { useAssemblies, useElements, usePanels, useProject } from '@/data/hooks'
 import { repo, versionOf } from '@/data/repo'
 import { type Criteria, DEFAULT_CRITERIA, DEFAULT_PANEL, type FormElement, type FormPanel, type PanelData, type PanelEdge, type SheetLay, type StudDir } from '@/data/types'
 import { getSection, PLYWOOD, PLYWOOD_THICKNESS, TIMBER, TIMBER_SECTIONS } from '@/engine'
@@ -62,6 +63,7 @@ export function AssemblyPage() {
   const project = useProject(projectId)
   const elements = useElements(projectId)
   const panels = usePanels(projectId)
+  const assemblies = useAssemblies(projectId)
   const [params, setParams] = useSearchParams()
   const { can } = useAuth()
   const canEdit = can('element.edit')
@@ -71,8 +73,9 @@ export function AssemblyPage() {
   const selectedId = params.get('panel') ?? panels?.[0]?.id
   const selected = panels?.find((p) => p.id === selectedId)
   const select = (id: string) => setParams({ panel: id }, { replace: true })
+  const view = params.get('view') === 'asm' ? 'asm' : 'panels'
 
-  if (project === undefined || elements === undefined || panels === undefined)
+  if (project === undefined || elements === undefined || panels === undefined || assemblies === undefined)
     return (
       <div className="flex justify-center py-24 text-muted">
         <Loader2 className="animate-spin" aria-label="กำลังโหลด" />
@@ -106,11 +109,11 @@ export function AssemblyPage() {
           <p className="text-xs text-muted">
             <span className="num">{project.projectNo}</span> · Rev {project.revision}
           </p>
-          <h1 className="text-2xl font-bold">Form Assembly — คลังแผงแบบหล่อ</h1>
+          <h1 className="text-2xl font-bold">Form Assembly — {view === 'asm' ? 'ชุดประกอบแบบหล่อ' : 'คลังแผงแบบหล่อ'}</h1>
           <p className="text-sm text-muted">สร้างแผงสำเร็จรูปพร้อมรหัส เก็บเป็นสต็อก แล้วนำไปประกอบเป็นชุดแบบหล่อของชิ้นงานต่าง ๆ</p>
         </div>
         <div className="ml-auto flex gap-2">
-          {canEdit && (
+          {canEdit && view === 'panels' && (
             <Button variant="primary" onClick={() => create()} disabled={busy}>
               {busy ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />} สร้างแผง
             </Button>
@@ -118,13 +121,32 @@ export function AssemblyPage() {
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-1 rounded-lg bg-slate-100 p-1 text-[13px] w-fit" aria-label="ส่วนของ Form Assembly">
-        <span className="h-8 rounded-md bg-white px-3 leading-8 font-semibold shadow-sm">คลังแผง ({panels.length} แบบ · {totalStock} แผง)</span>
-        <span className="h-8 px-3 leading-8 text-slate-400" title="เฟส 2">ชุดประกอบ — เร็ว ๆ นี้</span>
+      <div role="tablist" aria-label="ส่วนของ Form Assembly" className="flex w-fit flex-wrap gap-1 rounded-lg bg-slate-100 p-1 text-[13px]">
+        {(
+          [
+            ['panels', `คลังแผง (${panels.length} แบบ · ${totalStock} แผง)`],
+            ['asm', `ชุดประกอบ (${assemblies.length})`],
+          ] as const
+        ).map(([v, label]) => (
+          <button key={v} type="button" role="tab" aria-selected={view === v} onClick={() => setParams(v === 'asm' ? { view: 'asm' } : {}, { replace: true })} className={clsx('h-8 rounded-md px-3', view === v ? 'bg-white font-semibold shadow-sm' : 'text-slate-600 hover:text-ink')}>
+            {label}
+          </button>
+        ))}
         <span className="h-8 px-3 leading-8 text-slate-400" title="เฟส 4">สรุปการใช้แผง — เร็ว ๆ นี้</span>
       </div>
 
-      {panels.length === 0 ? (
+      {view === 'asm' ? (
+        <AssemblyView
+          projectId={project.id}
+          elements={elements}
+          panels={panels}
+          assemblies={assemblies}
+          criteria={criteria}
+          canEdit={canEdit}
+          selectedId={params.get('asm') ?? undefined}
+          onSelect={(id) => setParams(id ? { view: 'asm', asm: id } : { view: 'asm' }, { replace: true })}
+        />
+      ) : panels.length === 0 ? (
         <section className="card">
           <Empty icon={<Layers size={22} />} title="ยังไม่มีแผงในคลัง">
             <p className="max-w-md text-sm text-muted">เริ่มจากแผงมาตรฐาน 2.40 × 1.20 ม. (ไม้อัดเต็มแผ่น) แล้วปรับขนาด เคร่า และเคร่าปิดขอบได้</p>
@@ -240,7 +262,13 @@ function PanelEditor({
   const valid = draft.code.trim() !== '' && !codeTaken && sizeOk
 
   const set = (p: Partial<PanelData>) => {
-    setDraft((d) => ({ ...d, ...p }))
+    setDraft((d) => {
+      const next = { ...d, ...p }
+      // a code still as suggested from the size follows a new size
+      const others = panels.filter((x) => x.id !== panel.id).map((x) => x.code)
+      if ((p.width !== undefined || p.height !== undefined) && d.code === panelCodeFor(d.width, d.height, others)) next.code = panelCodeFor(next.width, next.height, others)
+      return next
+    })
     if (state !== 'conflict') setState('idle')
   }
   const save = async (force = false) => {
