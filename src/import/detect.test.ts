@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_CRITERIA } from '@/data/types'
-import { candidateToElement, DEFAULT_DETECT, detect, guessRole, parseLabel } from './detect'
+import { candidateToElement, DEFAULT_DETECT, detect, dimsText, guessRole, parseLabel } from './detect'
 import { cleanText, readDxf } from './dxfRead'
 
 // tiny R12-style plan in millimetres
@@ -68,5 +68,49 @@ describe('element detection', () => {
     expect(el.type).toBe('column')
     if (el.type === 'column') expect(el.input).toMatchObject({ b: 0.4, h: 0.4 })
     expect(el.qty).toBe(by('column')[0].qty)
+  })
+})
+
+describe('special outlines in a plan', () => {
+  const poly = (layer: string, pts: [number, number][]) => P(0, 'LWPOLYLINE', 8, layer, 90, pts.length, 70, 1, ...pts.flatMap(([x, y]) => [10, x, 20, y]))
+  const oct = (cx: number, cy: number, F: number): [number, number][] => {
+    const R = F / (2 * Math.cos(Math.PI / 8))
+    return Array.from({ length: 8 }, (_, k) => [cx + R * Math.cos(Math.PI / 8 + (k * Math.PI) / 4), cy + R * Math.sin(Math.PI / 8 + (k * Math.PI) / 4)])
+  }
+  const plan = [
+    P(0, 'SECTION', 2, 'HEADER', 9, '$INSUNITS', 70, 4, 0, 'ENDSEC', 0, 'SECTION', 2, 'ENTITIES'),
+    // L column 80 × 70, legs 25 / 30, twice; a T column; an octagonal footing F 4.5 m; a round footing D 4 m
+    poly('S-COLUMN', [[0, 0], [800, 0], [800, 250], [300, 250], [300, 700], [0, 700]]),
+    poly('S-COLUMN', [[5000, 0], [5800, 0], [5800, 250], [5300, 250], [5300, 700], [5000, 700]]),
+    poly('S-COLUMN', [[9000, 0], [9900, 0], [9900, 250], [9575, 250], [9575, 800], [9325, 800], [9325, 250], [9000, 250]]),
+    poly('FOUNDATION', oct(20000, 20000, 4500)),
+    P(0, 'CIRCLE', 8, 'FOUNDATION', 10, 30000, 20, 20000, 40, 2000),
+    P(0, 'ENDSEC', 0, 'EOF'),
+  ].join('\n')
+  const { candidates } = detect(readDxf(plan), {}, DEFAULT_DETECT)
+
+  it('recognises L and T columns, grouping identical ones', () => {
+    const L = candidates.find((c) => c.plan?.kind === 'L')!
+    expect(L).toMatchObject({ type: 'column', qty: 2, plan: { a: 0.8, b: 0.7, ta: 0.25, tb: 0.3 } })
+    expect(candidates.find((c) => c.plan?.kind === 'T')).toMatchObject({ type: 'column', qty: 1 })
+  })
+
+  it('takes large polygons and circles as footings, with F or D as their size', () => {
+    const o = candidates.find((c) => c.plan?.kind === 'polygon')!
+    expect(o).toMatchObject({ type: 'footing', dims: { lengthX: 4.5, lengthY: 4.5 } })
+    const r = candidates.find((c) => c.plan?.kind === 'circle')!
+    expect(r).toMatchObject({ type: 'footing', dims: { lengthX: 4, lengthY: 4 } })
+  })
+
+  it('creates elements with the shape', () => {
+    const L = candidateToElement(candidates.find((c) => c.plan?.kind === 'L')!, DEFAULT_CRITERIA, [])
+    if (L.type !== 'column') throw new Error()
+    expect(L.input.shape).toMatchObject({ kind: 'L', a: 0.8, ta: 0.25 })
+    expect(L.input).toMatchObject({ b: 0.8, h: 0.7 })
+    const r = candidateToElement(candidates.find((c) => c.plan?.kind === 'circle')!, DEFAULT_CRITERIA, [])
+    if (r.type !== 'footing') throw new Error()
+    expect(r.input.shape).toEqual({ kind: 'circle' })
+    expect(r.input.support).not.toBe('tied')
+    expect(dimsText(candidates.find((c) => c.plan?.kind === 'polygon')!)).toContain('แปดเหลี่ยม F 4.50 ม.')
   })
 })

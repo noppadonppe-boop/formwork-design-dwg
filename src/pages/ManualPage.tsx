@@ -441,15 +441,15 @@ export function ManualPage() {
             {L(
               <>
                 DXF ที่อ่านได้ดีที่สุด: เสา/กำแพง/ฐานรากวาดเป็นสี่เหลี่ยมปิด (Polyline) แยกเลเยอร์ และมีป้ายใกล้ ๆ เช่น <span className="num">C1 40x40</span>,{' '}
-                <span className="num">B2 30x60</span> (ตัวเลขน้อยกว่า 5 ถือเป็นเมตร มากกว่านั้นเป็นเซนติเมตร) ลองกับไฟล์ตัวอย่าง <span className="num">docs/sample-plan.dxf</span>
+                <span className="num">B2 30x60</span> (ตัวเลขน้อยกว่า 5 ถือเป็นเมตร มากกว่านั้นเป็นเซนติเมตร) ลองกับไฟล์ตัวอย่าง <span className="num">docs/sample-plan.dxf</span> · วงกลม (CIRCLE) และ Polyline ปิดรูปตัว L / T / U (มุมฉาก หมุนได้) หรือหก/แปดเหลี่ยมด้านเท่า จะได้เสาหรือฐานรากรูปนั้นทันที (ขนาดยาวสุด ≤ 1.50 ม. เป็นเสา ใหญ่กว่าเป็นฐานราก)
               </>,
               <>
                 DXF reads best when columns/walls/footings are closed rectangles (polylines) on separate layers with a label nearby, such as <span className="num">C1 40x40</span>,{' '}
-                <span className="num">B2 30x60</span> (numbers below 5 are metres, larger ones centimetres). Try the sample file <span className="num">docs/sample-plan.dxf</span>.
+                <span className="num">B2 30x60</span> (numbers below 5 are metres, larger ones centimetres). Try the sample file <span className="num">docs/sample-plan.dxf</span>. Circles and closed L / T / U polylines (square corners, any rotation) or regular hexagons/octagons come in as columns or footings of that shape (up to 1.50 m across a column, larger a footing).
               </>,
               <>
                 最易识别的 DXF:柱/墙/基础绘制为闭合矩形(多段线)、分图层,并在附近标注,如 <span className="num">C1 40x40</span>、<span className="num">B2 30x60</span>(小于 5
-                的数字视为米,否则为厘米)。可用示例文件 <span className="num">docs/sample-plan.dxf</span> 试用。
+                的数字视为米,否则为厘米)。可用示例文件 <span className="num">docs/sample-plan.dxf</span> 试用。圆(CIRCLE)以及闭合的 L / T / U 形多段线(直角,可旋转)或正六/八边形,会直接导入为该形状的柱或基础(最大尺寸 ≤ 1.50 m 为柱,更大为基础)。
               </>,
             )}
           </Tip>

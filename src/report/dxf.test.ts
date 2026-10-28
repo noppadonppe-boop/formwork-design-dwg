@@ -30,3 +30,17 @@ describe('DXF export', () => {
   })
   it('escapes Thai text as \\U+XXXX', () => expect(dxfText('ก A')).toBe('\\U+0E01 A'))
 })
+
+describe('DXF export of special sections', () => {
+  it('draws an L column as its six-sided outline in plan, not its box', () => {
+    const el = newElement('column', DEFAULT_CRITERIA, [])
+    if (el.type !== 'column') throw new Error()
+    el.input = { ...el.input, b: 0.8, h: 0.8, shape: { kind: 'L', a: 0.8, b: 0.8, ta: 0.25, tb: 0.25, yoke: 'tied' } }
+    const v = elementViews(el, runDesign(el, DEFAULT_CRITERIA))
+    const pairs = toDxf([v.a]).trim().split('\r\n')
+    // LINE entities on the concrete layer
+    let n = 0
+    for (let i = 0; i < pairs.length - 3; i += 2) if (pairs[i] === '0' && pairs[i + 1] === 'LINE' && pairs[i + 3] === 'FW-CONCRETE') n++
+    expect(n).toBe(6)
+  })
+})

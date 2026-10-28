@@ -438,10 +438,22 @@ const DIM_FIELDS: Record<ElementType, [keyof Candidate['dims'], string, number][
   ],
 }
 
+/** Fields of a candidate drawn as a circle / polygon (one size) or an L/T/U (sizes from the drawing, depth only). */
+function planFields(c: Candidate): [keyof Candidate['dims'], string, number][] | undefined {
+  if (!c.plan || (c.type !== 'column' && c.type !== 'footing')) return undefined
+  const one = c.plan.kind === 'circle' ? 'D' : c.plan.kind === 'polygon' ? 'F' : undefined
+  if (c.type === 'column') return one ? [['b', `${one} ซม.`, 100], ['height', 'H ม.', 1]] : [['height', 'H ม.', 1]]
+  return one ? [['lengthX', `${one} ม.`, 1], ['height', 'ลึก ม.', 1]] : [['height', 'ลึก ม.', 1]]
+}
+
 function DimsEditor({ c, onChange }: { c: Candidate; onChange: (d: Candidate['dims']) => void }) {
+  const plan = planFields(c)
+  // one size: b = h / lengthX = lengthY
+  const set = (d: Candidate['dims']) => onChange(plan && d.b !== c.dims.b ? { ...d, h: d.b } : plan && d.lengthX !== c.dims.lengthX ? { ...d, lengthY: d.lengthX } : d)
   return (
     <div className="flex items-center gap-1.5" title={dimsText(c)}>
-      {DIM_FIELDS[c.type].map(([k, label, scale]) => (
+      {plan && <span className="text-[11px] text-ink">{dimsText(c).split(' · ')[0]}</span>}
+      {(plan ?? DIM_FIELDS[c.type]).map(([k, label, scale]) => (
         <label key={k} className="flex items-center gap-1 text-[11px] text-muted">
           {label}
           <input
@@ -451,7 +463,7 @@ function DimsEditor({ c, onChange }: { c: Candidate; onChange: (d: Candidate['di
             key={`${c.key}-${c.type}-${k}`}
             onBlur={(e) => {
               const v = Number(e.target.value)
-              if (Number.isFinite(v) && v > 0) onChange({ ...c.dims, [k]: v / scale })
+              if (Number.isFinite(v) && v > 0) set({ ...c.dims, [k]: v / scale })
             }}
           />
         </label>

@@ -1,22 +1,28 @@
-// Turn a plan drawing into formwork elements: find rectangles / circles, classify them by layer (or by shape when
-// the layer says nothing), read nearby labels such as "C1 40x40" or "B2 30x60", and merge identical items into one
-// element with a quantity. Shared with the AI import, which produces the same `Candidate` list.
+// Turn a plan drawing into formwork elements: find rectangles, circles and special outlines (L / T / U, regular
+// hexagons and octagons), classify them by layer (or by shape when the layer says nothing), read nearby labels such
+// as "C1 40x40" or "B2 30x60", and merge identical items into one element with a quantity. Shared with the AI
+// import, which produces the same `Candidate` list.
 import { newElement, withRoundForm } from '@/data/elements'
 import type { Criteria, ElementData, ElementType, FormElement } from '@/data/types'
+import { columnSizeText, footingSizeText, isLegShape, legBox, SHAPE_NAME } from '@/engine'
 import type { DxfDrawing, DxfEntity, Pt } from './dxfRead'
+import { fitOutline, type ImportPlan } from './outline'
 
 export type Role = ElementType | 'ignore' | 'auto'
 
 export interface Shape {
   id: string
   layer: string
-  kind: 'rect' | 'circle'
+  kind: 'rect' | 'circle' | 'outline'
   cx: number
   cy: number
-  /** long and short side, m (circle: diameter twice) */
+  /** long and short side of its box, m (circle: diameter twice) */
   long: number
   short: number
   poly: Pt[]
+  /** circle or special outline; a polygon's F in `size` */
+  plan?: ImportPlan
+  size?: number
 }
 
 export interface Candidate {
@@ -25,9 +31,9 @@ export interface Candidate {
   code: string
   name: string
   qty: number
+  /** circle or special outline in the drawing: designed with that shape (a circle's D or a polygon's F in the sizes) */
+  plan?: ImportPlan
   /** metres */
-  /** round column (a circle in the drawing): designed with a round form, b = h = D */
-  round?: boolean
   dims: { b?: number; h?: number; thickness?: number; length?: number; height?: number; lengthX?: number; lengthY?: number; depth?: number; slabT?: number }
   source: 'dxf' | 'ai'
   note?: string
@@ -86,9 +92,17 @@ export function findShapes(entities: DxfEntity[]): Shape[] {
   let n = 0
   for (const e of entities) {
     if (e.kind === 'poly' && (e.closed || (e.pts.length === 5 && dist(e.pts[0], e.pts[4]) < 1e-3))) {
-      const r = rectFromPts(e.pts, e.layer, `s${n++}`)
+      const r = rectFromPts(e.pts, e.layer, `s${n}`)
+      const fit = r ? undefined : fitOutline(e.pts)
       if (r) shapes.push(r)
-    } else if (e.kind === 'circle' && e.r > 0.05) shapes.push({ id: `s${n++}`, layer: e.layer, kind: 'circle', cx: e.c[0], cy: e.c[1], long: 2 * e.r, short: 2 * e.r, poly: [] })
+      else if (fit) {
+        const xs = e.pts.map((q) => q[0])
+        const ys = e.pts.map((q) => q[1])
+        const [w, h] = [Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)]
+        shapes.push({ id: `s${n}`, layer: e.layer, kind: 'outline', cx: (Math.max(...xs) + Math.min(...xs)) / 2, cy: (Math.max(...ys) + Math.min(...ys)) / 2, long: Math.max(w, h), short: Math.min(w, h), poly: e.pts, plan: fit.plan, size: fit.f })
+      }
+      n++
+    } else if (e.kind === 'circle' && e.r > 0.05) shapes.push({ id: `s${n++}`, layer: e.layer, kind: 'circle', cx: e.c[0], cy: e.c[1], long: 2 * e.r, short: 2 * e.r, poly: [], plan: { kind: 'circle' }, size: 2 * e.r })
   }
   // four-line rectangles, per layer
   const byLayer = new Map<string, (DxfEntity & { kind: 'line' })[]>()
@@ -149,7 +163,7 @@ function classify(s: Shape, role: Role): ElementType | undefined {
   if (role === 'ignore') return undefined
   if (role !== 'auto') return role
   const ratio = s.long / Math.max(s.short, 1e-6)
-  if (s.kind === 'circle') return s.long <= 1.5 ? 'column' : undefined
+  if (s.kind !== 'rect') return s.long <= 1.5 ? 'column' : s.short >= 0.8 && s.long <= 20 ? 'footing' : undefined
   if (s.long <= 1.5 && ratio <= 3) return 'column'
   if (ratio >= 4 && s.short <= 0.6) return 'wall'
   if (s.short >= 0.8 && s.long <= 20 && ratio <= 6) return 'footing'
@@ -163,7 +177,7 @@ export function detect(d: DxfDrawing, roles: Record<string, Role>, opt: DetectOp
     return l ? [l] : []
   })
   const assigned = new Map<string, ElementType>()
-  type Item = { type: ElementType; code?: string; dims: Candidate['dims']; shapeId?: string; note?: string; round?: boolean }
+  type Item = { type: ElementType; code?: string; dims: Candidate['dims']; shapeId?: string; note?: string; plan?: ImportPlan }
   const items: Item[] = []
   const used = new Set<Label>()
   for (const s of shapes) {
@@ -185,15 +199,21 @@ export function detect(d: DxfDrawing, roles: Record<string, Role>, opt: DetectOp
     if (best) used.add(best)
     const r2 = (v: number) => Math.round(v * 100) / 100
     switch (t) {
-      case 'column':
-        items.push({ type: t, code: best?.code, shapeId: s.id, dims: { b: r2(s.short), h: r2(s.long), height: r2(opt.storeyH - opt.slabT) }, ...(s.kind === 'circle' ? { round: true, note: 'เสากลม — แบบหล่อไม้ระแนงตั้ง + คานรัดเจาะโค้ง' } : {}) })
+      case 'column': {
+        // a circle's D or a polygon's F is the one size; an L/T/U's sizes are in its plan, b × h its box
+        const one = s.plan && (s.plan.kind === 'circle' || s.plan.kind === 'polygon') ? r2(s.size!) : undefined
+        items.push({ type: t, code: best?.code, shapeId: s.id, dims: { b: one ?? r2(s.short), h: one ?? r2(s.long), height: r2(opt.storeyH - opt.slabT) }, ...(s.plan ? { plan: s.plan, note: planNote(s.plan, 'column') } : {}) })
         break
+      }
       case 'wall':
         items.push({ type: t, code: best?.code, shapeId: s.id, dims: { thickness: r2(s.short), length: r2(s.long), height: r2(opt.storeyH - opt.slabT) } })
         break
-      case 'footing':
-        items.push({ type: t, code: best?.code, shapeId: s.id, dims: { lengthX: r2(s.long), lengthY: r2(s.short), height: opt.footingH } })
+      case 'footing': {
+        const one = s.plan && (s.plan.kind === 'circle' || s.plan.kind === 'polygon') ? r2(s.size!) : undefined
+        const [bx, bz] = s.plan && isLegShape(s.plan) ? legBox(s.plan) : [s.long, s.short]
+        items.push({ type: t, code: best?.code, shapeId: s.id, dims: { lengthX: one ?? r2(bx), lengthY: one ?? r2(bz), height: opt.footingH }, ...(s.plan ? { plan: s.plan, note: planNote(s.plan, 'footing') } : {}) })
         break
+      }
       case 'beam':
         items.push({ type: t, code: best?.code, shapeId: s.id, dims: { b: r2(best?.b ?? s.short), depth: r2(best?.h ?? opt.beamH), length: r2(s.long), slabT: opt.slabT, height: r2(opt.storeyH - (best?.h ?? opt.beamH)) } })
         break
@@ -231,20 +251,29 @@ export function detect(d: DxfDrawing, roles: Record<string, Role>, opt: DetectOp
   return { shapes, assigned, candidates: group(items, 'dxf') }
 }
 
-/** Merge identical items (type + code + dimensions) into candidates with a quantity. */
-export function group(items: { type: ElementType; code?: string; dims: Candidate['dims']; shapeId?: string; note?: string; qty?: number; name?: string; round?: boolean }[], source: Candidate['source']): Candidate[] {
+/** What the import does with a special outline, in words. */
+function planNote(plan: ImportPlan, type: 'column' | 'footing'): string {
+  const name = plan.kind === 'polygon' ? SHAPE_NAME[plan.n] : plan.kind === 'circle' ? 'กลม' : SHAPE_NAME[plan.kind]
+  if (type === 'footing') return `ฐานราก${name}${plan.kind === 'circle' ? ' — ค้ำยันทุกเคร่า' : ''}`
+  if (plan.kind === 'circle') return 'เสากลม — แบบหล่อไม้ระแนงตั้ง + คานรัดเจาะโค้ง'
+  if (plan.kind === 'polygon') return `เสา${name} — กรอบคานรัดสี่เหลี่ยม + ไม้อุดมุม`
+  return `เสา${name} — คานรัดตามหน้า + ไทร์มุมใน`
+}
+
+/** Merge identical items (type + code + dimensions + plan) into candidates with a quantity. */
+export function group(items: { type: ElementType; code?: string; dims: Candidate['dims']; shapeId?: string; note?: string; qty?: number; name?: string; plan?: ImportPlan }[], source: Candidate['source']): Candidate[] {
   const map = new Map<string, Candidate>()
   for (const it of items) {
     const dimKey = Object.entries(it.dims)
       .filter(([, v]) => v !== undefined)
       .map(([k, v]) => `${k}${Math.round((v as number) * 100)}`)
       .join(',')
-    const k = `${it.type}|${it.code ?? ''}|${dimKey}${it.round ? '|round' : ''}`
+    const k = `${it.type}|${it.code ?? ''}|${dimKey}${it.plan ? `|${JSON.stringify(it.plan)}` : ''}`
     const c = map.get(k)
     if (c) {
       c.qty += it.qty ?? 1
       if (it.shapeId) c.shapeIds.push(it.shapeId)
-    } else map.set(k, { key: k, type: it.type, code: it.code ?? '', name: it.name ?? '', qty: it.qty ?? 1, dims: it.dims, source, note: it.note, ...(it.round ? { round: true } : {}), shapeIds: it.shapeId ? [it.shapeId] : [], include: true })
+    } else map.set(k, { key: k, type: it.type, code: it.code ?? '', name: it.name ?? '', qty: it.qty ?? 1, dims: it.dims, source, note: it.note, ...(it.plan ? { plan: it.plan } : {}), shapeIds: it.shapeId ? [it.shapeId] : [], include: true })
   }
   // one code per group: a code shared by groups of different size gets a suffix (W1, W1-2, …)
   const seenCode = new Map<string, number>()
@@ -274,17 +303,20 @@ export const dimsText = (c: Candidate): string => {
   const m = (v?: number) => (v === undefined ? '?' : v.toFixed(2))
   switch (c.type) {
     case 'column':
-      return c.round ? `Ø${cm(c.dims.b)} ซม. · H ${m(c.dims.height)} ม.` : `${cm(c.dims.b)}×${cm(c.dims.h)} ซม. · H ${m(c.dims.height)} ม.`
+      return c.plan ? `${columnSizeText({ b: c.dims.b ?? 0, h: c.dims.h ?? 0, shape: columnPlan(c.plan) })} · H ${m(c.dims.height)} ม.` : `${cm(c.dims.b)}×${cm(c.dims.h)} ซม. · H ${m(c.dims.height)} ม.`
     case 'wall':
       return `t ${cm(c.dims.thickness)} ซม. · L ${m(c.dims.length)} · H ${m(c.dims.height)} ม.`
     case 'footing':
-      return `${m(c.dims.lengthX)}×${m(c.dims.lengthY)} · ลึก ${m(c.dims.height)} ม.`
+      return c.plan ? `${footingSizeText({ lengthX: c.dims.lengthX ?? 0, lengthY: c.dims.lengthY ?? 0, shape: c.plan })} · ลึก ${m(c.dims.height)} ม.` : `${m(c.dims.lengthX)}×${m(c.dims.lengthY)} · ลึก ${m(c.dims.height)} ม.`
     case 'beam':
       return `${cm(c.dims.b)}×${cm(c.dims.depth)} ซม. · L ${m(c.dims.length)} ม.`
     case 'slab':
       return `t ${cm(c.dims.thickness)} ซม. · ${m(c.dims.lengthX)}×${m(c.dims.lengthY)} ม.`
   }
 }
+
+/** Column shape of an imported plan: a circle on staves, a polygon in a box of yokes, an L/T/U with inner-corner ties. */
+const columnPlan = (plan: ImportPlan) => (plan.kind === 'circle' ? ({ kind: 'circle', system: 'stave' } as const) : plan.kind === 'polygon' ? ({ kind: 'polygon', n: plan.n, yoke: 'box' } as const) : plan)
 
 /** Element data for a candidate, from the project defaults plus the detected sizes. */
 export function candidateToElement(c: Candidate, criteria: Criteria, existing: FormElement[]): ElementData {
@@ -293,16 +325,30 @@ export function candidateToElement(c: Candidate, criteria: Criteria, existing: F
   const base = { ...el, code: c.code || el.code, name: c.name || el.name, qty: c.qty }
   switch (el.type) {
     case 'column':
-      if (c.round) {
-        const D = d.b ?? el.input.b
-        const circle = withRoundForm({ ...el.input, b: D, h: D })
-        return { ...base, type: 'column', input: { ...circle, height: d.height ?? el.input.height, brace: { ...el.input.brace, heightM: Math.max(0.5, (d.height ?? el.input.height) - 0.5) } } }
+      if (c.plan) {
+        const H = d.height ?? el.input.height
+        const brace = { ...el.input.brace, heightM: Math.max(0.5, H - 0.5) }
+        if (c.plan.kind === 'circle') {
+          const D = d.b ?? el.input.b
+          return { ...base, type: 'column', input: { ...withRoundForm({ ...el.input, b: D, h: D }), height: H, brace } }
+        }
+        if (c.plan.kind === 'polygon') {
+          const F = d.b ?? el.input.b
+          return { ...base, type: 'column', input: { ...el.input, b: F, h: F, shape: columnPlan(c.plan), height: H, brace } }
+        }
+        const [bx, bz] = legBox(c.plan)
+        return { ...base, type: 'column', input: { ...el.input, b: bx, h: bz, shape: c.plan, tie: { ...el.input.tie, enabled: true, spans: 1, shortSpans: undefined }, height: H, brace } }
       }
       return { ...base, type: 'column', input: { ...el.input, b: d.b ?? el.input.b, h: d.h ?? el.input.h, height: d.height ?? el.input.height, brace: { ...el.input.brace, heightM: Math.max(0.5, (d.height ?? el.input.height) - 0.5) } } }
     case 'wall':
       return { ...base, type: 'wall', input: { ...el.input, thickness: d.thickness ?? el.input.thickness, length: d.length ?? el.input.length, height: d.height ?? el.input.height } }
-    case 'footing':
-      return { ...base, type: 'footing', input: { ...el.input, lengthX: d.lengthX ?? el.input.lengthX, lengthY: d.lengthY ?? el.input.lengthY, height: d.height ?? el.input.height } }
+    case 'footing': {
+      const input = { ...el.input, lengthX: d.lengthX ?? el.input.lengthX, lengthY: d.lengthY ?? el.input.lengthY, height: d.height ?? el.input.height }
+      if (!c.plan) return { ...base, type: 'footing', input }
+      // a round footing has no straight wales: braces at every stud
+      const flat = c.plan.kind === 'circle' && (input.support === 'tied' || (input.support === 'braced' && input.brace.at === 'wale'))
+      return { ...base, type: 'footing', input: { ...input, shape: c.plan, ...(flat ? { support: 'braced' as const, brace: { ...input.brace, at: 'stud' as const } } : {}) } }
+    }
     case 'beam':
       return { ...base, type: 'beam', input: { ...el.input, b: d.b ?? el.input.b, h: d.depth ?? el.input.h, length: d.length ?? el.input.length, slabT: d.slabT ?? el.input.slabT, clearHeight: d.height ?? el.input.clearHeight } }
     case 'slab':
