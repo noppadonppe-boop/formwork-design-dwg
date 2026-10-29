@@ -198,15 +198,21 @@ export const QUANTITY_LABEL: Record<string, [string, string]> = {
   stakes: ['หลักยึด', 'ต้น'],
 }
 
+/** spacing from `base` (cm) up to the widest gap between levels (m): "30–50", or "30" when no gap is wider */
+const range = (base: number, levels: number[]) => {
+  const max = Math.round(Math.max(0, ...levels.slice(1).map((z, i) => z - levels[i])) * 100)
+  return max > base ? `${base}–${max}` : `${base}`
+}
+
 /** Key spacings shown above the results. */
 export function layoutSummary(r: AnyDesign): { label: string; value: string }[] {
   switch (r.type) {
     case 'wall':
       return r.design.layout.system === 'horizontal'
         ? [
-            { label: 'เคร่านอน @', value: `${r.design.layout.studSpacing}` },
+            { label: 'เคร่านอน @', value: r.design.layout.graded ? range(r.design.layout.studSpacing, r.design.layout.studLevels) : `${r.design.layout.studSpacing}` },
             { label: 'คานตั้ง @', value: `${r.design.layout.waleSpacing}` },
-            { label: 'ไทร์ตามแนวดิ่ง @', value: `${r.design.layout.tieSpacing} ซม.` },
+            { label: 'ไทร์ตามแนวดิ่ง @', value: `${r.design.layout.graded ? range(r.design.layout.tieSpacing, r.design.layout.tieLevels) : r.design.layout.tieSpacing} ซม.` },
           ]
         : [
             { label: 'เคร่า @', value: `${r.design.layout.studSpacing}` },

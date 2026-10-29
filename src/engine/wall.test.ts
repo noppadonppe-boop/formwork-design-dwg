@@ -255,3 +255,46 @@ describe('horizontal studs on vertical wales (strongbacks)', () => {
     expect(c.status).toBe('fail')
   })
 })
+
+describe('horizontal studs: rows spaced by the pressure at their depth (graded)', () => {
+  const inp: WallInput = { ...ex81, system: 'horizontal', graded: true }
+  const u = designWall({ ...inp, graded: false })
+  const g = designWall(inp)
+  const gaps = (z: number[]) => z.slice(1).map((v, i) => v - z[i])
+  const Pz = (z: number) => Math.min(g.pressure.Pmax, 2400 * z)
+
+  it('bottom rows keep the Pmax spacing; rows open up only where the pressure drops (top hCrit)', () => {
+    expect(g.layout.graded).toBe(true)
+    const s = gaps(g.layout.studLevels)
+    expect(s[0]).toBeCloseTo(u.layout.studSpacing / 100, 6)
+    expect(Math.max(...s)).toBeGreaterThan(u.layout.studSpacing / 100)
+    g.layout.studLevels.slice(0, -1).forEach((z, i) => {
+      if (ex81.height - z >= g.pressure.hCrit) expect(s[i]).toBeCloseTo(u.layout.studSpacing / 100, 6)
+    })
+    expect(g.layout.studLevels.length).toBeLessThan(u.layout.studLevels.length)
+    expect(g.layout.studLevels.at(-1)).toBe(ex81.height)
+  })
+
+  it('every stud gap passes the plywood and the stud at the pressure of its lower row', () => {
+    const ply = { section: plywoodStrip(15), material: getMaterial('ply-apa1'), support: 'continuous' as const }
+    const stud = g.components.find((c) => c.key === 'stud')!
+    const r0 = stud.maxRatio / (g.pressure.Pmax * g.layout.studSpacing)
+    g.layout.studLevels.slice(0, -1).forEach((z, i) => {
+      const p = Pz(ex81.height - z)
+      const s = gaps(g.layout.studLevels)[i] * 100
+      expect(s).toBeLessThanOrEqual(Math.max(maxSpan(ply, p / 100).max, g.layout.studSpacing) + 1e-6)
+      expect(r0 * p * s).toBeLessThanOrEqual(1 + 1e-9)
+    })
+  })
+
+  it('fewer ties; the tie force stays within the SWL', () => {
+    expect(g.quantities.ties).toBeLessThanOrEqual(u.quantities.ties)
+    expect(g.components.find((c) => c.key === 'tie')!.status).not.toBe('fail')
+    expect(g.components.find((c) => c.key === 'wale-top')!.status).not.toBe('fail')
+    expect(g.status).not.toBe('fail')
+  })
+
+  it('ignored with vertical studs', () => {
+    expect(designWall({ ...ex81, graded: true }).layout).toEqual(designWall(ex81).layout)
+  })
+})

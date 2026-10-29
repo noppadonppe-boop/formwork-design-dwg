@@ -57,6 +57,8 @@ export interface WallInput {
   topWaleOffsetM?: number
   /** horizontal studs: distance from each end of the wall to the end wale, m (auto: the longest stud cantilever ≤ 15 cm) */
   endWaleOffsetM?: number
+  /** horizontal studs: stud rows and tie rows spaced by the pressure at their depth (wider towards the top) instead of Pmax */
+  graded?: boolean
   deflection?: DeflectionCriteria
   /** check shear on timber studs/wales (eq 5.13, l − 2d). Book's direct examples skip it; its tables include it. Default true. */
   checkTimberShear?: boolean
@@ -64,6 +66,8 @@ export interface WallInput {
 
 export interface WallLayout {
   system: WallSystem
+  /** horizontal studs: stud and tie rows spaced by the pressure at their depth */
+  graded: boolean
   studSpacing: number // cm (horizontal studs: up the wall)
   waleSpacing: number // cm c/c (horizontal studs: along the wall)
   tieSpacing: number // cm (horizontal studs: up the wall)
@@ -181,6 +185,25 @@ function spreadLevels(bottom: number, H: number, stepCm: number, topOff: number,
   return levels
 }
 
+/**
+ * Rows from `bottom` up to `top`, each gap the largest allowed by `allow(p)` (cm) under the pressure p at the depth of
+ * its lower row — the most loaded point of the gap, as the pressure grows downward — rounded by `round`, never below
+ * `min` (cm). The last row lands on `top`.
+ */
+function gradedLevels(bottom: number, top: number, H: number, pres: PressureResult, min: number, allow: (p: number) => number, round: (cm: number) => number, t: Trace, label: string): number[] {
+  const levels = [Math.round(bottom * 1000) / 1000]
+  let z = bottom
+  while (top - z > 1e-6) {
+    const p = pressureAt(pres, H - z)
+    const s = Math.max(round(allow(p)), min)
+    const next = Math.min(z + s / 100, top)
+    t.add({ label: `${label} ${(H - z).toFixed(2)} ม.`, expr: `p = ${fmt(p)} กก./ม.²`, value: Math.round((next - z) * 1000) / 10, unit: 'ซม.' })
+    z = next
+    levels.push(Math.round(z * 1000) / 1000)
+  }
+  return levels
+}
+
 const governingOf = (member: MemberInput, load: TipLoad, c: number, defl?: DeflectionCriteria) =>
   governingLabel(CANTILEVER_GOV[cantilever(member, load, c, defl).rows.reduce((x, y) => (y.ratio > x.ratio ? y : x)).item])
 
@@ -221,6 +244,7 @@ export function designWall(inp: WallInput): WallDesign {
   const defl = inp.deflection
   const components: ComponentResult[] = []
   const horizontal = inp.system === 'horizontal'
+  const graded = horizontal && !!inp.graded
 
   // 1) sheathing → stud spacing (1 m strip, continuous ≥ 3 spans)
   const tSh = new Trace()
@@ -357,7 +381,13 @@ export function designWall(inp: WallInput): WallDesign {
     tTop.add({ label: 'แรงดันเพิ่มจากผิวคอนกรีต (γz ≤ Pmax)', expr: `น้ำหนักแผ่บนคานตั้ง = γz × ${(waleCC / 100).toFixed(2)} / 100`, unit: 'กก./ซม.' })
     tTop.add({ label: 'ช่วงยื่นสูงสุดที่ผ่าน (แรงดัด แรงเฉือน การแอ่นตัว)', value: cMax, unit: 'ซม.' })
     const topOff = inp.topWaleOffsetM ?? Math.max(floorTo(cMax, 5), 5) / 100
-    tieLevels = spreadLevels(inp.bottomWaleOffsetM, inp.height, tieSp, topOff, tTop, 'จัดระยะไทร์ใหม่ให้เท่ากัน')
+    if (graded) {
+      // tie rows up the wall: each span as long as the wale and the tie allow under the pressure at its lower tie
+      const wc = waleCC / 100
+      const allow = (q: number) => (q <= 0 ? Infinity : Math.min(maxSpan(wale, pressureToLineLoad(q, wc)).max, (tie.swl / (q * wc)) * 100))
+      const topZ = Math.max(inp.height - topOff, inp.bottomWaleOffsetM)
+      tieLevels = gradedLevels(inp.bottomWaleOffsetM, topZ, inp.height, pres, tieSp, allow, (cm) => pickModule(cm, TIE_MODULES), tWa, 'ระยะไทร์แปรตามความลึก')
+    } else tieLevels = spreadLevels(inp.bottomWaleOffsetM, inp.height, tieSp, topOff, tTop, 'จัดระยะไทร์ใหม่ให้เท่ากัน')
     components.push(
       topCantilever('wale-top', 'คานตั้ง — ช่วงยื่นด้านบน', (c) => `${wale.section.label} ยื่นเหนือไทร์บนสุด ${fmt(c)} ซม.`, wale, load, inp.height, tieLevels, tTop, defl, cMax, inp.topWaleOffsetM !== undefined, {
         moment: 'โมเมนต์ที่ไทร์บนสุด',
@@ -366,17 +396,25 @@ export function designWall(inp: WallInput): WallDesign {
         over: 'ช่วงยื่นเหนือไทร์บนสุด',
       }),
     )
-    studLevels = positions(inp.height, a / 100)
+    if (graded) {
+      // stud rows up the wall: plywood span and stud strength (ratio ∝ p·a on the same wale c/c) at the pressure of the lower row
+      const stRatio = stChk.maxRatio / (p * a)
+      const allow = (q: number) => (q <= 0 ? Infinity : Math.min(maxSpan(ply, pressureToLineLoad(q, 1)).max, 1 / (stRatio * q)))
+      studLevels = gradedLevels(0, inp.height, inp.height, pres, a, allow, (cm) => Math.min(floorTo(cm, 5), STUD_MODULES[STUD_MODULES.length - 1]), tSt, 'ระยะเคร่าแปรตามความลึก')
+    } else studLevels = positions(inp.height, a / 100)
   } else studX = positions(inp.length, a / 100)
   const tieX = horizontal ? waleX : positions(inp.length, tieSp / 100).filter((x) => x > 0 && x < inp.length)
 
-  // 4) form ties (horizontal studs: tributary width = wale c/c, height = the widest gap between the tie levels)
+  // 4) form ties (horizontal studs: tributary width = wale c/c, height = the widest gap between the tie levels;
+  // graded: the gap whose pressure × length is largest, at the pressure of its lower tie)
   const tTi = new Trace()
-  const tieH = horizontal ? Math.max(tieSp / 100, ...tieLevels.slice(1).map((z, i) => z - tieLevels[i])) : tieSp / 100
+  const gaps = tieLevels.slice(1).map((z, i) => ({ s: z - tieLevels[i], p: graded ? pressureAt(pres, inp.height - tieLevels[i]) : p }))
+  const worst = gaps.reduce((x, g) => (g.p * g.s > x.p * x.s ? g : x), { s: tieSp / 100, p: graded ? pressureAt(pres, inp.height - tieLevels[0]) : p })
+  const [tieP, tieH] = horizontal ? [worst.p, worst.s] : [p, tieSp / 100]
   const T = tTi.add({
     label: 'แรงดึงในไทร์ = P × พื้นที่รับแรง',
-    expr: `${fmt(p)} × ${(waleCC / 100).toFixed(2)} × ${tieH.toFixed(2)}`,
-    value: p * (waleCC / 100) * tieH,
+    expr: `${fmt(tieP)} × ${(waleCC / 100).toFixed(2)} × ${tieH.toFixed(2)}`,
+    value: tieP * (waleCC / 100) * tieH,
     unit: 'กก.',
     ref: 'รูป 8.4',
   })
@@ -416,7 +454,7 @@ export function designWall(inp: WallInput): WallDesign {
 
   return {
     ...summarize(pres, components, warnings),
-    layout: { system: horizontal ? 'horizontal' : 'vertical', studSpacing: a, waleSpacing: waleCC, tieSpacing: tieSp, waleLevels, studX, studLevels, waleX, tieX, tieLevels },
+    layout: { system: horizontal ? 'horizontal' : 'vertical', graded, studSpacing: a, waleSpacing: waleCC, tieSpacing: tieSp, waleLevels, studX, studLevels, waleX, tieX, tieLevels },
     quantities,
   }
 }
