@@ -254,3 +254,37 @@ describe('beam bottom on stringers: heads → stringer rows → U-heads and tube
     expect(comp(d, 'bracing').rows).toHaveLength(2)
   })
 })
+
+describe('deep beam: horizontal studs on vertical wales (strongbacks)', () => {
+  const deep = { ...DEFAULT_BEAM, h: 1.2, b: 0.4, tie: { ...DEFAULT_BEAM.tie, enabled: true, rows: 1 } }
+  const v = designBeam(deep)
+  const h = designBeam({ ...deep, system: 'horizontal' })
+  const comp = (k: string) => h.components.find((c) => c.key === k)!
+
+  it('strongbacks at every head; ties at every strongback on the tie rows', () => {
+    expect(h.layout.system).toBe('horizontal')
+    expect(h.layout.studX).toEqual([])
+    for (const x of h.layout.headX) expect(h.layout.waleX).toContain(x)
+    expect(h.quantities.ties).toBe(h.layout.tieLevels.length * h.layout.waleX.length)
+    expect(comp('stud').title).toBe('เคร่านอนข้างคาน (Studs)')
+    expect(comp('wale').title).toBe('คานตั้ง (Strongbacks)')
+  })
+
+  it('the 1.20 m beam with one tie row: vertical studs fail over half the side, horizontal studs pass', () => {
+    expect(v.components.find((c) => c.key === 'stud')!.status).toBe('fail')
+    expect(h.status).not.toBe('fail')
+  })
+
+  it('a head spacing longer than the studs can span gets strongbacks between the heads', () => {
+    const d = designBeam({ ...deep, system: 'horizontal', head: { ...deep.head, spacingCm: 120 }, stud: { ...deep.stud, spacingCm: 40 } })
+    const s = d.components.find((c) => c.key === 'stud')!
+    const gaps = d.layout.waleX.slice(1).map((x, i) => x - d.layout.waleX[i])
+    expect(Math.max(...gaps) * 100).toBeLessThanOrEqual(s.spacing!.max + 1e-6)
+    expect(d.layout.waleX.length).toBeGreaterThan(d.layout.headX.length)
+    expect(d.warnings.some((w) => w.startsWith('เพิ่มคานตั้งระหว่างคานขวาง'))).toBe(true)
+  })
+
+  it('ignored without ties', () => {
+    expect(designBeam({ ...DEFAULT_BEAM, system: 'horizontal' }).layout.system).toBe('vertical')
+  })
+})

@@ -11,6 +11,7 @@ import { isLedger, ledgerBelow, ledgerRow, ledgerText, ringlockSystem, snapToLed
 import { braceBays, braceSets, DEFAULT_SHORE, designShore, designShoreBracing, type ShoreParams, shoreSwl } from './shoring'
 import { Trace } from './trace'
 import { floorTo, fmt, pressureToLineLoad } from './units'
+import type { WallSystem } from './wall'
 
 /** isolated (คานเดี่ยว), cast with the slab on both sides (คานร่วมพื้น), spandrel / edge beam (คานขอบ) */
 export type BeamType = 'isolated' | 'slab' | 'spandrel'
@@ -55,6 +56,8 @@ export interface BeamInput {
   stringer?: { enabled: boolean; rows: 2 | 3; sectionId: string; materialId: string; count: 1 | 2; spacingCm?: number; liftM?: number }
   /** through-ties with horizontal wales for deep beams (Fig 7.8) */
   tie: { enabled: boolean; tieId: string; rows: number; waleSectionId: string; waleMaterialId: string }
+  /** with ties: 'horizontal' = horizontal studs on vertical wales (strongbacks) at the heads (absent = 'vertical') */
+  system?: WallSystem
   /** top-of-form diagonal braces (ค้ำยันปากแบบ) for isolated / spandrel beams */
   brace: { sectionId: string; materialId: string; angleDeg: number }
   /** X-bracing of the shore rows along the beam (ACI 347); optional so projects saved before it load unchanged */
@@ -72,6 +75,10 @@ export interface BeamLayout {
   sideOuter: number
   sideInner: number
   tieLevels: number[] // m above soffit
+  /** horizontal studs on vertical wales: stud rows (m above the soffit, on the taller side) and strongbacks (m along) */
+  system: WallSystem
+  studLevels: number[]
+  waleX: number[]
   shoreLength: number
   /** runner centres across the beam (z), m */
   bottomZ: number[]
@@ -330,7 +337,10 @@ export function designBeam(inp: BeamInput): BeamDesign {
     shearReduction: true,
   }
   let stRows: CheckRow[]
-  if (rows) {
+  // deep beams may run horizontal studs on vertical wales (designed once the heads are placed, below)
+  const hz = rows > 0 && inp.system === 'horizontal'
+  if (hz) stRows = []
+  else if (rows) {
     // between tie rows: maximum pressure taken uniform (as for walls)
     const wSt = tSt.add({ label: 'น้ำหนักแผ่บนเคร่าข้าง (แรงดันสูงสุดคงที่)', expr: `${fmt(p)} × ${(a / 100).toFixed(2)} / 100`, value: pressureToLineLoad(p, a / 100), unit: 'กก./ซม.' })
     tSt.add({ label: `ช่วงเคร่าระหว่างแนวไทร์ (${spans} ช่วง)`, expr: `${(hs * 100).toFixed(0)} / ${spans}`, value: span, unit: 'ซม.' })
@@ -354,7 +364,7 @@ export function designBeam(inp: BeamInput): BeamDesign {
     const dAllow = L / (defl?.ratio ?? 360)
     stRows.push({ item: 'การแอ่นตัว Δ', demand: delta, capacity: dAllow, ratio: delta / dAllow, unit: 'ซม.' })
   }
-  const cStud = component('stud', 'เคร่าข้างคาน (Studs)', `${st.section.label} @${a} ซม. (${stMat.name})`, stRows, tSt)
+  let cStud = component('stud', 'เคร่าข้างคาน (Studs)', `${st.section.label} @${a} ซม. (${stMat.name})`, stRows, tSt)
 
   // 4) heads and shores at the head spacing; on long beams the spacing comes down (in stud-spacing steps) until the
   //    heads and shores carry their load, so the shores always sit at a spacing they can take
@@ -551,7 +561,7 @@ export function designBeam(inp: BeamInput): BeamDesign {
 
   // 5) deep beams: wales over the ties at each head, and the ties
   const tieComps: ComponentResult[] = []
-  if (rows) {
+  if (rows && !hz) {
     const tWa = new Trace()
     const waMat = getMaterial(inp.tie.waleMaterialId)
     const wa: MemberInput = { section: multiple(getSection(inp.tie.waleSectionId), 2), material: waMat, support: 'continuous', deflection: defl, checkShear: waMat.kind === 'steel' || timberShear, shearReduction: true }
@@ -568,6 +578,58 @@ export function designBeam(inp: BeamInput): BeamDesign {
   // 6) lateral bracing along the beam (ACI 347): one X per row of posts, the row carrying its share of the width
   const bracing = beamBracing(inp)
   const headX = rlHeads ? ledgerRow(inp.length, s, rlHeads, Math.min(0.1, s / 200)) : spread(inp.length, s / 100, Math.min(0.1, s / 200))
+  // 3+5) deep beams with horizontal studs on vertical wales (strongbacks): the studs run along the beam between the
+  // strongbacks — one at every head, more between when the head spacing is longer than the studs can span — and the
+  // strongbacks span up the side between the kicker, the tie rows and the top restraint, tied at every tie row
+  let waleX: number[] = []
+  const hzWarnings: string[] = []
+  if (hz) {
+    const tSt = new Trace()
+    const st: MemberInput = { section: getSection(inp.stud.sectionId), material: stMat, support: 'continuous', deflection: defl, checkShear: stMat.kind === 'steel' || timberShear, shearReduction: true }
+    const w = tSt.add({ label: 'น้ำหนักแผ่บนเคร่า', expr: `${fmt(p)} × ${(a / 100).toFixed(2)} / 100`, value: pressureToLineLoad(p, a / 100), unit: 'กก./ซม.' })
+    const lim = maxSpan(st, w, tSt)
+    waleX = headX.flatMap((x, i) => {
+      if (i === 0) return [x]
+      const gap = x - headX[i - 1]
+      const k = Math.max(1, Math.ceil((gap * 100) / lim.max - 1e-9))
+      return Array.from({ length: k }, (_, j) => Math.round((headX[i - 1] + ((j + 1) * gap) / k) * 1000) / 1000)
+    })
+    const sb = Math.max(...waleX.slice(1).map((x, i) => x - waleX[i]), 0) * 100 || lim.max
+    tSt.add({ label: 'ระยะคานตั้ง (c/c) — ที่คานขวางทุกตัว และเพิ่มระหว่างถ้าเกินช่วงเคร่า', value: sb, unit: 'ซม.' })
+    const chk = checkBeam(st, w, sb, tSt)
+    cStud = component('stud', 'เคร่านอนข้างคาน (Studs)', `${st.section.label} @${a} ซม. (${stMat.name})`, chk.rows, tSt, {
+      label: 'ระยะคานตั้ง',
+      value: Math.round(sb),
+      max: lim.max,
+      governing: governingLabel(lim.governing),
+      fixed: false,
+    })
+    // studs beyond the end strongbacks: uniform load, M = w·c²/2, Δ = w·c⁴/8EI
+    const c = Math.max(waleX[0], inp.length - waleX[waleX.length - 1]) * 100
+    const tEnd = new Trace()
+    const M = tEnd.add({ label: 'โมเมนต์ที่คานตั้งริม M = wc²/2', expr: `${fmt(w)} × ${c.toFixed(0)}² / 2`, value: (w * c * c) / 2, unit: 'กก.-ซม.' })
+    const fb = M / st.section.Sx
+    const dl = (w * c ** 4) / (8 * stMat.E * st.section.Ix)
+    const dAllow = Math.max(c, 1) / (defl?.ratio ?? 360)
+    tieComps.push(
+      component('stud-end', 'เคร่านอน — ช่วงยื่นที่ปลายคาน', `${st.section.label} ยื่นเลยคานตั้งริม ${fmt(c)} ซม.`, [
+        { item: 'หน่วยแรงดัด fb', demand: fb, capacity: stMat.Fb, ratio: fb / stMat.Fb, unit: 'กก./ซม.²', ref: 'สมการ 5.2' },
+        { item: 'การแอ่นตัว Δ', demand: dl, capacity: dAllow, ratio: dl / dAllow, unit: 'ซม.' },
+      ], tEnd),
+    )
+    // strongbacks: double members spanning up the side over the tie rows (as the vertical studs would)
+    const tWa = new Trace()
+    const waMat = getMaterial(inp.tie.waleMaterialId)
+    const wa: MemberInput = { section: multiple(getSection(inp.tie.waleSectionId), 2), material: waMat, support: spans >= 3 ? 'continuous' : 'simple', deflection: defl, checkShear: waMat.kind === 'steel' || timberShear, shearReduction: true }
+    const wWa = tWa.add({ label: 'น้ำหนักแผ่บนคานตั้ง', expr: `${fmt(p)} × ${(sb / 100).toFixed(2)} / 100`, value: pressureToLineLoad(p, sb / 100), unit: 'กก./ซม.' })
+    tWa.add({ label: `ช่วงคานตั้งระหว่างแนวไทร์ (${spans} ช่วง)`, expr: `${(hs * 100).toFixed(0)} / ${spans}`, value: span, unit: 'ซม.' })
+    tieComps.push(component('wale', 'คานตั้ง (Strongbacks)', `${wa.section.label} @${Math.round(sb)} ซม. (${waMat.name})`, checkBeam(wa, wWa, span, tWa).rows, tWa))
+    const tTi = new Trace()
+    const tie = getTie(inp.tie.tieId)
+    const T = tTi.add({ label: 'แรงดึงในไทร์ = p × พื้นที่รับแรง', expr: `${fmt(p)} × ${(span / 100).toFixed(2)} × ${(sb / 100).toFixed(2)}`, value: (p * span * sb) / 1e4, unit: 'กก.', ref: 'รูป 7.8' })
+    tieComps.push(component('tie', 'เหล็กยึดรั้ง (Form tie)', `${tie.name} ${rows} แนว ที่คานตั้งทุกตัว`, [{ item: 'แรงดึง', demand: T, capacity: tie.swl, ratio: T / tie.swl, unit: 'กก.', ref: tie.ref }], tTi))
+    if (waleX.length > headX.length) hzWarnings.push(`เพิ่มคานตั้งระหว่างคานขวาง ${waleX.length - headX.length} ตัว (ระยะคานขวาง ${s} ซม. ยาวกว่าช่วงที่เคร่านอนรับได้) — ยึดตีนคานตั้งกับไม้เตะแบบ`)
+  }
   const bracingComps: ComponentResult[] = []
   if (sgLayout) {
     // stringer system: X-bracing along every stringer row and across the beam at the braced post lines
@@ -632,7 +694,7 @@ export function designBeam(inp: BeamInput): BeamDesign {
     braceComps.push(component('brace', 'ค้ำยันปากแบบ (ค้ำยันทแยง)', `${bs.label} (${bm.name}) ${braceSides === 2 ? 'ทั้งสองข้าง' : 'ด้านนอก'} @${s} ซม. มุม ${inp.brace.angleDeg}°`, [{ item: 'แรงอัดในค้ำยัน', demand: F, capacity: cap.P, ratio: F / cap.P, unit: 'กก.', ref: 'สมการ 5.15' }], tBr))
   }
 
-  const warnings: string[] = [...bottomWarnings]
+  const warnings: string[] = [...bottomWarnings, ...hzWarnings]
   if (onStringers) {
     if (inp.head.spacingCm === undefined && !fit0.ok) warnings.push('ลดระยะคานขวางถึง 20 ซม. แล้วยังรับไม่ได้ — ใช้คานขวางใหญ่ขึ้น หรือเพิ่มคานแนวยาวเป็น 3 แถว')
     else if (s < s0) warnings.push(`ระยะคานขวางลดจาก ${s0} เหลือ ${s} ซม. เพื่อให้คานขวางรับน้ำหนักได้`)
@@ -666,7 +728,9 @@ export function designBeam(inp: BeamInput): BeamDesign {
     if (!bracing.enabled && headX.length > 1) warnings.push('ไม่ได้ออกแบบค้ำยันทางข้าง — แถวเสาค้ำใต้คานต้องยึดทแยงตามแนวคาน (ACI 347)')
   }
 
-  const studX = spread(inp.length, a / 100)
+  const studX = hz ? [] : spread(inp.length, a / 100)
+  const studLevels = hz ? spread(hs, a / 100) : []
+  const rowsOf = (h: number) => (hz ? spread(h, a / 100).length : 0)
   const crossJoistX = across ? spread(inp.length, joistSpacing / 100, 0.05) : []
   const tieLevels = Array.from({ length: rows }, (_, k) => Math.round(((k + 1) * hs * 1000) / spans) / 1000)
   return {
@@ -679,6 +743,9 @@ export function designBeam(inp: BeamInput): BeamDesign {
       sideOuter: sides.outer,
       sideInner: sides.inner,
       tieLevels,
+      system: hz ? 'horizontal' : 'vertical',
+      studLevels,
+      waleX,
       shoreLength,
       bottomZ: n === 0 ? [] : n === 1 ? [0] : Array.from({ length: n }, (_, k) => Math.round((-inp.b / 2 + bw / 2 + (k * runnerSpan(n)) / 100) * 1000) / 1000),
       crossJoistX,
@@ -687,8 +754,8 @@ export function designBeam(inp: BeamInput): BeamDesign {
     },
     quantities: {
       plywoodArea: (sides.outer + sides.inner + inp.b) * inp.length,
-      studs: 2 * studX.length,
-      studLength: studX.length * (sides.outer + sides.inner),
+      studs: hz ? rowsOf(sides.outer) + (sides.inner > 0.01 ? rowsOf(sides.inner) : 0) : 2 * studX.length,
+      studLength: hz ? (rowsOf(sides.outer) + (sides.inner > 0.01 ? rowsOf(sides.inner) : 0)) * inp.length : studX.length * (sides.outer + sides.inner),
       bottomLength: n * inp.length,
       crossJoists: crossJoistX.length,
       heads: headX.length * inp.head.count,
@@ -701,7 +768,7 @@ export function designBeam(inp: BeamInput): BeamDesign {
         : sgLayout
           ? 2 * (sgRows * sgLayout.braceSets.length + sgLayout.acrossLines.length)
           : legs * 2 * (headX.length - 1 > 2 * Math.min(braceBays(s / 100, shoreLength), headX.length - 1) ? 2 : 1),
-      ties: rows * headX.length,
+      ties: rows * (hz ? waleX.length : headX.length),
     },
   }
 }

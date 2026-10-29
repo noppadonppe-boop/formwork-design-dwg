@@ -839,6 +839,7 @@ under the bottom first. Slab joists must **not** bear on the side form, or the s
 | **Cross-beam** (head) | On a single T-shore: little bending (load near the centre). On double shores / stringers: beam between posts | Bending, shear, deflection (§5.2, 5.3, 5.7). Ex 7.3 uses a simple span M = wl²/8, V = wl/2 | Table 7.7 (timber), 7.8 (steel) |
 | **Shores** | Tributary load at the cross-beam spacing (shore spacing = cross-beam spacing in all examples) | Fa = 0.30E/(l/d)², P = Fa·A; brace at mid-height to halve l | Tables 6.10, 6.11 |
 | **Ties** (deep beams) | Tributary area × lateral pressure | Tie capacity (§4.5, manufacturer data) | Table 4.7 (Ch. 4) |
+| Horizontal studs on strongbacks (calculator option, `BeamInput.system: 'horizontal'`, tied beams only) | Studs along the beam: w = p·a over the strongback c/c; strongbacks (double tie-wale section) at every head, more between when the head spacing exceeds the stud span; strongbacks span up the side over the tie rows (span = side / (rows + 1)); stud end beyond the end strongback M = w·c²/2 | As the wall option (04 A.8); tie T = p × strongback c/c × row span, a tie at every strongback | — |
 | **Top bracing / lateral bracing** | — | Spacing governed by lateral deflection of the side; normally = stud spacing (= cross-beam spacing). Can be reduced if a top wale is added and checked for bending and deflection | — |
 | Hangers (encased steel) | Concrete + form weight over the hanger spacing | Net-area tension ≤ allowable | Table 4.7 |
 

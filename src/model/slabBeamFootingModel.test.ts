@@ -225,3 +225,19 @@ describe('footing model — horizontal studs on vertical wales', () => {
     expect(count(m.parts, 'tie')).toBe(3 * d.quantities.ties)
   })
 })
+
+describe('beam model — deep beam with horizontal studs on strongbacks', () => {
+  const inp = { ...DEFAULT_BEAM, h: 1.2, b: 0.4, tie: { ...DEFAULT_BEAM.tie, enabled: true, rows: 1 }, system: 'horizontal' as const }
+  const d = designBeam(inp)
+  const m = beamModel(inp, d)
+  const boxes = (g: string) => m.parts.filter((p) => p.group === g && p.shape === 'box') as Extract<(typeof m.parts)[number], { shape: 'box' }>[]
+
+  it('stud rows the full length on both sides; double strongbacks at every strongback position', () => {
+    for (const s of boxes('stud')) expect(s.size[0]).toBe(inp.length)
+    expect(boxes('wale')).toHaveLength(2 * 2 * d.layout.waleX.length)
+    for (const w of boxes('wale')) expect(w.size[1]).toBeGreaterThan(d.layout.sideOuter)
+  })
+  it('a tie at every strongback on every tie row', () => {
+    expect(m.parts.filter((p) => p.group === 'tie' && p.shape === 'bar')).toHaveLength(d.quantities.ties)
+  })
+})

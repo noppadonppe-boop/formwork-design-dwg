@@ -273,6 +273,8 @@ export function beamModel(inp: BeamInput, d: BeamDesign): FormModel {
   const zFace = b / 2 + tSh + sd
   const headLen = Math.max(2 * zFace + 0.5, double || sgL ? inp.shore.postSpacingM + 0.3 : 0)
   const { studX, headX, sideOuter, sideInner, tieLevels } = d.layout
+  // deep beam with horizontal studs on vertical wales (strongbacks)
+  const hz = d.layout.system === 'horizontal'
 
   parts.push({ id: 'concrete', group: 'concrete', kind: 'concrete', shape: 'box', center: [L / 2, Y + h / 2, 0], size: [L, h, b] })
   if (inp.type !== 'isolated' && inp.slabT > 0 && inp.slabTribM > 0) {
@@ -291,6 +293,11 @@ export function beamModel(inp: BeamInput, d: BeamDesign): FormModel {
       const top = Y + hs
       parts.push({ id: `stud${s}-${i}`, group: 'stud', kind: kindOf(inp.stud.materialId), shape: 'box', center: [xc, (yHeadTop + top) / 2, s * (b / 2 + tSh + sd / 2)], size: [sb, top - yHeadTop, sd] })
     })
+    if (hz && hs > 0.01)
+      spread(hs, d.layout.studSpacing / 100).forEach((lv, i) => {
+        const yc = Y + Math.min(Math.max(lv, sb / 2), hs - sb / 2)
+        parts.push({ id: `stud${s}-${i}`, group: 'stud', kind: kindOf(inp.stud.materialId), shape: 'box', center: [L / 2, yc, s * (b / 2 + tSh + sd / 2)], size: [L, sb, sd] })
+      })
   }
   // runners along the beam (as designed), and the cross joists between them and the bottom sheathing ('across')
   bottomZ.forEach((z, k) => parts.push({ id: `stiff-${k}`, group: 'bottom', kind: kindOf(inp.bottom.materialId), shape: 'box', center: [L / 2, yHeadTop + bd / 2, z], size: [L, bd, bw] }))
@@ -390,7 +397,33 @@ export function beamModel(inp: BeamInput, d: BeamDesign): FormModel {
     })
   }
 
-  if (tieLevels.length) {
+  if (hz && tieLevels.length) {
+    // strongbacks: a double member at every strongback position on each side, from the heads to the top of the side;
+    // a tie at every one on every tie row, the bearing plate bridging the side-by-side pair
+    const wsec = getSection(inp.tie.waleSectionId)
+    const wb = cm(wsec.B)
+    const wd = cm(wsec.H)
+    const tp = tiePlate(2, wb)
+    for (const [s, hs] of [
+      [1, sideOuter],
+      [-1, sideInner],
+    ] as const) {
+      if (hs <= 0.01) continue
+      const top = Y + hs
+      d.layout.waleX.forEach((x, j) =>
+        pairOffsets(2, wb).forEach((o, k) =>
+          parts.push({ id: `wale${s}-${j}-${k}`, group: 'wale', kind: kindOf(inp.tie.waleMaterialId), shape: 'box', center: [x + o, (yHeadTop + top) / 2, s * (zFace + wd / 2)], size: [wb, top - yHeadTop, wd] }),
+        ),
+      )
+    }
+    tieLevels.forEach((lv, i) => {
+      const y = Y + lv
+      d.layout.waleX.forEach((x, j) => {
+        parts.push({ id: `tie-${i}-${j}`, group: 'tie', kind: 'tie', shape: 'bar', from: [x, y, -(zFace + wd + 0.06)], to: [x, y, zFace + wd + 0.06], b: 0.012, d: 0.012, round: true })
+        for (const s of [1, -1]) parts.push({ id: `tieplate${s}-${i}-${j}`, group: 'tie', kind: 'steel', shape: 'box', center: [x, y, s * (zFace + wd + tp.t / 2)], size: [tp.across, tp.along, tp.t] })
+      })
+    })
+  } else if (tieLevels.length) {
     const wsec = getSection(inp.tie.waleSectionId)
     const wb = cm(wsec.B)
     const wd = cm(wsec.H)

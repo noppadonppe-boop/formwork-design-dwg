@@ -219,7 +219,7 @@ export function panelChecks(p: PanelData, L: PanelLayout, ref?: RefDesign, crite
       detail: ok ? undefined : 'ตรวจเคร่าใหม่ในชุดประกอบ (ระยะคานรับเคร่าขึ้นกับชุดประกอบ)',
     })
     // studs must cross the wales: a wall designed with horizontal studs needs panels with horizontal studs
-    const need = (el.type === 'wall' || el.type === 'footing') && el.input.system === 'horizontal' ? 'horizontal' : 'vertical'
+    const need = (el.type === 'wall' || el.type === 'footing' || (el.type === 'beam' && el.input.tie.enabled)) && el.input.system === 'horizontal' ? 'horizontal' : 'vertical'
     if (p.stud.dir !== need) {
       const dir = (d: string) => (d === 'vertical' ? 'เคร่าตั้ง' : 'เคร่านอน')
       const hard = el.type === 'wall' || need === 'horizontal'

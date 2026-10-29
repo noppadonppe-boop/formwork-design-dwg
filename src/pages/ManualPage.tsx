@@ -1079,9 +1079,9 @@ export function ManualPage() {
               </Formula>
               <p className="text-sm text-slate-600">
                 {L(
-                  'คานเดี่ยวหรือคานขอบต้องมีค้ำยันปากแบบ (แรงที่ปากแบบ ≈ γh²/6 ต่อเมตร) คานลึกเกิน 0.9 ม. ควรใช้ไทร์ + คานรับเคร่า',
-                  'Isolated or edge beams need bracing at the top of the side form (force at the top ≈ γh²/6 per metre); beams deeper than 0.9 m should use ties + wales.',
-                  '独立梁或边梁须在侧模上口设支撑(上口力 ≈ γh²/6 每米);梁高超过 0.9 m 宜采用对拉螺栓 + 围檩。',
+                  'คานเดี่ยวหรือคานขอบต้องมีค้ำยันปากแบบ (แรงที่ปากแบบ ≈ γh²/6 ต่อเมตร) คานลึกเกิน 0.9 ม. ควรใช้ไทร์ + คานรับเคร่า · คานที่ใช้ไทร์เลือก เคร่านอน + คานตั้ง ได้: เคร่านอนพาดตามคานระหว่างคานตั้ง คานตั้งอยู่ที่คานขวางทุกตัว (เพิ่มระหว่างเมื่อระยะคานขวางยาวกว่าช่วงเคร่า) พาดในแนวดิ่งข้ามแนวไทร์ และร้อยไทร์ที่คานตั้งทุกตัว',
+                  'Isolated or edge beams need bracing at the top of the side form (force at the top ≈ γh²/6 per metre); beams deeper than 0.9 m should use ties + wales · a tied beam may use horizontal studs on strongbacks: the studs run along the beam between the strongbacks, a strongback stands at every head (more between when the head spacing is longer than the studs can span) and spans up the side over the tie rows, with a tie at every strongback',
+                  '独立梁或边梁须在侧模上口设支撑(上口力 ≈ γh²/6 每米);梁高超过 0.9 m 宜采用对拉螺栓 + 围檩 · 设对拉螺栓的梁可选用横楞 + 竖向背楞:横楞沿梁长在背楞之间跨越,每根横梁处设背楞(横梁间距超过横楞跨度时其间加设),背楞跨越各排螺栓竖向受力,每根背楞处设对拉螺栓',
                 )}
               </p>
             </div>

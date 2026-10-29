@@ -210,13 +210,32 @@ export function elementGeom(el: ElementData, run?: AnyDesign): ElementGeom | und
       const { b, length: L } = inp
       const hsO = d?.layout.sideOuter ?? inp.h - (inp.type === 'isolated' ? 0 : inp.slabT)
       const hsI = d?.layout.sideInner ?? hsO
-      const wales = d && inp.tie?.enabled ? d.layout.tieLevels : []
-      const side = (key: FaceKey, label: string, hs: number, o: Vec3, e: Vec3, n: Vec3): FaceDef => ({ key, label, pair: 'x', concreteL: L, height: hs, extend: 'y-start', o, e, v: [0, 1, 0], n, wales: wales.filter((y) => y < hs), ties: [] })
+      // horizontal studs on vertical wales: strongbacks along the sides (C mirrored), no horizontal wales
+      const hz = d?.layout.system === 'horizontal'
+      const wales = d && inp.tie?.enabled && !hz ? d.layout.tieLevels : []
+      const reach = d?.components.find((c) => c.key === 'stud-end')?.spacing?.max
+      const xs = hz ? d!.layout.waleX : []
+      const sbMax = xs.length > 1 ? Math.max(...xs.slice(1).map((x, i) => x - xs[i])) : undefined
+      const side = (key: FaceKey, label: string, hs: number, o: Vec3, e: Vec3, n: Vec3, waleU?: number[]): FaceDef => ({
+        key,
+        label,
+        pair: 'x',
+        concreteL: L,
+        height: hs,
+        extend: 'y-start',
+        o,
+        e,
+        v: [0, 1, 0],
+        n,
+        wales: wales.filter((y) => y < hs),
+        ties: [],
+        ...(waleU?.length ? { waleU, studReach: reach !== undefined ? reach / 100 : undefined, waleMax: sbMax } : {}),
+      })
       const faces: FaceDef[] = [
-        side('A', 'ด้าน A (ข้างคานนอก)', hsO, [0, 0, b / 2], [1, 0, 0], [0, 0, 1]),
+        side('A', 'ด้าน A (ข้างคานนอก)', hsO, [0, 0, b / 2], [1, 0, 0], [0, 0, 1], xs.map(r3)),
         { key: 'B', label: 'ด้าน B (ท้องคาน)', pair: 'y', concreteL: L, height: b, exactHeight: true, extend: 'y-both', o: [0, 0, -b / 2], e: [1, 0, 0], v: [0, 0, 1], n: [0, -1, 0], wales: [], ties: [] },
       ]
-      if (hsI > 0.01) faces.push(side('C', 'ด้าน C (ข้างคานใน)', hsI, [L, 0, -b / 2], [-1, 0, 0], [0, 0, -1]))
+      if (hsI > 0.01) faces.push(side('C', 'ด้าน C (ข้างคานใน)', hsI, [L, 0, -b / 2], [-1, 0, 0], [0, 0, -1], xs.map((x) => r3(L - x)).reverse()))
       return {
         type: 'beam',
         faces,
@@ -224,7 +243,7 @@ export function elementGeom(el: ElementData, run?: AnyDesign): ElementGeom | und
         // as designed: the sides stand on the soffit
         through: 'y',
         throughLabel: { x: 'ข้างคานหนีบท้องคาน', y: 'ข้างคานตั้งบนท้องคาน' },
-        waleLabel: 'คานรับเคร่า',
+        waleLabel: hz ? 'คานตั้ง' : 'คานรับเคร่า',
         concrete: { center: [L / 2, inp.h / 2, 0], size: [L, inp.h, b] },
         diagram: { w: b, h: Math.max(hsO, hsI), caption: 'รูปตัดคาน', side: { A: 'right', C: 'left', B: 'bottom' } },
         first: ['B'],

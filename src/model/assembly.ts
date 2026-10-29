@@ -384,7 +384,7 @@ export function analyzeAssembly(a: AssemblyData, el: ElementData, run: AnyDesign
   for (const k of keys) layouts[k] = faceLayoutOf(a, k, geom.links)
   // horizontal studs (wall faces A/C, a tied footing's A/C and B/D): strongbacks set out at the panel joints of each
   // pair of opposite faces, ties at every strongback on the same rows
-  const pairs = (geom.type === 'wall' ? [['A', 'C']] : geom.type === 'footing' ? [['A', 'C'], ['B', 'D']] : []).filter(([k]) => specs[k as FaceKey]?.waleU?.length) as [FaceKey, FaceKey][]
+  const pairs = (geom.type === 'wall' || geom.type === 'beam' ? [['A', 'C']] : geom.type === 'footing' ? [['A', 'C'], ['B', 'D']] : []).filter(([k]) => specs[k as FaceKey]?.waleU?.length) as [FaceKey, FaceKey][]
   const relaid: { pair: [FaceKey, FaceKey]; n: number; design: number }[] = []
   for (const [ka, kc] of pairs) {
     const L = specs[ka]!.concreteL
@@ -439,10 +439,10 @@ export function analyzeAssembly(a: AssemblyData, el: ElementData, run: AnyDesign
       /* no model: wales not listed */
     }
   }
-  if (pairs.length && (el.type === 'wall' || el.type === 'footing')) {
-    // vertical wales: as set out on each pair of faces (or as designed), the full height
-    const length = r3(el.input.height)
-    wales.splice(0, wales.length, ...pairs.map(([ka, kc]) => ({ faces: `${ka}/${kc}`, length, count: 2 * specs[ka]!.waleU!.length * el.input.wale.count })))
+  if (pairs.length) {
+    // vertical wales: as set out on each pair of faces (or as designed), the height of the face; beams' are double
+    const count = el.type === 'wall' || el.type === 'footing' ? el.input.wale.count : 2
+    wales.splice(0, wales.length, ...pairs.map(([ka, kc]) => ({ faces: specs[kc] ? `${ka}/${kc}` : ka, length: r3(specs[ka]!.height), count: (specs[kc] ? 2 : 1) * specs[ka]!.waleU!.length * count })))
   }
   const all = [...keys.map((k) => faces[k]!.status), ...usage.map((u) => u.status)]
   const status: Status = all.includes('fail') ? 'fail' : all.includes('warn') ? 'warn' : 'ok'

@@ -149,7 +149,7 @@ function partSpec(el: ElementData, p: Part): Spec | undefined {
         ? 'ท่อยึดแนวราบ'
         : el.type === 'beam' && g === 'stringer'
           ? 'คานแนวยาว'
-          : (el.type === 'wall' || el.type === 'footing') && el.input.system === 'horizontal' && (g === 'stud' || g === 'wale')
+          : (el.type === 'wall' || el.type === 'footing' || el.type === 'beam') && el.input.system === 'horizontal' && (g === 'stud' || g === 'wale')
             ? g === 'stud'
               ? 'เคร่านอน'
               : 'คานตั้ง'

@@ -846,9 +846,20 @@ function BeamFields({ inp, set }: { inp: BeamInput; set: (fn: (i: BeamInput) => 
       <Group title="แผ่นผิวแบบ (ข้างและท้อง)" part="sheathing">
         <DeckSheathingFields sh={inp.sheathing} onChange={(sh) => set((i) => ({ ...i, sheathing: sh }))} />
       </Group>
-      <Group title="เคร่าข้างคาน" part="stud">
+      <Group title={inp.tie.enabled && inp.system === 'horizontal' ? 'เคร่านอนข้างคาน' : 'เคร่าข้างคาน'} part="stud">
+        {inp.tie.enabled && (
+          <Segmented<WallSystem>
+            label="ระบบโครงแบบข้าง (คานลึก)"
+            value={inp.system ?? 'vertical'}
+            options={[
+              { value: 'vertical', label: 'เคร่าตั้ง + คานนอน' },
+              { value: 'horizontal', label: 'เคร่านอน + คานตั้ง' },
+            ]}
+            onChange={(system) => set((i) => ({ ...i, system }))}
+          />
+        )}
         <MemberPicker label="เคร่า" sectionId={inp.stud.sectionId} materialId={inp.stud.materialId} onChange={(v) => set((i) => ({ ...i, stud: { ...i.stud, ...v } }))} />
-        <NumField label="ระยะเคร่า" unit="ซม." optional placeholder="อัตโนมัติ" hint="เว้นว่าง = ให้ระบบเลือก" value={inp.stud.spacingCm} min={10} max={120} onChange={(v) => set((i) => ({ ...i, stud: { ...i.stud, spacingCm: v } }))} />
+        <NumField label={inp.tie.enabled && inp.system === 'horizontal' ? 'ระยะเคร่าตามแนวดิ่ง' : 'ระยะเคร่า'} unit="ซม." optional placeholder="อัตโนมัติ" hint="เว้นว่าง = ให้ระบบเลือก" value={inp.stud.spacingCm} min={10} max={120} onChange={(v) => set((i) => ({ ...i, stud: { ...i.stud, spacingCm: v } }))} />
       </Group>
       <Group title="Form tie (คานลึก)" part="tie">
         <Toggle label="ใช้ Form tie + คานรับเคร่ายึดแบบข้าง" checked={inp.tie.enabled} onChange={(v) => set((i) => ({ ...i, tie: { ...i.tie, enabled: v } }))} />
@@ -858,7 +869,8 @@ function BeamFields({ inp, set }: { inp: BeamInput; set: (fn: (i: BeamInput) => 
               <TieSelect value={inp.tie.tieId} onChange={(v) => set((i) => ({ ...i, tie: { ...i.tie, tieId: v } }))} />
               <NumField label="จำนวนแนวไทร์" unit="แนว" value={inp.tie.rows} min={1} max={6} onChange={(v) => v && set((i) => ({ ...i, tie: { ...i.tie, rows: Math.round(v) } }))} />
             </div>
-            <MemberPicker label="คานรับเคร่า (คู่)" sectionId={inp.tie.waleSectionId} materialId={inp.tie.waleMaterialId} onChange={(v) => set((i) => ({ ...i, tie: { ...i.tie, waleSectionId: v.sectionId, waleMaterialId: v.materialId } }))} />
+            {inp.system === 'horizontal' && <p className="text-xs text-slate-500">คานตั้งอยู่ที่คานขวางทุกตัว และเพิ่มระหว่างเมื่อระยะคานขวางยาวกว่าช่วงเคร่านอน · ไทร์ที่คานตั้งทุกตัว</p>}
+            <MemberPicker label={inp.system === 'horizontal' ? 'คานตั้ง (คู่)' : 'คานรับเคร่า (คู่)'} sectionId={inp.tie.waleSectionId} materialId={inp.tie.waleMaterialId} onChange={(v) => set((i) => ({ ...i, tie: { ...i.tie, waleSectionId: v.sectionId, waleMaterialId: v.materialId } }))} />
           </>
         )}
       </Group>
