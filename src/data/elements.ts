@@ -245,7 +245,12 @@ export function layoutSummary(r: AnyDesign): { label: string; value: string }[] 
       ]
     case 'beam':
       return [
-        { label: 'เคร่าข้าง @', value: `${r.design.layout.studSpacing}` },
+        ...(r.design.layout.system === 'horizontal'
+          ? [
+              { label: 'เคร่านอน @', value: `${r.design.layout.studSpacing}` },
+              { label: 'คานตั้ง', value: `${r.design.layout.waleX.length} ตัว` },
+            ]
+          : [{ label: 'เคร่าข้าง @', value: `${r.design.layout.studSpacing}` }]),
         ...(r.design.layout.crossJoistSpacing ? [{ label: 'ตงขวาง @', value: `${r.design.layout.crossJoistSpacing}` }] : []),
         ...(r.design.layout.bottomZ.length ? [{ label: 'คร่าวตามยาว', value: `${r.design.layout.bottomZ.length} ตัว` }] : []),
         ...(r.design.layout.stringer

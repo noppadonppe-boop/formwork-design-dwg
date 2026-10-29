@@ -100,7 +100,8 @@ export function elementViews(el: ElementData, run: AnyDesign): { a: DrawingSpec;
   }
   if (el.type === 'beam' && run.type === 'beam') {
     const i = el.input
-    const { headX, studX, bottomZ, crossJoistX, stringer: sgL } = run.design.layout
+    const { headX, studX, bottomZ, crossJoistX, stringer: sgL, system, waleX, studLevels, tieLevels } = run.design.layout
+    const hz = system === 'horizontal'
     const Y = i.clearHeight
     const zMax = m.bounds.max[2]
     const sec: Dim[] = [
@@ -111,12 +112,12 @@ export function elementViews(el: ElementData, run: AnyDesign): { a: DrawingSpec;
     ]
     const elev: Dim[] = [
       ...(sgL ? [...chain('h', [0, ...sgL.shoreX, i.length], -0.25), ...chain('h', headX.slice(0, 5), Y + i.h + 0.6)] : chain('h', [0, ...headX, i.length], -0.25)),
-      ...chain('h', studX.slice(0, 4), Y + i.h + 0.2),
+      ...(hz ? [...chain('h', waleX.slice(0, 5), Y + i.h + 0.2), ...chain('v', [Y, ...studLevels.slice(1, 4).map((z) => Y + z)], i.length + 0.2), ...chain('v', [Y, ...tieLevels.map((z) => Y + z)], i.length + 0.45)] : chain('h', studX.slice(0, 4), Y + i.h + 0.2)),
       ...(crossJoistX.length > 1 ? chain('h', crossJoistX.slice(0, 5), Y + i.h + 0.4) : []),
       { dir: 'h', a: 0, b: i.length, at: -0.55, text: `L = ${i.length.toFixed(2)} ม.` },
     ]
     return {
-      a: { model: m, view: 'front', dims: elev, title: 'รูปด้านคาน (Elevation) — ระยะคานขวาง/เสาค้ำ และเคร่าข้าง (ซม.)' },
+      a: { model: m, view: 'front', dims: elev, title: hz ? 'รูปด้านคาน (Elevation) — ระยะคานขวาง/เสาค้ำ คานตั้ง เคร่านอน และไทร์ (ซม.)' : 'รูปด้านคาน (Elevation) — ระยะคานขวาง/เสาค้ำ และเคร่าข้าง (ซม.)' },
       b: { model: m, view: 'side', dims: sec, title: `รูปตัดคาน (Section) — ${BEAM_TYPE_LABEL[i.type]}` },
     }
   }
