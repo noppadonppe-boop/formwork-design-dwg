@@ -32,6 +32,10 @@ export interface FaceDef {
   n: Vec3
   /** wale / yoke levels, m on the face from the concrete edge */
   wales: number[]
+  /** vertical wales (wall with horizontal studs), m along the face from the concrete edge */
+  waleU?: number[]
+  /** horizontal studs: the longest stud cantilever past a vertical wale that passes, m */
+  studReach?: number
   /** form ties, m on the face from the concrete edge */
   ties: { u: number; y: number }[]
 }
@@ -150,13 +154,31 @@ export function elementGeom(el: ElementData, run?: AnyDesign): ElementGeom | und
       const tieX = d?.layout.tieX ?? []
       const tieLevels = d?.layout.tieLevels ?? wales
       const tie = (us: number[]) => tieLevels.flatMap((y) => us.map((u) => ({ u: r3(u), y })))
-      const side = (key: FaceKey, label: string, pair: Pair, len: number, o: Vec3, e: Vec3, n: Vec3, w: number[], ties: FaceDef['ties']): FaceDef => ({ key, label, pair, concreteL: len, height: H, extend: 'u-both', o, e, v: [0, 1, 0], n, wales: w, ties })
+      // horizontal studs: vertical wales along faces A and C, studs reaching past them by the end cantilever of the design
+      const horizontal = inp.system === 'horizontal'
+      const waleX = d?.layout.waleX ?? []
+      const reach = d?.components.find((c) => c.key === 'stud-end')?.spacing?.max
+      const side = (key: FaceKey, label: string, pair: Pair, len: number, o: Vec3, e: Vec3, n: Vec3, w: number[], ties: FaceDef['ties'], waleU?: number[]): FaceDef => ({
+        key,
+        label,
+        pair,
+        concreteL: len,
+        height: H,
+        extend: 'u-both',
+        o,
+        e,
+        v: [0, 1, 0],
+        n,
+        wales: w,
+        ties,
+        ...(waleU?.length ? { waleU, studReach: reach !== undefined ? reach / 100 : undefined } : {}),
+      })
       return {
         type: 'wall',
         faces: [
-          side('A', 'ด้าน A (หน้าผนัง)', 'x', L, [0, 0, t / 2], [1, 0, 0], [0, 0, 1], wales, tie(tieX)),
+          side('A', 'ด้าน A (หน้าผนัง)', 'x', L, [0, 0, t / 2], [1, 0, 0], [0, 0, 1], wales, tie(tieX), horizontal ? waleX.map(r3) : undefined),
           side('B', 'ด้าน B (ปิดปลายขวา)', 'y', t, [L, 0, t / 2], [0, 0, -1], [1, 0, 0], [], []),
-          side('C', 'ด้าน C (หลังผนัง)', 'x', L, [L, 0, -t / 2], [-1, 0, 0], [0, 0, -1], wales, tie(tieX.map((x) => L - x))),
+          side('C', 'ด้าน C (หลังผนัง)', 'x', L, [L, 0, -t / 2], [-1, 0, 0], [0, 0, -1], wales, tie(tieX.map((x) => L - x)), horizontal ? waleX.map((x) => r3(L - x)).reverse() : undefined),
           side('D', 'ด้าน D (ปิดปลายซ้าย)', 'y', t, [0, 0, -t / 2], [0, 0, 1], [-1, 0, 0], [], []),
         ],
         links: [
@@ -165,7 +187,7 @@ export function elementGeom(el: ElementData, run?: AnyDesign): ElementGeom | und
         ],
         through: 'x',
         throughLabel: { x: 'หน้าผนังทะลุ (ปิดปลายอยู่ระหว่าง)', y: 'ปิดปลายทะลุ' },
-        waleLabel: 'คานรับเคร่า',
+        waleLabel: horizontal ? 'คานตั้ง' : 'คานรับเคร่า',
         concrete: { center: [L / 2, H / 2, 0], size: [L, H, t] },
         diagram: { w: L, h: t, caption: 'ผังผนัง', side: { A: 'bottom', B: 'right', C: 'top', D: 'left' } },
         panelT: inp.sheathing.thicknessMm / 1000 + getSection(inp.stud.sectionId).H / 100,

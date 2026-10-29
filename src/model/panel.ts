@@ -218,7 +218,12 @@ export function panelChecks(p: PanelData, L: PanelLayout, ref?: RefDesign, crite
       label: ok ? `เคร่า ${mine.label} @≤${a} ซม. ไม่ด้อยกว่าที่ออกแบบใน ${name}` : `เคร่าต่างจากที่ออกแบบใน ${name} (${theirs.label} @${a} ซม.)`,
       detail: ok ? undefined : 'ตรวจเคร่าใหม่ในชุดประกอบ (ระยะคานรับเคร่าขึ้นกับชุดประกอบ)',
     })
-    if (p.stud.dir === 'horizontal') out.push({ status: 'info', label: `${name} คำนวณเป็นเคร่าตั้ง — แผงนี้วางเคร่านอน`, detail: 'ต้องวางแผงตะแคงให้เคร่าตั้ง หรือตรวจระบบเคร่าใหม่' })
+    // studs must cross the wales: a wall designed with horizontal studs needs panels with horizontal studs
+    const need = el.type === 'wall' && el.input.system === 'horizontal' ? 'horizontal' : 'vertical'
+    if (p.stud.dir !== need) {
+      const dir = (d: string) => (d === 'vertical' ? 'เคร่าตั้ง' : 'เคร่านอน')
+      out.push({ status: el.type === 'wall' ? 'warn' : 'info', label: `${name} คำนวณเป็น${dir(need)} — แผงนี้วาง${dir(p.stud.dir)}`, detail: el.type === 'wall' ? 'เคร่าจะขนานกับคาน — เลือกแผงที่แนวเคร่าตรงกับระบบของกำแพง หรือเปลี่ยนระบบเคร่าของกำแพง' : 'ต้องวางแผงตะแคงให้เคร่าตั้ง หรือตรวจระบบเคร่าใหม่' })
+    }
   }
   return out
 }

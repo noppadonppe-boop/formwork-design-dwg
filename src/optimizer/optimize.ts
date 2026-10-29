@@ -3,7 +3,7 @@
 // them by material + handling cost per set (priced from the same BOM as the shop drawing).
 import { type AnyDesign, layoutSummary, runDesign } from '@/data/elements'
 import type { Criteria, ElementData } from '@/data/types'
-import { beamRunnerFlat, columnShapeOf, columnShapeSystem, getMaterial, getSection, isLegShape, shoreLabel } from '@/engine'
+import { beamRunnerFlat, columnShapeOf, columnShapeSystem, getMaterial, getSection, isLegShape, shoreLabel, type WallSystem } from '@/engine'
 import { elementBom, SHEET_AREA } from '@/model/bom'
 
 export interface OptPrices {
@@ -39,6 +39,8 @@ export interface OptOptions {
   target: number
   /** also try steel studs / wales / heads */
   allowSteel: boolean
+  /** walls: also try the other stud system (horizontal studs on vertical wales, or the reverse) */
+  bothSystems?: boolean
 }
 
 export interface OptResult {
@@ -98,7 +100,9 @@ export function describe(el: ElementData): string[] {
   const shore = (s: any) => (s.kind === 'ringlock' ? shoreLabel(s) : s.kind === 'rated' ? s.ratedName : `เสาค้ำ ${label(s.sectionId)}${s.braceLevels ? ` ค้ำกลาง ${s.braceLevels} ระดับ` : ''}`) // eslint-disable-line @typescript-eslint/no-explicit-any
   switch (el.type) {
     case 'wall':
-      return [sh, `เคร่า ${label(i.stud.sectionId)}`, `คานรับเคร่า ${i.wale.count === 2 ? '2-' : ''}${label(i.wale.sectionId)}`, `ไทร์ ${i.tie.tieId.replace('tie-', 'Ø')}`]
+      return i.system === 'horizontal'
+        ? [sh, `เคร่านอน ${label(i.stud.sectionId)}`, `คานตั้ง ${i.wale.count === 2 ? '2-' : ''}${label(i.wale.sectionId)}`, `ไทร์ ${i.tie.tieId.replace('tie-', 'Ø')}`]
+        : [sh, `เคร่า ${label(i.stud.sectionId)}`, `คานรับเคร่า ${i.wale.count === 2 ? '2-' : ''}${label(i.wale.sectionId)}`, `ไทร์ ${i.tie.tieId.replace('tie-', 'Ø')}`]
     case 'column': {
       const s = columnShapeOf(el.input)
       if (s.kind === 'circle') return s.system === 'stave' ? [sh, `คานรัดเจาะโค้ง ${i.yoke.count === 2 ? '2-' : ''}${label(i.yoke.sectionId)}`] : [columnShapeSystem(s)]
@@ -118,7 +122,7 @@ export function describe(el: ElementData): string[] {
 const timberOf = (materialId: string) => (getMaterial(materialId).kind === 'timber' ? materialId : 'timber-yang')
 
 /** All design variants to try for an element (spacings left to the engine). */
-export function variants(el: ElementData, o: Pick<OptOptions, 'allowSteel'>): ElementData[] {
+export function variants(el: ElementData, o: Pick<OptOptions, 'allowSteel' | 'bothSystems'>): ElementData[] {
   const out: ElementData[] = []
   const sheets = <S extends { type?: string }>(sh: S) => (sh.type === 'board' ? [1.8, 2.5, 3.75].map((t) => ({ ...sh, thicknessCm: t })) : PLY.map((t) => ({ ...sh, thicknessMm: t })))
   switch (el.type) {
@@ -127,11 +131,14 @@ export function variants(el: ElementData, o: Pick<OptOptions, 'allowSteel'>): El
       const tm = timberOf(i.stud.materialId)
       const studs = [...STUDS.map((s) => [s, tm]), ...(o.allowSteel ? STEEL_LIGHT.map((s) => [s, STEEL]) : [])]
       const wales: [string, string, 1 | 2][] = [...BIG.flatMap((s) => [[s, tm, 1], [s, tm, 2]] as [string, string, 1 | 2][]), ...(o.allowSteel ? STEEL_WALE.map((s) => [s, STEEL, 2] as [string, string, 1 | 2]) : [])]
-      for (const t of PLY)
-        for (const [sid, sm] of studs)
-          for (const [wid, wm, n] of wales)
-            for (const tie of ['tie-3/8', 'tie-1/2'])
-              out.push({ ...el, input: { ...i, sheathing: { ...i.sheathing, thicknessMm: t }, stud: { sectionId: sid, materialId: sm }, wale: { ...i.wale, sectionId: wid, materialId: wm, count: n, spacingCm: undefined, addCm: n === 2 ? 10 : 0 }, tie: { tieId: tie } } })
+      const mine: WallSystem = i.system ?? 'vertical'
+      const systems: WallSystem[] = o.bothSystems ? [mine, mine === 'vertical' ? 'horizontal' : 'vertical'] : [mine]
+      for (const system of systems)
+        for (const t of PLY)
+          for (const [sid, sm] of studs)
+            for (const [wid, wm, n] of wales)
+              for (const tie of ['tie-3/8', 'tie-1/2'])
+                out.push({ ...el, input: { ...i, system, endWaleOffsetM: undefined, sheathing: { ...i.sheathing, thicknessMm: t }, stud: { sectionId: sid, materialId: sm }, wale: { ...i.wale, sectionId: wid, materialId: wm, count: n, spacingCm: undefined, addCm: n === 2 ? 10 : 0 }, tie: { tieId: tie } } })
       break
     }
     case 'column': {
