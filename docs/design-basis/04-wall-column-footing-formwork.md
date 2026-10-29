@@ -1424,6 +1424,9 @@ Figure [p.422]: elevation ties @1.20 horizontally, studs @0.30, wales @0.60.
 3) Studs 1½"×3" @30, Table 10.2 ค: `50 + (3,625−2,840)/(3,625−905)×50 = 64` → **60 cm**.
 4) Ties: wale □100×100×2.3, wale spacing 60, pressure 2,840; Table 10.7 ค at tie spacing 120 (col 120: H50 = 4,850, H100 = 2,425): `2,425 + (100−60)/(100−50)×2,425 = 4,365 > 2,840` OK → **tie spacing 1.20 m**.
 
+### C.6b Tied rectangle with horizontal studs (`FootingInput.system: 'horizontal'`)
+Rectangular tied footings only (support `tied`, shape absent/rect). Each pair of opposite faces is designed as a horizontal-stud wall (A.8) of thickness d and length = that face: studs, stud end cantilever, strongbacks, strongback top cantilever and ties as there. The strongbacks cannot wrap the corners, so the ring action of C.4's wales is lost: every strongback is tied through the footing — across the short side from the long faces, across the long side from the short faces (`tieLayout: 'both'`, ties = tie rows × (strongbacks on a long face + on a short face)), all cast in. Bearing plates as C.4. Usually dearer than the wales round the footing; the arrangement advice lists it last (`tied-horizontal`). Layout: `system`, `studLevels`, `tieLevels`, `waleXLong`, `waleXShort` (`waleLevels` empty).
+
 ### C.7 Footing plan shapes in the calculator (`FootingInput.shape`)
 Absent = rectangle lengthX × lengthY, results unchanged. Round and polygonal footings keep D / F in lengthX = lengthY; an L/T/U keeps its sizes in the shape (lengthX × lengthY = its box). Pressure d = D, F or the thinnest leg.
 - **Studs, braces, stakes** (cantilever, braced at studs, braced at wales) work per metre of face, as for the rectangle; counts run round the faces: `Σ (⌈face/a⌉ + 1)` on straight faces, `⌈πD/a⌉` round a circle. Form area = perimeter × H. Wales on a non-rectangular plan run along every face, butted at the corners (no crossed corners).

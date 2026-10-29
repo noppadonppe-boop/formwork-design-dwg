@@ -205,3 +205,23 @@ describe('beam model on stringers', () => {
     expect(applyBeamHandle(inp, 'shoreSpacing', 1.2).stringer!.spacingCm).toBe(120)
   })
 })
+
+describe('footing model — horizontal studs on vertical wales', () => {
+  const inp = { ...DEFAULT_FOOTING, lengthX: 3.6, lengthY: 2.4, height: 1.5, support: 'tied' as const, system: 'horizontal' as const }
+  const d = designFooting(inp)
+  const m = footingModel(inp, d)
+  const boxes = (g: string) => m.parts.filter((p) => p.group === g && p.shape === 'box') as Extract<(typeof m.parts)[number], { shape: 'box' }>[]
+  const nX = d.layout.waleXLong!.length
+  const nY = d.layout.waleXShort!.length
+
+  it('stud rows round all four faces; double strongbacks the full depth on every face', () => {
+    expect(boxes('stud')).toHaveLength(4 * d.layout.studLevels!.length)
+    const wales = boxes('wale')
+    expect(wales).toHaveLength(2 * 2 * (nX + nY))
+    for (const w of wales) expect(w.size[1]).toBe(1.5)
+  })
+  it('a tie (+2 plates) at every strongback pair on every tie row, both ways', () => {
+    expect(m.parts.filter((p) => p.group === 'tie' && p.shape === 'bar')).toHaveLength(d.layout.tieLevels!.length * (nX + nY))
+    expect(count(m.parts, 'tie')).toBe(3 * d.quantities.ties)
+  })
+})

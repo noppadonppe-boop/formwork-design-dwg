@@ -20,7 +20,7 @@ import { Trace } from './trace'
 import { floorTo, fmt, pressureToLineLoad } from './units'
 import { checkLegYokes, checkRingYokes } from './column'
 import { type FootingShape, footingPlan, footingShapeOf, isLegShape, legLayout, legTieForces, legTiesPerLevel, plywoodBendRadius, polygonDims, SHAPE_NAME, studsOnFaces } from './planShape'
-import { designWall } from './wall'
+import { designWall, type WallSystem } from './wall'
 
 export type FootingSupport = 'cantilever' | 'braced' | 'tied'
 /** tied: where the ties go — none (wales tie round the corners), across the short side, or both ways */
@@ -44,6 +44,8 @@ export interface FootingInput {
   shape?: FootingShape
   /** footing depth = side form height, m */
   height: number
+  /** tied rectangular footings: 'horizontal' = horizontal studs on vertical wales (strongbacks), ties both ways */
+  system?: WallSystem
   pressure: PressureParams
   sheathing: DeckSheathing
   stud: { sectionId: string; materialId: string; spacingCm?: number }
@@ -86,6 +88,13 @@ export interface FootingLayout {
   tiePlate?: { wCm: number; hCm: number; tMm: number }
   /** L/T/U tied: spans each leg is split into by its ties (1 = inner-corner ties only) */
   legSpans?: number
+  /** tied rectangle with horizontal studs on vertical wales: stud rows and tie rows (m above base), the strongbacks
+   *  along a long face and along a short face (m from its end) */
+  system?: WallSystem
+  studLevels?: number[]
+  tieLevels?: number[]
+  waleXLong?: number[]
+  waleXShort?: number[]
 }
 
 export interface FootingDesign extends DesignResult {
@@ -115,6 +124,7 @@ export function footingSystemLabel(inp: FootingInput, d?: FootingDesign): string
   const shape = footingShapeOf(inp)
   if (inp.support === 'tied' && shape.kind === 'polygon') return 'คานรับเคร่ารัดรอบฐาน (วงแหวนตามรูป ไม่ใช้ไทร์)'
   if (inp.support === 'tied' && isLegShape(shape)) return `คานรับเคร่าตามหน้า + Form tie มุมใน${(d?.layout.legSpans ?? 1) > 1 ? ` และกลางขา` : ''}`
+  if (inp.support === 'tied' && inp.system === 'horizontal' && shape.kind === 'rect') return 'เคร่านอน + คานตั้ง + Form tie สองทิศทาง'
   if (inp.support === 'cantilever') return 'เคร่าปลายยื่น (ตอกลงดิน)'
   if (inp.support === 'braced') return inp.brace.at === 'wale' ? 'ค้ำยันทแยงผ่านคานรับเคร่าลงหลัก' : 'ค้ำยันทแยงทุกเคร่าลงหลัก'
   const lay = d?.layout.tieLayout
@@ -270,6 +280,8 @@ export function designFooting(inp: FootingInput, opts: { advise?: boolean } = {}
     }),
   )
 
+  // tied rectangle with horizontal studs on vertical wales (other shapes keep the wales round the footing)
+  const hz = inp.support === 'tied' && inp.system === 'horizontal' && footingShapeOf(inp).kind === 'rect'
   const stMat = getMaterial(inp.stud.materialId)
   const stSec = getSection(inp.stud.sectionId)
   const stake = getSection(inp.stake.sectionId)
@@ -434,6 +446,62 @@ export function designFooting(inp: FootingInput, opts: { advise?: boolean } = {}
     )
     stakes = nStuds + nBraceLines
     warnings.push('ค้ำยันและหลักลงดินใช้ได้กับดินแข็งเท่านั้น — ตรวจสภาพดินที่หน้างานให้รับแรงได้ตามที่ออกแบบ (หมายเหตุตัวอย่าง 10.1)')
+  } else if (hz) {
+    // 2–4) horizontal studs on vertical wales (strongbacks), as a wall of thickness d on each pair of faces: the
+    // strongbacks cannot wrap the corners, so every one of them is tied through the footing — both ways
+    const wall = (length: number) =>
+      designWall({
+        system: 'horizontal',
+        thickness: d,
+        height: H,
+        length,
+        pressure: inp.pressure,
+        sheathing: { materialId: 'ply-apa1', thicknessMm: 15 },
+        stud: { ...inp.stud, spacingCm: a },
+        wale: inp.wale,
+        tie: inp.tie,
+        brace: DEFAULT_BRACE,
+        bottomWaleOffsetM: inp.wale.bottomOffsetM,
+        deflection: defl,
+        checkTimberShear: inp.checkTimberShear,
+      })
+    const long = Math.max(inp.lengthX, inp.lengthY)
+    const short = Math.min(inp.lengthX, inp.lengthY)
+    const wL = wall(long)
+    const wS = wall(short)
+    for (const k of ['stud', 'stud-end', 'wale', 'wale-top']) {
+      const c = wL.components.find((x) => x.key === k)!
+      components.push(k === 'stud-end' ? { ...c, title: 'เคร่านอน — ช่วงยื่นที่มุมฐาน' } : c)
+    }
+    // ties through the long faces span the short side, through the short faces the long side; same force (P × c/c × gap)
+    const tieComp = wL.components.find((c) => c.key === 'tie')!
+    const T = tieComp.rows[0].demand
+    const tTi = new Trace()
+    const tie = getTie(inp.tie.tieId)
+    tTi.add({ label: 'แรงดึงในไทร์ = P × พื้นที่รับแรง', value: T, unit: 'กก.', ref: 'รูป 8.4' })
+    const plate = tiePlate(T, getSection(inp.wale.sectionId), waleMember.material, inp.wale.count, tTi)
+    const nL = wL.layout.waleX.length
+    const nS = wS.layout.waleX.length
+    components.push(
+      component('tie', 'เหล็กยึดรั้ง (Form tie) + เหล็กประกับ', `${tie.name} SWL ${fmt(tie.swl)} กก. · ${nL + nS} ตัว/ระดับ · เหล็กประกับ ${plate.wCm}×${plate.hCm} ซม. หนา ${plate.tMm} มม.`, [...tieComp.rows, ...plate.rows], tTi),
+    )
+    warnings.push(...wL.warnings.filter((x) => !x.startsWith('กำแพงสูง')))
+    warnings.push(`Form tie ทะลุฐานยาว ${short.toFixed(2)} ม. (ผ่านด้านยาว) และ ${long.toFixed(2)} ม. (ผ่านด้านสั้น) — ฝังในคอนกรีต ใช้ซ้ำไม่ได้`)
+    Object.assign(layout, {
+      system: 'horizontal',
+      waleSpacing: wL.layout.waleSpacing,
+      tieSpacing: wL.layout.tieSpacing,
+      tieLayout: 'both',
+      tiesLong: nL,
+      tiesShort: nS,
+      studLevels: wL.layout.studLevels,
+      tieLevels: wL.layout.tieLevels,
+      waleXLong: wL.layout.waleX,
+      waleXShort: wS.layout.waleX,
+      tiePlate: { wCm: plate.wCm, hCm: plate.hCm, tMm: plate.tMm },
+    } satisfies Partial<FootingLayout>)
+    waleLength = 2 * (nL + nS) * inp.wale.count * H
+    ties = wL.layout.tieLevels.length * (nL + nS)
   } else {
     // 2) studs → wale spacing, exactly as a wall form of thickness d (Ex 10.2, 10.3)
     const w = designWall({
@@ -596,8 +664,9 @@ export function designFooting(inp: FootingInput, opts: { advise?: boolean } = {}
     layout,
     quantities: {
       plywoodArea: plan.perimeter * H,
-      studs: nStuds,
-      studLength: nStuds * (H + (inp.support === 'cantilever' ? inp.stake.embedM : 0.1)),
+      // horizontal studs: one row round the four faces at every stud level
+      studs: hz ? 4 * layout.studLevels!.length : nStuds,
+      studLength: hz ? layout.studLevels!.length * (plan.perimeter + 4 * (deckThicknessM(inp.sheathing) + stSec.H / 100)) : nStuds * (H + (inp.support === 'cantilever' ? inp.stake.embedM : 0.1)),
       braces,
       stakes,
       waleLength,
@@ -619,19 +688,20 @@ interface Variant {
 }
 
 const VARIANTS: Variant[] = [
-  { key: 'tied-none', label: 'คานรับเคร่ารัดรอบฐาน ไม่ใช้ไทร์', soil: false, patch: (i) => ({ ...i, support: 'tied', tie: { ...i.tie, layout: 'none' } }) },
+  { key: 'tied-none', label: 'คานรับเคร่ารัดรอบฐาน ไม่ใช้ไทร์', soil: false, patch: (i) => ({ ...i, support: 'tied', system: undefined, tie: { ...i.tie, layout: 'none' } }) },
   { key: 'cantilever', label: 'เคร่าปลายยื่นตอกลงดิน', soil: true, patch: (i) => ({ ...i, support: 'cantilever' }) },
   { key: 'braced-wale', label: 'ค้ำยันผ่านคานรับเคร่าลงหลัก', soil: true, patch: (i) => ({ ...i, support: 'braced', brace: { ...i.brace, at: 'wale' } }) },
   { key: 'braced-stud', label: 'ค้ำยันทุกเคร่าลงหลัก', soil: true, patch: (i) => ({ ...i, support: 'braced', brace: { ...i.brace, at: 'stud' } }) },
-  { key: 'tied-short', label: 'คานรับเคร่ารอบฐาน + ไทร์ขวางด้านสั้น', soil: false, patch: (i) => ({ ...i, support: 'tied', tie: { ...i.tie, layout: 'short' } }) },
-  { key: 'tied-both', label: 'คานรับเคร่ารอบฐาน + ไทร์สองทิศทาง', soil: false, patch: (i) => ({ ...i, support: 'tied', tie: { ...i.tie, layout: 'both' } }) },
+  { key: 'tied-short', label: 'คานรับเคร่ารอบฐาน + ไทร์ขวางด้านสั้น', soil: false, patch: (i) => ({ ...i, support: 'tied', system: undefined, tie: { ...i.tie, layout: 'short' } }) },
+  { key: 'tied-both', label: 'คานรับเคร่ารอบฐาน + ไทร์สองทิศทาง', soil: false, patch: (i) => ({ ...i, support: 'tied', system: undefined, tie: { ...i.tie, layout: 'both' } }) },
+  { key: 'tied-horizontal', label: 'เคร่านอน + คานตั้ง + ไทร์สองทิศทาง', soil: false, patch: (i) => ({ ...i, support: 'tied', system: 'horizontal' }) },
 ]
 
 export const footingVariant = (key: string) => VARIANTS.find((v) => v.key === key)
 
 /** Key of the arrangement a design actually uses. */
 export function footingVariantKey(inp: FootingInput, d: FootingDesign): string {
-  if (inp.support === 'tied') return footingShapeOf(inp).kind === 'rect' ? `tied-${d.layout.tieLayout ?? 'short'}` : 'tied-none'
+  if (inp.support === 'tied') return footingShapeOf(inp).kind === 'rect' ? (inp.system === 'horizontal' ? 'tied-horizontal' : `tied-${d.layout.tieLayout ?? 'short'}`) : 'tied-none'
   if (inp.support === 'braced') return `braced-${inp.brace.at ?? 'stud'}`
   return 'cantilever'
 }
@@ -645,7 +715,7 @@ export function footingAdvice(inp: FootingInput, current: FootingDesign): Design
   const cur = footingVariantKey(inp, current)
   // other shapes: one tied arrangement (a polygon's ring, an L/T/U's inner-corner ties); none for a round footing
   const shape = footingShapeOf(inp)
-  const variants = VARIANTS.filter((v) => shape.kind === 'rect' || (shape.kind === 'circle' ? v.key === 'cantilever' || v.key === 'braced-stud' : v.key !== 'tied-short' && v.key !== 'tied-both')).map((v) =>
+  const variants = VARIANTS.filter((v) => shape.kind === 'rect' || (shape.kind === 'circle' ? v.key === 'cantilever' || v.key === 'braced-stud' : v.key !== 'tied-short' && v.key !== 'tied-both' && v.key !== 'tied-horizontal')).map((v) =>
     v.key === 'tied-none' && shape.kind !== 'rect' ? { ...v, label: shape.kind === 'polygon' ? 'คานรับเคร่ารัดรอบ (วงแหวนตามรูป)' : 'คานรับเคร่าตามหน้า + ไทร์มุมใน' } : v,
   )
   const runs = variants.map((v) => ({ v, d: v.key === cur ? current : designFooting(v.patch(inp)) }))

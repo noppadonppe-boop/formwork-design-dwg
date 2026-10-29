@@ -149,3 +149,41 @@ describe('system label for reports', () => {
     expect(footingSystemLabel({ ...DEFAULT_FOOTING, brace: { ...DEFAULT_FOOTING.brace, at: 'wale' } })).toBe('ค้ำยันทแยงผ่านคานรับเคร่าลงหลัก')
   })
 })
+
+describe('tied rectangle: horizontal studs on vertical wales, ties both ways', () => {
+  const inp: FootingInput = { ...DEFAULT_FOOTING, lengthX: 3.6, lengthY: 2.4, height: 1.5, support: 'tied', system: 'horizontal' }
+  const d = designFooting(inp)
+  const L = d.layout
+
+  it('designed as a horizontal-stud wall on each pair of faces; strongbacks evenly ≤ c/c from the end offset', () => {
+    expect(L.system).toBe('horizontal')
+    expect(L.waleLevels).toEqual([])
+    expect(L.tieLayout).toBe('both')
+    for (const [xs, len] of [[L.waleXLong!, 3.6], [L.waleXShort!, 2.4]] as const) {
+      expect(xs[0]).toBeCloseTo(len - xs.at(-1)!, 3)
+      expect(Math.max(...xs.slice(1).map((x, i) => x - xs[i]))).toBeLessThanOrEqual(L.waleSpacing! / 100 + 1e-9)
+    }
+    expect(d.components.map((c) => c.key)).toEqual(expect.arrayContaining(['stud', 'stud-end', 'wale', 'wale-top', 'tie']))
+    expect(d.status).not.toBe('fail')
+  })
+
+  it('a tie at every strongback on every tie row; tie force P × c/c × gap', () => {
+    expect(L.tiesLong).toBe(L.waleXLong!.length)
+    expect(L.tiesShort).toBe(L.waleXShort!.length)
+    expect(d.quantities.ties).toBe(L.tieLevels!.length * (L.tiesLong! + L.tiesShort!))
+    const t = d.components.find((c) => c.key === 'tie')!
+    expect(t.rows[0].demand).toBeCloseTo((d.pressure.Pmax * L.waleSpacing! * L.tieSpacing!) / 1e4, 0)
+    expect(d.warnings.some((w) => w.includes('ทะลุฐาน'))).toBe(true)
+  })
+
+  it('label, advice key; ignored for other shapes and supports', () => {
+    expect(footingSystemLabel(inp, d)).toBe('เคร่านอน + คานตั้ง + Form tie สองทิศทาง')
+    const adv = designFooting(inp, { advise: true }).advice!
+    expect(adv.options.find((o) => o.current)!.key).toBe('tied-horizontal')
+    expect(adv.options.find((o) => o.key === 'tied-both')!.note).not.toBe(adv.options.find((o) => o.key === 'tied-horizontal')!.note)
+    const braced = { ...inp, support: 'braced' as const }
+    expect(designFooting(braced).layout).toEqual(designFooting({ ...braced, system: undefined }).layout)
+    const poly = { ...inp, lengthY: 3.6, shape: { kind: 'polygon' as const, n: 8 as const } }
+    expect(designFooting(poly).layout.system).toBeUndefined()
+  })
+})

@@ -143,7 +143,7 @@ export function elementViews(el: ElementData, run: AnyDesign): { a: DrawingSpec;
             { dir: 'h', a: -i.lengthX / 2, b: i.lengthX / 2, at: zMax + 0.25, text: `${i.lengthX.toFixed(2)} ม.` },
             { dir: 'v', a: -i.lengthY / 2, b: i.lengthY / 2, at: -xMax - 0.25, text: `${i.lengthY.toFixed(2)} ม.` },
           ]
-  const levels = i.support === 'tied' ? d.layout.waleLevels : d.layout.braceLevels
+  const levels = i.support === 'tied' ? (d.layout.system === 'horizontal' ? (d.layout.tieLevels ?? []) : d.layout.waleLevels) : d.layout.braceLevels
   const sec: Dim[] = [...chain('v', [0, ...[...levels].sort((p, q) => p - q), i.height], -xMax - 0.25)]
   return {
     a: { model: m, view: 'top', dims: plan, title: `แปลนแบบหล่อฐานราก${fs.kind === 'rect' ? '' : SHAPE_NAME[fs.kind === 'polygon' ? fs.n : fs.kind]} (Plan)` },
