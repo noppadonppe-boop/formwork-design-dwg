@@ -257,6 +257,12 @@ export function layoutSummary(r: AnyDesign): { label: string; value: string }[] 
           : [{ label: 'คานขวาง/เสาค้ำ @', value: `${r.design.layout.headSpacing} ซม.` }]),
       ]
     case 'footing':
+      if (r.design.layout.system === 'horizontal')
+        return [
+          { label: 'เคร่านอน @', value: `${r.design.layout.studSpacing}` },
+          { label: 'คานตั้ง @', value: `${r.design.layout.waleSpacing}` },
+          { label: 'ไทร์ตามแนวดิ่ง', value: `@${r.design.layout.tieSpacing} ซม. · ${r.design.quantities.ties} ตัว` },
+        ]
       return [
         { label: 'เคร่า @', value: `${r.design.layout.studSpacing} ซม.` },
         ...(r.design.layout.supportSpacing ? [{ label: 'จุดค้ำ @', value: `${r.design.layout.supportSpacing} ซม.` }] : []),

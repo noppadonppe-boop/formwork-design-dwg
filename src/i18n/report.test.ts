@@ -63,6 +63,7 @@ const VARIANTS: [Types.ElementType, Patch][] = [
     ['footing', (i) => ({ ...i, support: s, lengthX: 1.2, lengthY: 1.2, height: 0.6, soilBearing: 3000 })],
   ]),
   ['footing', (i) => ({ ...i, support: 'braced', brace: { ...i.brace, at: 'wale' } })],
+  ['footing', (i) => ({ ...i, support: 'tied', system: 'horizontal', lengthX: 3.6, lengthY: 2.4, height: 1.5 })],
   ['footing', (i) => ({ ...i, support: 'tied', wale: { ...i.wale, corner: 'butt' } })],
   ['footing', (i) => ({ ...i, support: 'tied', lengthX: 5, lengthY: 2, height: 2 })],
   ['footing', (i) => ({ ...i, support: 'tied', wale: { ...i.wale, shift: 'down', bottomOffsetM: 0.05 } })],

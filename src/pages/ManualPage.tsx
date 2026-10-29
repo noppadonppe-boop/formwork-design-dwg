@@ -1107,16 +1107,19 @@ export function ManualPage() {
                     ['ปลายยื่นตอกลงดิน', 'ฐานตื้น ≤ 0.6 ม. ดินแข็ง', 'M = wL²/2 · การแอ่นปลาย · ความลึกหลัก'],
                     ['ค้ำยันทแยงลงหลัก (ทุกเคร่า หรือผ่านคานรับเคร่า)', 'ฐานลึกปานกลาง ดินแข็ง', 'ช่วงระหว่างจุดค้ำ · แรงในค้ำยัน · ความลึกหลัก F/(q·b) · คานรับเคร่าช่วงระหว่างค้ำยัน'],
                     ['คานรับเคร่ารอบฐาน (+ ไทร์)', 'ฐานลึก / ดินอ่อน / ฐานใหญ่', 'เคร่าเหมือนกำแพง · คานรับเคร่าแบบคานรัดเสา · แรงในไทร์'],
+                    ['เคร่านอน + คานตั้ง + ไทร์สองทิศทาง (ฐานสี่เหลี่ยม)', 'ใช้แผงเคร่านอนชุดเดียวกับกำแพง — ปกติแพงกว่า: คานตั้งรัดรอบมุมไม่ได้ ต้องร้อยไทร์ทะลุฐานที่คานตั้งทุกตัว ฝังในคอนกรีต', 'ตรวจเหมือนกำแพงเคร่านอน (ดู กำแพง: เคร่านอน + คานตั้ง)'],
                   ],
                   [
                     ['Cantilever driven into the ground', 'Shallow footings ≤ 0.6 m, firm soil', 'M = wL²/2 · tip deflection · stake depth'],
                     ['Diagonal braces to stakes (every stud, or via a wale)', 'Medium-depth footings, firm soil', 'Span between brace points · brace force · stake depth F/(q·b) · wale span between braces'],
                     ['Wales around the footing (+ ties)', 'Deep / soft soil / large footings', 'Studs as for a wall · wales as column yokes · tie force'],
+                    ['Horizontal studs + strongbacks + ties both ways (rectangles)', 'To reuse the horizontal-stud panels of the walls — usually dearer: strongbacks cannot wrap the corners, so a tie goes through the footing at every one, cast in', 'Checked as a horizontal-stud wall (see Walls: horizontal studs)'],
                   ],
                   [
                     ['悬臂插入土中', '浅基础 ≤ 0.6 m,硬土', 'M = wL²/2 · 端部挠度 · 木桩入土深度'],
                     ['斜撑至木桩(每根竖楞或经围檩)', '中等深度基础,硬土', '支撑点间跨度 · 斜撑力 · 木桩深度 F/(q·b) · 斜撑间围檩跨度'],
                     ['基础四周围檩(+ 对拉螺栓)', '深基础 / 软土 / 大基础', '竖楞按墙计算 · 围檩按柱箍计算 · 螺栓拉力'],
+                    ['横楞 + 竖向背楞 + 双向对拉螺栓(矩形基础)', '可沿用墙体的横向布楞模板 —— 通常造价更高:背楞不能绕过转角,每根背楞处须设穿过基础的对拉螺栓并埋入混凝土', '按横楞墙验算(见 墙:横楞 + 竖向背楞)'],
                   ],
                 )}
               />

@@ -108,16 +108,25 @@ export function elementGeom(el: ElementData, run?: AnyDesign): ElementGeom | und
       const nShort = d && inp.support === 'tied' && d.layout.tieLayout === 'both' ? (d.layout.tiesShort ?? 0) : 0
       const tx = evenly(lx, longIsX ? nLong : nShort)
       const ty = evenly(ly, longIsX ? nShort : nLong)
+      // horizontal studs on vertical wales: strongbacks at the design positions (symmetric, so the same on opposite
+      // faces), a tie at every one on the tie rows
+      const hz = d?.layout.system === 'horizontal'
+      const reach = d?.components.find((c) => c.key === 'stud-end')?.spacing?.max
+      const strongbacks = (k: FaceKey): Partial<FaceDef> => {
+        const xs = ((k === 'A' || k === 'C') === longIsX ? d?.layout.waleXLong : d?.layout.waleXShort) ?? []
+        return { wales: [], waleU: xs.map(r3), studReach: reach !== undefined ? reach / 100 : undefined, waleMax: d ? (d.layout.waleSpacing ?? 0) / 100 : undefined, ties: (d?.layout.tieLevels ?? []).flatMap((y) => xs.map((u) => ({ u: r3(u), y }))) }
+      }
+      const faces = box4(lx, ly, H, wales, { A: tx, C: tx, B: ty, D: ty })
       return {
         type: 'footing',
-        faces: box4(lx, ly, H, wales, { A: tx, C: tx, B: ty, D: ty }),
+        faces: hz ? faces.map((f) => ({ ...f, ...strongbacks(f.key) })) : faces,
         links: [
           ['A', 'C'],
           ['B', 'D'],
         ],
         through: longIsX ? 'x' : 'y',
         throughLabel: rectLabels(lx, ly),
-        waleLabel: 'คานรับเคร่า',
+        waleLabel: hz ? 'คานตั้ง' : 'คานรับเคร่า',
         concrete: { center: [0, H / 2, 0], size: [lx, H, ly] },
         diagram: plan(lx, ly, 'ผัง'),
         panelT: deckThicknessM(inp.sheathing) + getSection(inp.stud.sectionId).H / 100,

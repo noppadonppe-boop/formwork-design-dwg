@@ -998,6 +998,8 @@ function withFootingShape(i: FootingInput, key: ShapeKey): FootingInput {
 function FootingFields({ inp, set }: { inp: FootingInput; set: (fn: (i: FootingInput) => FootingInput) => void }) {
   const shape = footingShapeOf(inp)
   const rect = shape.kind === 'rect'
+  // tied rectangle with horizontal studs on vertical wales
+  const hz = inp.support === 'tied' && rect && inp.system === 'horizontal'
   const round = shape.kind === 'circle'
   const leg = isLegShape(shape) ? shape : undefined
   const setSize = (v: number | undefined) => v && set((i) => ({ ...i, lengthX: v, lengthY: v }))
@@ -1040,8 +1042,19 @@ function FootingFields({ inp, set }: { inp: FootingInput; set: (fn: (i: FootingI
             ))}
           </Select>
         </Field>
+        {inp.support === 'tied' && rect && (
+          <Segmented<WallSystem>
+            label="ระบบโครงแบบ"
+            value={inp.system ?? 'vertical'}
+            options={[
+              { value: 'vertical', label: 'เคร่าตั้ง + คานรอบฐาน' },
+              { value: 'horizontal', label: 'เคร่านอน + คานตั้ง' },
+            ]}
+            onChange={(system) => set((i) => ({ ...i, system }))}
+          />
+        )}
         <MemberPicker label="เคร่า" sectionId={inp.stud.sectionId} materialId={inp.stud.materialId} onChange={(v) => set((i) => ({ ...i, stud: { ...i.stud, ...v } }))} />
-        <NumField label="ระยะเคร่า" unit="ซม." optional placeholder="อัตโนมัติ" value={inp.stud.spacingCm} min={10} max={100} onChange={(v) => set((i) => ({ ...i, stud: { ...i.stud, spacingCm: v } }))} />
+        <NumField label={hz ? 'ระยะเคร่าตามแนวดิ่ง' : 'ระยะเคร่า'} unit="ซม." optional placeholder="อัตโนมัติ" value={inp.stud.spacingCm} min={10} max={100} onChange={(v) => set((i) => ({ ...i, stud: { ...i.stud, spacingCm: v } }))} />
       </Group>
       {inp.support === 'braced' && (
         <Group title="ค้ำยันทแยง" part="brace">
@@ -1066,11 +1079,11 @@ function FootingFields({ inp, set }: { inp: FootingInput; set: (fn: (i: FootingI
         </Group>
       )}
       {(inp.support === 'tied' || (inp.support === 'braced' && inp.brace.at === 'wale')) && (
-        <Group title={inp.support === 'tied' ? 'คานรับเคร่ารอบฐาน (Wales)' : 'คานรับเคร่า (รับค้ำยัน)'} part="wale">
-          <MemberPicker label="คานรับเคร่า" sectionId={inp.wale.sectionId} materialId={inp.wale.materialId} onChange={(v) => set((i) => ({ ...i, wale: { ...i.wale, ...v } }))} />
+        <Group title={hz ? 'คานตั้ง (Strongbacks)' : inp.support === 'tied' ? 'คานรับเคร่ารอบฐาน (Wales)' : 'คานรับเคร่า (รับค้ำยัน)'} part="wale">
+          <MemberPicker label={hz ? 'คานตั้ง' : 'คานรับเคร่า'} sectionId={inp.wale.sectionId} materialId={inp.wale.materialId} onChange={(v) => set((i) => ({ ...i, wale: { ...i.wale, ...v } }))} />
           <div className="grid grid-cols-3 gap-2">
             <Segmented label="ต่อชุด" value={String(inp.wale.count) as '1' | '2'} options={[{ value: '1', label: 'เดี่ยว' }, { value: '2', label: 'คู่' }]} onChange={(v) => set((i) => ({ ...i, wale: { ...i.wale, count: Number(v) as 1 | 2 } }))} />
-            {rect && (
+            {rect && !hz && (
             <Field label="มุมคาน" className="col-span-2">
               <Select value={inp.wale.corner ?? 'cross'} onChange={(e) => set((i) => ({ ...i, wale: { ...i.wale, corner: e.target.value as FootingWaleCorner } }))}>
                 {Object.entries(FOOTING_WALE_CORNER_LABEL).map(([k, l]) => (
@@ -1081,7 +1094,7 @@ function FootingFields({ inp, set }: { inp: FootingInput; set: (fn: (i: FootingI
               </Select>
             </Field>
             )}
-            {rect && (inp.wale.corner ?? 'cross') === 'cross' && (
+            {rect && !hz && (inp.wale.corner ?? 'cross') === 'cross' && (
               <Field label="คานด้านสั้น" hint="อัตโนมัติ: เลื่อนลงถ้าคานล่างยังห่างฐาน ≥ 3 ซม.">
                 <Select value={inp.wale.shift ?? 'auto'} onChange={(e) => set((i) => ({ ...i, wale: { ...i.wale, shift: e.target.value as FootingWaleShift } }))}>
                   {Object.entries(FOOTING_WALE_SHIFT_LABEL).map(([k, l]) => (
@@ -1094,8 +1107,8 @@ function FootingFields({ inp, set }: { inp: FootingInput; set: (fn: (i: FootingI
             )}
             {inp.support === 'tied' && (
               <>
-                <NumField label="ระยะ c/c" unit="ซม." optional placeholder="อัตโนมัติ" value={inp.wale.spacingCm} min={20} max={300} onChange={(v) => set((i) => ({ ...i, wale: { ...i.wale, spacingCm: v } }))} />
-                <NumField label="ตัวแรกจากฐาน" unit="ม." value={inp.wale.bottomOffsetM} min={0.05} max={1} onChange={(v) => v && set((i) => ({ ...i, wale: { ...i.wale, bottomOffsetM: v } }))} />
+                <NumField label={hz ? 'ระยะ c/c ตามแนวนอน' : 'ระยะ c/c'} unit="ซม." optional placeholder="อัตโนมัติ" value={inp.wale.spacingCm} min={20} max={300} onChange={(v) => set((i) => ({ ...i, wale: { ...i.wale, spacingCm: v } }))} />
+                <NumField label={hz ? 'ไทร์ล่างสุดจากฐาน' : 'ตัวแรกจากฐาน'} unit="ม." value={inp.wale.bottomOffsetM} min={0.05} max={1} onChange={(v) => v && set((i) => ({ ...i, wale: { ...i.wale, bottomOffsetM: v } }))} />
               </>
             )}
           </div>
@@ -1106,7 +1119,13 @@ function FootingFields({ inp, set }: { inp: FootingInput; set: (fn: (i: FootingI
           <TieSelect value={inp.tie.tieId} onChange={(v) => set((i) => ({ ...i, tie: { ...i.tie, tieId: v } }))} />
         </Group>
       )}
-      {inp.support === 'tied' && rect && (
+      {hz && (
+        <Group title="Form tie" part="tie">
+          <TieSelect value={inp.tie.tieId} onChange={(v) => set((i) => ({ ...i, tie: { ...i.tie, tieId: v } }))} />
+          <NumField label="ระยะไทร์ตามแนวดิ่ง" unit="ซม." optional placeholder="อัตโนมัติ" hint="ไทร์ทะลุฐานที่คานตั้งทุกตัว ทั้งสองทิศทาง" value={inp.tie.spacingCm} min={20} max={300} onChange={(v) => set((i) => ({ ...i, tie: { ...i.tie, spacingCm: v } }))} />
+        </Group>
+      )}
+      {inp.support === 'tied' && rect && !hz && (
         <Group title="Form tie" part="tie">
           <Field label="การวางไทร์">
             <Select value={inp.tie.layout ?? 'auto'} onChange={(e) => set((i) => ({ ...i, tie: { ...i.tie, layout: e.target.value as FootingTieLayout } }))}>

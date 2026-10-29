@@ -219,10 +219,11 @@ export function panelChecks(p: PanelData, L: PanelLayout, ref?: RefDesign, crite
       detail: ok ? undefined : 'ตรวจเคร่าใหม่ในชุดประกอบ (ระยะคานรับเคร่าขึ้นกับชุดประกอบ)',
     })
     // studs must cross the wales: a wall designed with horizontal studs needs panels with horizontal studs
-    const need = el.type === 'wall' && el.input.system === 'horizontal' ? 'horizontal' : 'vertical'
+    const need = (el.type === 'wall' || el.type === 'footing') && el.input.system === 'horizontal' ? 'horizontal' : 'vertical'
     if (p.stud.dir !== need) {
       const dir = (d: string) => (d === 'vertical' ? 'เคร่าตั้ง' : 'เคร่านอน')
-      out.push({ status: el.type === 'wall' ? 'warn' : 'info', label: `${name} คำนวณเป็น${dir(need)} — แผงนี้วาง${dir(p.stud.dir)}`, detail: el.type === 'wall' ? 'เคร่าจะขนานกับคาน — เลือกแผงที่แนวเคร่าตรงกับระบบของกำแพง หรือเปลี่ยนระบบเคร่าของกำแพง' : 'ต้องวางแผงตะแคงให้เคร่าตั้ง หรือตรวจระบบเคร่าใหม่' })
+      const hard = el.type === 'wall' || need === 'horizontal'
+      out.push({ status: hard ? 'warn' : 'info', label: `${name} คำนวณเป็น${dir(need)} — แผงนี้วาง${dir(p.stud.dir)}`, detail: hard ? 'เคร่าจะขนานกับคาน — เลือกแผงที่แนวเคร่าตรงกับระบบของกำแพง หรือเปลี่ยนระบบเคร่าของกำแพง' : 'ต้องวางแผงตะแคงให้เคร่าตั้ง หรือตรวจระบบเคร่าใหม่' })
     }
   }
   return out

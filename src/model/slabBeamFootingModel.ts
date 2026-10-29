@@ -633,8 +633,29 @@ export function footingModel(inp: FootingInput, d: FootingDesign): FormModel {
   const wb = cm(w.B)
   const wd = cm(w.H)
   const waleLevels = inp.support === 'tied' || viaWale ? d.layout.waleLevels : []
+  // tied with horizontal studs: stud rows round every face (the faces along x run past the corners), vertical wales
+  // (strongbacks) at their positions along each face, ties through the footing at every strongback both ways
+  const hz = d.layout.system === 'horizontal'
+  const longIsX = Lx >= Ly
+  const waleXOf = (fi: number) => ((fi < 2) === longIsX ? d.layout.waleXLong : d.layout.waleXShort) ?? []
   faces.forEach((f, fi) => {
     parts.push({ id: `ply-${fi}`, group: 'sheathing', kind: shKind, shape: 'box', ...box(f, 0, f.off + tSh / 2, H / 2, 2 * f.half, H, tSh) })
+    if (hz) {
+      const rStud = f.off + tSh + sd / 2
+      const r0 = f.off + tSh + sd
+      const len = 2 * f.half + (fi < 2 ? 2 * sd : 0)
+      ;(d.layout.studLevels ?? []).forEach((y, i) => {
+        const yc = Math.min(Math.max(y, sb / 2), H - sb / 2)
+        parts.push({ id: `stud-${fi}-${i}`, group: 'stud', kind: sKind, shape: 'box', ...box(f, 0, rStud, yc, len, sb, sd) })
+      })
+      const span = fi < 2 ? Lx : Ly
+      waleXOf(fi).forEach((x, i) =>
+        pairOffsets(inp.wale.count, wb).forEach((o, k) =>
+          parts.push({ id: `wale-${fi}-${i}-${k}`, group: 'wale', kind: kindOf(inp.wale.materialId), shape: 'box', ...box(f, x - span / 2 + o, r0 + wd / 2, H / 2, wb, H, wd) }),
+        ),
+      )
+      return
+    }
     const us = spread(2 * f.half - sb, a).map((u) => u - f.half + sb / 2)
     const rStud = f.off + tSh + sd / 2
     const r0 = f.off + tSh + sd
@@ -670,7 +691,29 @@ export function footingModel(inp: FootingInput, d: FootingDesign): FormModel {
       })
     }
   })
-  if (inp.support === 'tied' && d.layout.tieLayout && d.layout.tieLayout !== 'none') {
+  if (hz) {
+    // a tie at every strongback, through the footing: across y from the faces along x, across x from the others (a bar's
+    // width higher so the two directions pass); the bearing plate bridges the side-by-side pair, along the strongback
+    const reach = (half: number) => half + tSh + sd + wd + 0.06
+    const tp = d.layout.tiePlate
+    const plate = tp && { w: tp.wCm / 100, h: tp.hCm / 100, t: tp.tMm / 1000 }
+    const runs = [
+      { u: waleXOf(0).map((x) => x - Lx / 2), alongX: true, r: reach(Ly / 2), dy: 0 },
+      { u: waleXOf(2).map((x) => x - Ly / 2), alongX: false, r: reach(Lx / 2), dy: 0.03 },
+    ]
+    ;(d.layout.tieLevels ?? []).forEach((y, i) =>
+      runs.forEach((g, gi) =>
+        g.u.forEach((u, j) => {
+          parts.push({ id: `tie-${i}-${gi}-${j}`, group: 'tie', kind: 'tie', shape: 'bar', from: g.alongX ? [u, y + g.dy, -g.r] : [-g.r, y + g.dy, u], to: g.alongX ? [u, y + g.dy, g.r] : [g.r, y + g.dy, u], b: 0.014, d: 0.014, round: true })
+          if (plate)
+            for (const sgn of [-1, 1]) {
+              const r = sgn * (g.r - 0.06 + plate.t / 2)
+              parts.push({ id: `tieplate-${i}-${gi}-${j}-${sgn > 0 ? 'b' : 'a'}`, group: 'tie', kind: 'steel', shape: 'box', center: g.alongX ? [u, y + g.dy, r] : [r, y + g.dy, u], size: g.alongX ? [plate.h, plate.w, plate.t] : [plate.t, plate.w, plate.h] })
+            }
+        }),
+      ),
+    )
+  } else if (inp.support === 'tied' && d.layout.tieLayout && d.layout.tieLayout !== 'none') {
     // ties through the long faces (across the short side), and through the short faces when both ways;
     // interior points only, spread evenly — the second direction sits a bar's width higher
     const long = Math.max(Lx, Ly)
@@ -706,7 +749,7 @@ export function footingModel(inp: FootingInput, d: FootingDesign): FormModel {
   ]
   const zOut = Ly / 2 + tSh + sd
   const us0 = spread(Lx + 2 * tSh - sb, a)
-  if (us0.length > 1) handles.push({ key: 'studSpacing', label: 'ระยะเคร่า', position: [us0[1] - Lx / 2 - tSh + sb / 2, H + 0.08, zOut], axis: [1, 0, 0], value: us0[1] - us0[0], min: 0.1, max: 1, step: 0.05 })
+  if (us0.length > 1 && !hz) handles.push({ key: 'studSpacing', label: 'ระยะเคร่า', position: [us0[1] - Lx / 2 - tSh + sb / 2, H + 0.08, zOut], axis: [1, 0, 0], value: us0[1] - us0[0], min: 0.1, max: 1, step: 0.05 })
   if (inp.support === 'braced' && levels.length > 1)
     handles.push({ key: 'supportSpacing', label: 'ระยะจุดค้ำยัน', position: [-Lx / 2 - 0.25, levels[1], zOut], axis: [0, 1, 0], value: levels[0] - levels[1], min: 0.15, max: 2, step: 0.05 })
   const wl = d.layout.waleLevels
