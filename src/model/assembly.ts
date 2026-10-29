@@ -297,6 +297,61 @@ export function analyzeFace(spec: FaceSpec, layout: FaceLayout, panels: Map<stri
   return { spec, placed, courses, height, wales: spec.wales, waleU, ties, checks, status: panelStatus(checks) }
 }
 
+// ---------------------------------------------------------------- strongbacks at the panel joints
+
+/**
+ * Vertical wales (horizontal studs) set out to suit the panels: every panel joint on faces A and C (C seen from its own
+ * outside, so mirrored onto the wall) gets a wale within the stud cantilever — offset by the tie clearance so the tie at
+ * the wale misses the joint, when the cantilever allows — the design's end wales stay, and the gaps between are split
+ * evenly at no more than the design's wale c/c. A wale serves both faces (the ties pass through), so the same set is
+ * used on A and C. Returns wall positions (m along the concrete from face A's left end), or undefined when the faces
+ * carry no horizontal-stud panels or the design gives no limits.
+ */
+export function strongbacksAtJoints(L: number, a: FaceSpec, c: FaceSpec, layouts: Partial<Record<FaceKey, FaceLayout>>, panels: Map<string, PanelData>): number[] | undefined {
+  const R = a.studReach
+  const S = a.waleMax
+  const design = a.waleU ?? []
+  if (R === undefined || S === undefined || design.length < 2) return undefined
+  const ids = [a, c].flatMap((f) => panelIds(layouts[f.key] ?? { courses: [] }))
+  if (!ids.some((id) => panels.get(id)?.stud.dir === 'horizontal')) return undefined
+  // joints and the ends of the courses in wall coordinates (x from face A's left end of the concrete); a through face
+  // runs past the concrete, so its end strongbacks keep the design's end offset from the panel ends, not the concrete
+  const joints: number[] = []
+  const ends: number[] = []
+  for (const [f, mirror] of [[a, false], [c, true]] as const)
+    for (const course of layouts[f.key]?.courses ?? []) {
+      const at = (u: number) => (mirror ? L - (u - f.offset) : u - f.offset)
+      let u = 0
+      course.panels.forEach((id, i) => {
+        u += panels.get(id)?.width ?? 0
+        const x = u - f.offset
+        if (i < course.panels.length - 1 && x > 1e-6 && x < L - 1e-6) joints.push(at(u))
+      })
+      if (course.panels.length) ends.push(at(0), at(u))
+    }
+  const e = Math.min(design[0] - a.offset, R)
+  const e0 = Math.min(...ends) + e
+  const e1 = Math.max(...ends) - e
+  if (e1 <= e0) return undefined
+  const off = R >= TIE_CLEAR + TOL ? TIE_CLEAR : 0
+  const wales = [e0, e1]
+  for (const j of [...new Set(joints.map(r3))].sort((x, y) => x - y)) {
+    if (wales.some((w) => Math.abs(w - j) <= R + 1e-9 && (off === 0 || Math.abs(w - j) >= off - 1e-9))) continue
+    // beside the joint, on the side with more room, kept between the end wales
+    const w = j + off <= e1 ? j + off : j - off
+    wales.push(Math.min(Math.max(w, e0), e1))
+  }
+  const sorted = [...new Set(wales.map(r3))].sort((x, y) => x - y)
+  const out: number[] = [sorted[0]]
+  for (let i = 1; i < sorted.length; i++) {
+    const gap = sorted[i] - sorted[i - 1]
+    const n = Math.ceil(gap / S - 1e-9)
+    for (let k = 1; k < n; k++) out.push(r3(sorted[i - 1] + (k * gap) / n))
+    out.push(sorted[i])
+  }
+  return out
+}
+
 // ---------------------------------------------------------------- the whole assembly
 
 export interface AssemblyResult {
@@ -311,6 +366,8 @@ export interface AssemblyResult {
   usage: { panel: FormPanel; used: number; status: Status }[]
   /** wales / yokes of the design: length and count, by the faces they run along */
   wales: { faces: string; length: number; count: number }[]
+  /** the vertical wales were set out at the panel joints instead of the design's positions */
+  relaid: boolean
   status: Status
 }
 
@@ -323,9 +380,25 @@ export function analyzeAssembly(a: AssemblyData, el: ElementData, run: AnyDesign
   const specs = faceSpecs(geom, a, byId)
   const layouts: AssemblyResult['layouts'] = {}
   const faces: AssemblyResult['faces'] = {}
-  for (const k of keys) {
-    layouts[k] = faceLayoutOf(a, k, geom.links)
-    faces[k] = analyzeFace(specs[k]!, layouts[k]!, byId)
+  for (const k of keys) layouts[k] = faceLayoutOf(a, k, geom.links)
+  // a wall with horizontal studs: strongbacks set out at the panel joints, ties at every strongback on the same rows
+  const L = geom.type === 'wall' ? specs.A?.concreteL ?? 0 : 0
+  const relaid = geom.type === 'wall' && specs.A && specs.C ? strongbacksAtJoints(L, specs.A, specs.C, layouts, byId) : undefined
+  if (relaid)
+    for (const [k, xs] of [
+      ['A', relaid],
+      ['C', relaid.map((x) => L - x).reverse()],
+    ] as const) {
+      const f = specs[k]!
+      const rows = [...new Set(f.ties.map((t) => t.y))]
+      const waleU = xs.map((x) => r3(x + f.offset))
+      specs[k] = { ...f, waleU, ties: rows.flatMap((y) => waleU.map((u) => ({ u, y }))) }
+    }
+  for (const k of keys) faces[k] = analyzeFace(specs[k]!, layouts[k]!, byId)
+  if (relaid) {
+    const n = relaid.length
+    const design = geom.faces.find((f) => f.key === 'A')?.waleU?.length ?? n
+    faces.A!.checks.push({ status: 'info', label: `คานตั้งจัดตามรอยต่อแผง ${n} แนว (ตามผลคำนวณ ${design} แนว) — ระยะไม่เกินที่ออกแบบ`, detail: 'Form tie อยู่ที่คานตั้งทุกตัว ตามแถวไทร์เดิม' })
   }
 
   const counts = new Map<string, number>()
@@ -362,9 +435,15 @@ export function analyzeAssembly(a: AssemblyData, el: ElementData, run: AnyDesign
       /* no model: wales not listed */
     }
   }
+  if (relaid && el.type === 'wall') {
+    // the strongbacks as set out, not as designed: one length (the wall height) on faces A/C
+    const count = 2 * relaid.length * el.input.wale.count
+    const length = r3(el.input.height)
+    wales.splice(0, wales.length, { faces: 'A/C', length, count })
+  }
   const all = [...keys.map((k) => faces[k]!.status), ...usage.map((u) => u.status)]
   const status: Status = all.includes('fail') ? 'fail' : all.includes('warn') ? 'warn' : 'ok'
-  return { geom, keys, specs, faces, layouts, usage, wales, status }
+  return { geom, keys, specs, faces, layouts, usage, wales, relaid: !!relaid, status }
 }
 
 /** a panel `width` × `height` (default: the same height) made like `like` (plywood, studs) */

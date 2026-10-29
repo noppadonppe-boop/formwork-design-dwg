@@ -121,7 +121,8 @@ describe('wall with horizontal studs on vertical wales', () => {
   }
 
   it('faces A and C carry the vertical wales of the design (C mirrored), no horizontal wales', () => {
-    const r = wall(['H-2412', 'H-2412'], hs)
+    // one panel the full length: no joints, the strongbacks stay as designed
+    const r = wall(['H-4812'], hs)
     const x = run.type === 'wall' ? run.design.layout.waleX : []
     expect(r.specs.A!.wales).toEqual([])
     expect(r.specs.A!.waleU).toEqual(x)
@@ -130,7 +131,7 @@ describe('wall with horizontal studs on vertical wales', () => {
   })
 
   it('3D: double wales stand the full height; plates bridge the side-by-side pair', () => {
-    const r = wall(['H-2412', 'H-2412'], hs)
+    const r = wall(['H-4812'], hs)
     const parts = assembly3d(r, el).parts
     const wales = parts.filter((p) => p.kind === 'wale')
     expect(wales).toHaveLength(2 * 2 * r.specs.A!.waleU!.length)
@@ -140,14 +141,48 @@ describe('wall with horizontal studs on vertical wales', () => {
     expect(r.wales).toEqual([{ faces: 'A/C', length: 2.4, count: 4 * r.specs.A!.waleU!.length }])
   })
 
-  it('panel ends within the stud cantilever of a wale pass; a joint between wales warns', () => {
+  it('panel ends within the stud cantilever of a wale pass', () => {
     const one = wall(['H-4812'], hs)
     expect(one.faces.A!.checks.some((c) => c.status === 'ok' && c.label.includes('ช่วงยื่นของเคร่านอน'))).toBe(true)
-    // the joint of two 2.40 m panels falls between the wales, further than the studs may cantilever
-    const two = wall(['H-2412', 'H-2412'], hs)
-    const gap = Math.min(...two.specs.A!.waleU!.map((w) => Math.abs(w - 2.4)))
-    expect(gap).toBeGreaterThan(two.specs.A!.studReach!)
-    expect(two.faces.A!.checks.some((c) => c.status === 'warn' && c.label.includes('เคร่านอนยื่นได้ไม่เกิน'))).toBe(true)
+  })
+
+  it('strongbacks are set out at the panel joints: within the stud cantilever, clear of the tie, ≤ design c/c', () => {
+    // the joint of two 2.40 m panels falls between the designed strongbacks (0.25 m from the nearest)
+    const design = run.type === 'wall' ? run.design.layout.waleX : []
+    expect(Math.min(...design.map((w) => Math.abs(w - 2.4)))).toBeGreaterThan(0.2)
+    const r = wall(['H-2412', 'H-2412'], hs)
+    const x = r.specs.A!.waleU!
+    const reach = r.specs.A!.studReach!
+    const near = Math.min(...x.map((w) => Math.abs(w - 2.4)))
+    expect(near).toBeLessThanOrEqual(reach + 1e-9)
+    expect(near).toBeGreaterThanOrEqual(0.1 - 1e-9)
+    expect(x[0]).toBe(design[0])
+    expect(x.at(-1)).toBe(design.at(-1))
+    expect(Math.max(...x.slice(1).map((w, i) => w - x[i]))).toBeLessThanOrEqual(r.specs.A!.waleMax! + 1e-9)
+    // the same strongbacks on the back face, ties at every one of them on the design's tie rows
+    expect(r.specs.C!.waleU).toEqual(x.map((u) => Math.round((4.8 - u) * 1000) / 1000).reverse())
+    const rows = run.type === 'wall' ? run.design.layout.tieLevels : []
+    expect(r.faces.A!.ties).toHaveLength(x.length * rows.length)
+    expect(r.faces.A!.ties.some((t) => t.clash)).toBe(false)
+    expect(r.faces.A!.checks.some((c) => c.status === 'ok' && c.label.includes('ช่วงยื่นของเคร่านอน'))).toBe(true)
+    expect(r.faces.A!.checks.some((c) => c.label.startsWith('คานตั้งจัดตามรอยต่อแผง'))).toBe(true)
+    expect(r.wales).toEqual([{ faces: 'A/C', length: 2.4, count: 2 * 2 * x.length }])
+  })
+
+  it('a through face: the end strongbacks keep the design offset from the panel ends, past the concrete', () => {
+    const faces = emptyFaces()
+    faces.A = { courses: [{ panels: ['H-2412', 'H-2412'] }, { panels: ['H-2412', 'H-2412'] }] }
+    const r = analyzeAssembly({ code: 'W1', name: '', elementId: 'e', through: 'x', linked: true, faces, note: '' }, el, run, hs)!
+    expect(r.relaid).toBe(true)
+    const x = r.specs.A!.waleU!
+    const e = run.type === 'wall' ? run.design.layout.waleX[0] : 0
+    expect(x[0]).toBeCloseTo(Math.min(e, r.specs.A!.studReach!), 3) // face coordinates start at the panel end
+    expect(r.faces.A!.checks.some((c) => c.status === 'ok' && c.label.includes('ช่วงยื่นของเคร่านอน'))).toBe(true)
+  })
+
+  it('panels with vertical studs keep the designed strongbacks', () => {
+    const r = wall(['P-2412', 'P-2412'], stock)
+    expect(r.specs.A!.waleU).toEqual(run.type === 'wall' ? run.design.layout.waleX : [])
   })
 
   it('panels with vertical studs on a horizontal-stud wall are flagged', () => {

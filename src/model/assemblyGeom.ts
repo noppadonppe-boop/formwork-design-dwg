@@ -36,6 +36,8 @@ export interface FaceDef {
   waleU?: number[]
   /** horizontal studs: the longest stud cantilever past a vertical wale that passes, m */
   studReach?: number
+  /** horizontal studs: the largest wale c/c of the design, m */
+  waleMax?: number
   /** form ties, m on the face from the concrete edge */
   ties: { u: number; y: number }[]
 }
@@ -171,7 +173,7 @@ export function elementGeom(el: ElementData, run?: AnyDesign): ElementGeom | und
         n,
         wales: w,
         ties,
-        ...(waleU?.length ? { waleU, studReach: reach !== undefined ? reach / 100 : undefined } : {}),
+        ...(waleU?.length ? { waleU, studReach: reach !== undefined ? reach / 100 : undefined, waleMax: d ? d.layout.waleSpacing / 100 : undefined } : {}),
       })
       return {
         type: 'wall',
