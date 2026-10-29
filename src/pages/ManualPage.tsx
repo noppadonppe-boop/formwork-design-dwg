@@ -1623,7 +1623,7 @@ function AssemblySection() {
             [<b>แผงที่ใช้ต่อ 1 ชุด</b>, 'จำนวนที่ใช้ไม่เกินสต็อก (ตัวเลขแดง = ไม่พอ) · จุดสีหน้ารหัส = ผลตรวจแผงนั้นกับชิ้นงาน'],
             [<b>คานรับเคร่า / คานรัด</b>, 'แสดงความยาวและจำนวนท่อนตามที่ออกแบบไว้ในชิ้นงาน'],
             [<b>แนวเคร่าของแผง (กำแพง)</b>, 'เคร่าของแผงขวางคาน — แผงเคร่าตั้งบนกำแพงคานนอน หรือแผงเคร่านอนบนกำแพงคานตั้ง'],
-            [<b>ปลายแผง (กำแพงเคร่านอน)</b>, 'ปลายแผงทุกแผงห่างคานตั้งไม่เกินช่วงยื่นของเคร่านอนที่คำนวณได้ — เมื่อใช้แผงเคร่านอน ระบบจัดคานตั้งตามรอยต่อแผงให้เอง (ห่างรอยต่อ 10 ซม. ให้ไทร์พ้นรอยต่อ คานตั้งริมคงเดิม ช่วงระหว่างแบ่งเท่า ๆ ไม่เกินระยะที่ออกแบบ) ใช้ชุดเดียวกันทั้งด้าน A และ C'],
+            [<b>ปลายแผง (กำแพงเคร่านอน)</b>, 'ปลายแผงทุกแผงห่างคานตั้งไม่เกินช่วงยื่นของเคร่านอนที่คำนวณได้ — เมื่อใช้แผงเคร่านอน ระบบจัดคานตั้งตามรอยต่อแผงให้เอง (ห่างรอยต่อ 10 ซม. ให้ไทร์พ้นรอยต่อ คานตั้งริมคงเดิม ช่วงระหว่างแบ่งเท่า ๆ ไม่เกินระยะที่ออกแบบ) ด้านตรงข้ามใช้ชุดเดียวกัน (กำแพง A/C · ฐานราก A/C และ B/D)'],
           ],
           [
             [<b>Length</b>, 'The panels of each course add up to the face length exactly (short, long or past the corner = fail)'],
@@ -1632,7 +1632,7 @@ function AssemblySection() {
             [<b>Panels per set</b>, 'Quantity used ≤ stock (red number = short) · the dot before the code = that panel checked against the element'],
             [<b>Wales / yokes</b>, 'Lengths and number of pieces as designed for the element'],
             [<b>Panel stud direction (walls)</b>, "The panel's studs cross the wales — vertical-stud panels on a wall with horizontal wales, horizontal-stud panels on a wall with strongbacks"],
-            [<b>Panel ends (horizontal-stud walls)</b>, 'Every panel end lies within the designed stud cantilever of a strongback — with horizontal-stud panels the strongbacks are set out at the panel joints automatically (10 cm off the joint so the tie misses it, end strongbacks kept, the gaps split evenly at no more than the design spacing), one set for faces A and C'],
+            [<b>Panel ends (horizontal-stud walls)</b>, 'Every panel end lies within the designed stud cantilever of a strongback — with horizontal-stud panels the strongbacks are set out at the panel joints automatically (10 cm off the joint so the tie misses it, end strongbacks kept, the gaps split evenly at no more than the design spacing), one set for opposite faces (walls A/C · footings A/C and B/D)'],
           ],
           [
             [<b>长度</b>, '每层模板拼接后正好等于该面长度(不足、超出或伸出转角 = 不满足)'],
@@ -1641,7 +1641,7 @@ function AssemblySection() {
             [<b>每套所用模板</b>, '用量不超过库存(红色数字 = 不足)· 编号前的圆点 = 该模板按构件验算的结果'],
             [<b>围檩 / 柱箍</b>, '按构件设计给出长度及根数'],
             [<b>模板布楞方向(墙)</b>, '模板的楞与围檩垂直 —— 水平围檩墙用竖向布楞模板,竖向背楞墙用横向布楞模板'],
-            [<b>模板端部(横楞墙)</b>, '每块模板端部距背楞不超过计算所得的横楞悬臂长度 —— 使用横向布楞模板时,系统按模板拼缝自动布置背楞(距拼缝 10 cm 使螺栓避开拼缝,端部背楞不变,其间等分且不超过设计间距),A、C 两面共用一套'],
+            [<b>模板端部(横楞墙)</b>, '每块模板端部距背楞不超过计算所得的横楞悬臂长度 —— 使用横向布楞模板时,系统按模板拼缝自动布置背楞(距拼缝 10 cm 使螺栓避开拼缝,端部背楞不变,其间等分且不超过设计间距),相对两面共用一套(墙 A/C · 基础 A/C 与 B/D)'],
           ],
         )}
       />

@@ -194,3 +194,38 @@ describe('wall with horizontal studs on vertical wales', () => {
     expect(flag(wall(['H-2412', 'H-2412'], hs), 'H-2412')).toBe(false)
   })
 })
+
+describe('tied footing with horizontal studs: strongbacks set out on both pairs of faces', () => {
+  // one course the full depth, so no tie row falls on a course joint
+  const H = (id: string, w: number) => mk(id, { width: w, height: 1.5, stud: { ...DEFAULT_PANEL.stud, dir: 'horizontal', spacingCm: 30 } })
+  const hs = [H('H-2415', 2.4), H('H-1215', 1.2)]
+  const el = element('footing', { lengthX: 3.6, lengthY: 2.4, height: 1.5, support: 'tied', system: 'horizontal' })
+  const run = runDesign(el, DEFAULT_CRITERIA)
+  const faces = emptyFaces()
+  faces.A = { courses: [{ panels: ['H-2415', 'H-1215'] }] }
+  faces.B = { courses: [{ panels: ['H-1215', 'H-1215'] }] }
+  const r = analyzeAssembly({ code: 'F1', name: '', elementId: 'e', through: 'x', linked: true, faces, note: '' }, el, run, hs)!
+
+  it('every joint on A/C and on B/D has a strongback within the stud cantilever, clear of the tie', () => {
+    expect(r.relaid).toBe(true)
+    for (const k of ['A', 'B'] as const) {
+      const f = r.faces[k]!
+      const reach = r.specs[k]!.studReach!
+      for (const c of f.courses)
+        for (const j of c.joints) {
+          const near = Math.min(...f.waleU.map((w) => Math.abs(w - j)))
+          expect(near).toBeLessThanOrEqual(reach + 1e-9)
+        }
+      expect(f.ties.some((t) => t.clash)).toBe(false)
+      expect(f.checks.some((c) => c.label.startsWith('คานตั้งจัดตามรอยต่อแผง'))).toBe(true)
+      expect(f.checks.some((c) => c.status === 'ok' && c.label.includes('ช่วงยื่นของเคร่านอน'))).toBe(true)
+    }
+  })
+
+  it('the wale list counts the strongbacks of each pair, the full depth', () => {
+    expect(r.wales).toEqual([
+      { faces: 'A/C', length: 1.5, count: 2 * 2 * r.specs.A!.waleU!.length },
+      { faces: 'B/D', length: 1.5, count: 2 * 2 * r.specs.B!.waleU!.length },
+    ])
+  })
+})

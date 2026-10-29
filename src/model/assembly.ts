@@ -300,8 +300,9 @@ export function analyzeFace(spec: FaceSpec, layout: FaceLayout, panels: Map<stri
 // ---------------------------------------------------------------- strongbacks at the panel joints
 
 /**
- * Vertical wales (horizontal studs) set out to suit the panels: every panel joint on faces A and C (C seen from its own
- * outside, so mirrored onto the wall) gets a wale within the stud cantilever — offset by the tie clearance so the tie at
+ * Vertical wales (horizontal studs) set out to suit the panels of a pair of opposite faces `a` / `c` (a wall's A/C, a
+ * footing's A/C or B/D): every panel joint on either face (c seen from its own outside, so mirrored) gets a wale within
+ * the stud cantilever — offset by the tie clearance so the tie at
  * the wale misses the joint, when the cantilever allows — the design's end wales stay, and the gaps between are split
  * evenly at no more than the design's wale c/c. A wale serves both faces (the ties pass through), so the same set is
  * used on A and C. Returns wall positions (m along the concrete from face A's left end), or undefined when the faces
@@ -381,25 +382,28 @@ export function analyzeAssembly(a: AssemblyData, el: ElementData, run: AnyDesign
   const layouts: AssemblyResult['layouts'] = {}
   const faces: AssemblyResult['faces'] = {}
   for (const k of keys) layouts[k] = faceLayoutOf(a, k, geom.links)
-  // a wall with horizontal studs: strongbacks set out at the panel joints, ties at every strongback on the same rows
-  const L = geom.type === 'wall' ? specs.A?.concreteL ?? 0 : 0
-  const relaid = geom.type === 'wall' && specs.A && specs.C ? strongbacksAtJoints(L, specs.A, specs.C, layouts, byId) : undefined
-  if (relaid)
-    for (const [k, xs] of [
-      ['A', relaid],
-      ['C', relaid.map((x) => L - x).reverse()],
+  // horizontal studs (wall faces A/C, a tied footing's A/C and B/D): strongbacks set out at the panel joints of each
+  // pair of opposite faces, ties at every strongback on the same rows
+  const pairs = (geom.type === 'wall' ? [['A', 'C']] : geom.type === 'footing' ? [['A', 'C'], ['B', 'D']] : []).filter(([k]) => specs[k as FaceKey]?.waleU?.length) as [FaceKey, FaceKey][]
+  const relaid: { pair: [FaceKey, FaceKey]; n: number; design: number }[] = []
+  for (const [ka, kc] of pairs) {
+    const L = specs[ka]!.concreteL
+    const xs = specs[kc] ? strongbacksAtJoints(L, specs[ka]!, specs[kc]!, layouts, byId) : undefined
+    if (!xs) continue
+    relaid.push({ pair: [ka, kc], n: xs.length, design: specs[ka]!.waleU!.length })
+    for (const [k, at] of [
+      [ka, xs],
+      [kc, xs.map((x) => L - x).reverse()],
     ] as const) {
       const f = specs[k]!
       const rows = [...new Set(f.ties.map((t) => t.y))]
-      const waleU = xs.map((x) => r3(x + f.offset))
+      const waleU = at.map((x) => r3(x + f.offset))
       specs[k] = { ...f, waleU, ties: rows.flatMap((y) => waleU.map((u) => ({ u, y }))) }
     }
-  for (const k of keys) faces[k] = analyzeFace(specs[k]!, layouts[k]!, byId)
-  if (relaid) {
-    const n = relaid.length
-    const design = geom.faces.find((f) => f.key === 'A')?.waleU?.length ?? n
-    faces.A!.checks.push({ status: 'info', label: `คานตั้งจัดตามรอยต่อแผง ${n} แนว (ตามผลคำนวณ ${design} แนว) — ระยะไม่เกินที่ออกแบบ`, detail: 'Form tie อยู่ที่คานตั้งทุกตัว ตามแถวไทร์เดิม' })
   }
+  for (const k of keys) faces[k] = analyzeFace(specs[k]!, layouts[k]!, byId)
+  for (const r of relaid)
+    faces[r.pair[0]]!.checks.push({ status: 'info', label: `คานตั้งจัดตามรอยต่อแผง ${r.n} แนว (ตามผลคำนวณ ${r.design} แนว) — ระยะไม่เกินที่ออกแบบ`, detail: 'Form tie อยู่ที่คานตั้งทุกตัว ตามแถวไทร์เดิม' })
 
   const counts = new Map<string, number>()
   for (const k of keys) for (const id of panelIds(layouts[k]!)) counts.set(id, (counts.get(id) ?? 0) + 1)
@@ -435,15 +439,14 @@ export function analyzeAssembly(a: AssemblyData, el: ElementData, run: AnyDesign
       /* no model: wales not listed */
     }
   }
-  if (relaid && el.type === 'wall') {
-    // the strongbacks as set out, not as designed: one length (the wall height) on faces A/C
-    const count = 2 * relaid.length * el.input.wale.count
+  if (pairs.length && (el.type === 'wall' || el.type === 'footing')) {
+    // vertical wales: as set out on each pair of faces (or as designed), the full height
     const length = r3(el.input.height)
-    wales.splice(0, wales.length, { faces: 'A/C', length, count })
+    wales.splice(0, wales.length, ...pairs.map(([ka, kc]) => ({ faces: `${ka}/${kc}`, length, count: 2 * specs[ka]!.waleU!.length * el.input.wale.count })))
   }
   const all = [...keys.map((k) => faces[k]!.status), ...usage.map((u) => u.status)]
   const status: Status = all.includes('fail') ? 'fail' : all.includes('warn') ? 'warn' : 'ok'
-  return { geom, keys, specs, faces, layouts, usage, wales, relaid: !!relaid, status }
+  return { geom, keys, specs, faces, layouts, usage, wales, relaid: relaid.length > 0, status }
 }
 
 /** a panel `width` × `height` (default: the same height) made like `like` (plywood, studs) */
