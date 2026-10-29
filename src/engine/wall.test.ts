@@ -196,3 +196,62 @@ describe('stud cantilever above the top wale', () => {
     expect(top(ex83).status).toBe('ok')
   })
 })
+
+describe('horizontal studs on vertical wales (strongbacks)', () => {
+  const v = designWall(ex81)
+  const h = designWall({ ...ex81, system: 'horizontal' })
+  const comp = (k: string) => h.components.find((c) => c.key === k)!
+
+  it('same member checks with the axes swapped: stud spacing, wale c/c and tie spacing match the vertical system', () => {
+    expect(h.layout.system).toBe('horizontal')
+    expect(h.layout.studSpacing).toBe(v.layout.studSpacing)
+    expect(h.layout.waleSpacing).toBe(v.layout.waleSpacing)
+    expect(h.layout.tieSpacing).toBe(v.layout.tieSpacing)
+    expect(comp('stud').title).toBe('เคร่านอน (Studs)')
+    expect(comp('wale').title).toBe('คานตั้ง (Strongbacks)')
+  })
+
+  it('vertical wales from the end offset to the other end, evenly ≤ c/c; ties at every wale and tie level', () => {
+    const x = h.layout.waleX
+    const e = comp('stud-end').spacing!.value / 100
+    expect(x[0]).toBeCloseTo(e, 3)
+    expect(x.at(-1)!).toBeCloseTo(ex81.length - e, 3)
+    expect(Math.max(...x.slice(1).map((u, i) => u - x[i]))).toBeLessThanOrEqual(h.layout.waleSpacing / 100 + 1e-9)
+    expect(h.layout.tieX).toEqual(x)
+    expect(h.layout.studX).toEqual([])
+    expect(h.layout.waleLevels).toEqual([])
+    expect(h.quantities.ties).toBe(x.length * h.layout.tieLevels.length)
+    expect(h.quantities.studLength).toBeCloseTo(2 * h.layout.studLevels.length * ex81.length, 6)
+    expect(h.quantities.waleLength).toBeCloseTo(2 * 2 * x.length * ex81.height, 6)
+  })
+
+  it('stud end cantilever under the uniform load: M = wc²/2', () => {
+    const c = comp('stud-end')
+    const w = (v.pressure.Pmax * 15) / 1e4
+    const cm = c.spacing!.value
+    expect(c.rows[0].demand * timber(1.5, 3).Sx).toBeCloseTo((w * cm * cm) / 2, 1)
+    expect(c.status).not.toBe('fail')
+  })
+
+  it('tie levels: lowest at the bottom offset, top tie at the longest wale cantilever that passes, gaps ≤ tie spacing', () => {
+    const z = h.layout.tieLevels
+    expect(z[0]).toBe(ex81.bottomWaleOffsetM)
+    expect(Math.max(...z.slice(1).map((u, i) => u - z[i]))).toBeLessThanOrEqual(h.layout.tieSpacing / 100 + 1e-9)
+    const top = comp('wale-top')
+    expect(ex81.height - z.at(-1)!).toBeLessThanOrEqual(top.spacing!.max / 100 + 1e-9)
+    expect(top.status).not.toBe('fail')
+    expect(h.status).not.toBe('fail')
+  })
+
+  it('tie force = P × wale c/c × tie spacing', () => {
+    const t = comp('tie')
+    expect(t.rows[0].demand).toBeCloseTo((h.pressure.Pmax * h.layout.waleSpacing * h.layout.tieSpacing) / 1e4, 0)
+  })
+
+  it('a fixed end offset is kept and checked', () => {
+    const d = designWall({ ...ex81, system: 'horizontal', endWaleOffsetM: 0.6 })
+    const c = d.components.find((k) => k.key === 'stud-end')!
+    expect(c.spacing!.value).toBe(60)
+    expect(c.status).toBe('fail')
+  })
+})

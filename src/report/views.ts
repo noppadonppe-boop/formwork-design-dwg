@@ -13,12 +13,14 @@ export function elementViews(el: ElementData, run: AnyDesign): { a: DrawingSpec;
   const m = elementModel(el, run)
   if (el.type === 'wall' && run.type === 'wall') {
     const i = el.input
-    const { waleLevels, tieX, studX } = run.design.layout
+    const { tieLevels, tieX, studX, studLevels, system } = run.design.layout
+    const horizontal = system === 'horizontal'
+    // ties along the wall (horizontal studs: at the vertical wales) and up it (at the wales / tie rows), a few studs
     const front: Dim[] = [
       { dir: 'h', a: 0, b: i.length, at: -0.55, text: `L = ${i.length.toFixed(2)} ม.` },
       ...chain('h', [0, ...tieX, i.length], -0.28),
-      ...chain('v', [0, ...waleLevels, i.height], -0.35),
-      ...chain('h', studX.slice(0, 4), i.height + 0.2),
+      ...chain('v', [0, ...tieLevels, i.height], -0.35),
+      ...(horizontal ? chain('v', studLevels.slice(0, 4), i.length + 0.2) : chain('h', studX.slice(0, 4), i.height + 0.2)),
     ]
     const uMin = -m.bounds.max[2]
     const side: Dim[] = [
@@ -26,7 +28,7 @@ export function elementViews(el: ElementData, run: AnyDesign): { a: DrawingSpec;
       { dir: 'h', a: -i.thickness / 2, b: i.thickness / 2, at: i.height + 0.25, text: `${Math.round(i.thickness * 100)}` },
     ]
     return {
-      a: { model: m, view: 'front', dims: front, title: 'รูปด้านกำแพง (Elevation) — ระยะเคร่า / คานรับเคร่า / ไทร์ (ซม.)' },
+      a: { model: m, view: 'front', dims: front, title: horizontal ? 'รูปด้านกำแพง (Elevation) — ระยะเคร่านอน / คานตั้ง / ไทร์ (ซม.)' : 'รูปด้านกำแพง (Elevation) — ระยะเคร่า / คานรับเคร่า / ไทร์ (ซม.)' },
       b: { model: m, view: 'side', dims: side, title: 'รูปตัดกำแพง (Section) — ค้ำยันและไทร์' },
     }
   }

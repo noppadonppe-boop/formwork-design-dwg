@@ -27,6 +27,33 @@ describe('wall model', () => {
   })
 })
 
+describe('wall model — horizontal studs on vertical wales', () => {
+  const inp = { ...DEFAULT_WALL, system: 'horizontal' as const }
+  const d = designWall(inp)
+  const m = wallModel(inp, d)
+  const of = (g: string) => m.parts.filter((p) => p.group === g && p.shape === 'box') as Extract<(typeof m.parts)[number], { shape: 'box' }>[]
+
+  it('studs run the length of the wall at every stud level on both faces', () => {
+    const studs = of('stud')
+    expect(studs.length).toBe(2 * d.layout.studLevels.length)
+    for (const s of studs) expect(s.size[0]).toBe(DEFAULT_WALL.length)
+  })
+  it('double wales stand the full height at every wale position', () => {
+    const wales = of('wale')
+    expect(wales.length).toBe(2 * 2 * d.layout.waleX.length)
+    for (const w of wales) expect(w.size[1]).toBe(DEFAULT_WALL.height)
+  })
+  it('one tie (+2 plates) per tie level and wale; plates bridge the side-by-side pair', () => {
+    expect(m.parts.filter((p) => p.group === 'tie').length).toBe(3 * d.layout.tieLevels.length * d.layout.waleX.length)
+    const plate = of('tie')[0]
+    expect(plate.size[0]).toBeGreaterThan(plate.size[1])
+  })
+  it('handles: stud spacing up the wall, wale spacing along it', () => {
+    expect(m.handles.find((h) => h.key === 'studSpacing')!.axis).toEqual([0, 1, 0])
+    expect(m.handles.find((h) => h.key === 'waleSpacing')!.axis).toEqual([1, 0, 0])
+  })
+})
+
 describe('column model', () => {
   const d = designColumn(DEFAULT_COLUMN)
   const m = columnModel(DEFAULT_COLUMN, d)

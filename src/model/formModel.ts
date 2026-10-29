@@ -185,7 +185,9 @@ export function wallModel(inp: WallInput, d: WallDesign): FormModel {
   const z0 = t / 2 + ply // outer face of plywood
   const zW = z0 + sd // outer face of studs
   const zOut = zW + wd // outer face of wales
-  const { studX, tieX, waleLevels } = d.layout
+  const { studX, tieX, waleLevels, studLevels, waleX, tieLevels } = d.layout
+  // horizontal studs (along the wall) on vertical wales (strongbacks)
+  const horizontal = d.layout.system === 'horizontal'
 
   parts.push({ id: 'concrete', group: 'concrete', kind: 'concrete', shape: 'box', center: [L / 2, H / 2, 0], size: [L, H, t] })
   for (const s of [1, -1]) {
@@ -196,18 +198,29 @@ export function wallModel(inp: WallInput, d: WallDesign): FormModel {
       const xc = Math.min(Math.max(x, sb / 2), L - sb / 2)
       parts.push({ id: `stud${s}-${i}`, group: 'stud', kind: studKind, shape: 'box', center: [xc, H / 2, s * (z0 + sd / 2)], size: [sb, H, sd] })
     })
+    studLevels.forEach((y, i) => {
+      const yc = Math.min(Math.max(y, sb / 2), H - sb / 2)
+      parts.push({ id: `stud${s}-${i}`, group: 'stud', kind: studKind, shape: 'box', center: [L / 2, yc, s * (z0 + sd / 2)], size: [L, sb, sd] })
+    })
     waleLevels.forEach((y, i) =>
       pairOffsets(inp.wale.count, wb).forEach((o, k) =>
         parts.push({ id: `wale${s}-${i}-${k}`, group: 'wale', kind: waleKind, shape: 'box', center: [L / 2, y + o, s * (zW + wd / 2)], size: [L + 0.2, wb, wd] }),
       ),
     )
+    waleX.forEach((x, i) =>
+      pairOffsets(inp.wale.count, wb).forEach((o, k) =>
+        parts.push({ id: `wale${s}-${i}-${k}`, group: 'wale', kind: waleKind, shape: 'box', center: [x + o, H / 2, s * (zW + wd / 2)], size: [wb, H, wd] }),
+      ),
+    )
   }
+  // bearing plates run along the wale: across the wall on horizontal wales, up it on vertical ones
   const tp = tiePlate(inp.wale.count, wb)
-  waleLevels.forEach((y, i) =>
+  const plate: Vec3 = horizontal ? [tp.across, tp.along, tp.t] : [tp.along, tp.across, tp.t]
+  tieLevels.forEach((y, i) =>
     tieX.forEach((x, j) => {
       parts.push({ id: `tie-${i}-${j}`, group: 'tie', kind: 'tie', shape: 'bar', from: [x, y, -(zOut + 0.06)], to: [x, y, zOut + 0.06], b: 0.012, d: 0.012, round: true })
       for (const s of [1, -1])
-        parts.push({ id: `tieplate${s}-${i}-${j}`, group: 'tie', kind: 'steel', shape: 'box', center: [x, y, s * (zOut + tp.t / 2)], size: [tp.along, tp.across, tp.t] })
+        parts.push({ id: `tieplate${s}-${i}-${j}`, group: 'tie', kind: 'steel', shape: 'box', center: [x, y, s * (zOut + tp.t / 2)], size: plate })
     }),
   )
 
@@ -227,13 +240,22 @@ export function wallModel(inp: WallInput, d: WallDesign): FormModel {
         parts.push({ id: `brace${s}-${i}-${k}`, group: 'brace', kind: brKind, shape: 'bar', from: [x, h, s * zOut], to: [x, 0, s * (zOut + h / Math.tan(th))], b: cm(br.B), d: cm(br.H), round })
       })
 
-  const s1 = studX[1] ?? L
   const handles: Handle[] = [
     { key: 'height', label: 'ความสูง H', position: [L / 2, H + 0.18, 0], axis: [0, 1, 0], value: H, min: 0.3, max: 15, step: 0.05 },
     { key: 'length', label: 'ความยาว L', position: [L + 0.3, H / 2, 0], axis: [1, 0, 0], value: L, min: 0.5, max: 200, step: 0.05 },
     { key: 'thickness', label: 'ความหนา t', position: [-0.3, H, t / 2], axis: [0, 0, 1], value: t / 2, min: 0.05, max: 1.5, step: 0.025 },
-    { key: 'studSpacing', label: 'ระยะเคร่า', position: [s1, H + 0.1, zW], axis: [1, 0, 0], value: s1, min: 0.05, max: 1.2, step: 0.05 },
   ]
+  if (horizontal) {
+    const s1 = studLevels[1] ?? H
+    handles.push({ key: 'studSpacing', label: 'ระยะเคร่า', position: [-0.1, s1, zW], axis: [0, 1, 0], value: s1, min: 0.05, max: 1.2, step: 0.05 })
+    if (waleX.length > 1)
+      handles.push({ key: 'waleSpacing', label: 'ระยะคานตั้ง', position: [waleX[1], H + 0.1, zOut], axis: [1, 0, 0], value: waleX[1] - waleX[0], min: 0.2, max: 3, step: 0.05 })
+    if (tieX.length && tieLevels.length > 1)
+      handles.push({ key: 'tieSpacing', label: 'ระยะไทร์', position: [tieX[0], tieLevels[1], zOut + 0.12], axis: [0, 1, 0], value: tieLevels[1] - tieLevels[0], min: 0.2, max: 3, step: 0.05 })
+    return { parts, handles, bounds: bounds(parts) }
+  }
+  const s1 = studX[1] ?? L
+  handles.push({ key: 'studSpacing', label: 'ระยะเคร่า', position: [s1, H + 0.1, zW], axis: [1, 0, 0], value: s1, min: 0.05, max: 1.2, step: 0.05 })
   if (waleLevels.length > 1)
     handles.push({ key: 'waleSpacing', label: 'ระยะคานรับเคร่า', position: [-0.3, waleLevels[1], zOut], axis: [0, 1, 0], value: waleLevels[1] - waleLevels[0], min: 0.2, max: 3, step: 0.05 })
   if (tieX.length && waleLevels.length)
