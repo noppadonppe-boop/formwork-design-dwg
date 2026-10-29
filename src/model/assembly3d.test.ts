@@ -3,6 +3,7 @@ import { newElement, runDesign } from '@/data/elements'
 import { type AssemblyData, DEFAULT_CRITERIA, DEFAULT_PANEL, type ElementData, emptyFaces, type FormPanel, type PanelData } from '@/data/types'
 import { analyzeAssembly } from './assembly'
 import { assembly3d } from './assembly3d'
+import { panelChecks, panelLayout } from './panel'
 
 const mk = (id: string, o: Partial<PanelData>): FormPanel => ({ ...DEFAULT_PANEL, code: id, stock: 10, ...o, id, projectId: 'p', createdAt: 0, updatedAt: 0 })
 const stock = [mk('P-2412', { width: 2.4, height: 1.2 }), mk('P-2012', { width: 2, height: 1.2 }), mk('F-0212', { width: 0.2, height: 1.2 }), mk('S', { width: 2.4, height: 0.3 })]
@@ -105,5 +106,56 @@ describe('assembly in 3D', () => {
       expect(Math.sign(at[0].center[2])).toBe(-Math.sign(at[1].center[2]))
       expect(at.every((p) => Math.abs(p.center[2]) > 0.1 && Math.abs(p.center[2]) < Math.abs(t.from![2]))).toBe(true)
     }
+  })
+})
+
+describe('wall with horizontal studs on vertical wales', () => {
+  const H = (id: string, w: number) => mk(id, { width: w, height: 1.2, stud: { ...DEFAULT_PANEL.stud, dir: 'horizontal' } })
+  const hs = [H('H-2412', 2.4), H('H-4812', 4.8)]
+  const el = element('wall', { length: 4.8, thickness: 0.2, height: 2.4, system: 'horizontal' })
+  const run = runDesign(el, DEFAULT_CRITERIA)
+  const wall = (ids: string[], panels: FormPanel[]) => {
+    const faces = emptyFaces()
+    faces.A = { courses: [{ panels: ids }, { panels: ids }] }
+    return analyzeAssembly({ code: 'W1', name: '', elementId: 'e', through: 'y', linked: true, faces, note: '' }, el, run, panels)!
+  }
+
+  it('faces A and C carry the vertical wales of the design (C mirrored), no horizontal wales', () => {
+    const r = wall(['H-2412', 'H-2412'], hs)
+    const x = run.type === 'wall' ? run.design.layout.waleX : []
+    expect(r.specs.A!.wales).toEqual([])
+    expect(r.specs.A!.waleU).toEqual(x)
+    expect(r.specs.C!.waleU).toEqual(x.map((u) => Math.round((4.8 - u) * 1000) / 1000).reverse())
+    expect(r.geom.waleLabel).toBe('คานตั้ง')
+  })
+
+  it('3D: double wales stand the full height; plates bridge the side-by-side pair', () => {
+    const r = wall(['H-2412', 'H-2412'], hs)
+    const parts = assembly3d(r, el).parts
+    const wales = parts.filter((p) => p.kind === 'wale')
+    expect(wales).toHaveLength(2 * 2 * r.specs.A!.waleU!.length)
+    for (const w of wales) expect(w.size[1]).toBeCloseTo(2.4, 6)
+    const plate = parts.find((p) => p.kind === 'plate')!
+    expect(plate.size[0]).toBeGreaterThan(plate.size[1])
+    expect(r.wales).toEqual([{ faces: 'A/C', length: 2.4, count: 4 * r.specs.A!.waleU!.length }])
+  })
+
+  it('panel ends within the stud cantilever of a wale pass; a joint between wales warns', () => {
+    const one = wall(['H-4812'], hs)
+    expect(one.faces.A!.checks.some((c) => c.status === 'ok' && c.label.includes('ช่วงยื่นของเคร่านอน'))).toBe(true)
+    // the joint of two 2.40 m panels falls between the wales, further than the studs may cantilever
+    const two = wall(['H-2412', 'H-2412'], hs)
+    const gap = Math.min(...two.specs.A!.waleU!.map((w) => Math.abs(w - 2.4)))
+    expect(gap).toBeGreaterThan(two.specs.A!.studReach!)
+    expect(two.faces.A!.checks.some((c) => c.status === 'warn' && c.label.includes('เคร่านอนยื่นได้ไม่เกิน'))).toBe(true)
+  })
+
+  it('panels with vertical studs on a horizontal-stud wall are flagged', () => {
+    const flag = (r: ReturnType<typeof wall>, id: string) => {
+      const p = r.usage.find((u) => u.panel.id === id)!.panel
+      return panelChecks(p, panelLayout(p), { el, run }).some((c) => c.status === 'warn' && c.label.includes('แผงนี้วางเคร่าตั้ง'))
+    }
+    expect(flag(wall(['P-2412', 'P-2412'], stock), 'P-2412')).toBe(true)
+    expect(flag(wall(['H-2412', 'H-2412'], hs), 'H-2412')).toBe(false)
   })
 })

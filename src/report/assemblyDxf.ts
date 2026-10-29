@@ -88,6 +88,7 @@ export function faceView(f: FaceResult, title: string): SimpleView {
   for (const p of f.placed) v.rects.push({ layer: p.w < 0.3 ? 'FILLER' : 'PANEL', x: p.x, y: p.y, w: p.w, h: p.h, label: p.w >= 0.3 ? p.panel?.code : undefined })
   for (const p of f.placed.filter((p) => p.w < 0.3 && p.panel)) v.texts.push({ layer: 'TEXT', x: p.x + p.w / 2, y: p.y + p.h + 0.04, h: 0.04, s: p.panel!.code, center: true })
   for (const y of f.wales) v.lines.push({ layer: 'WALE', x1: -0.1, y1: y, x2: len + 0.1, y2: y })
+  for (const u of f.waleU) v.lines.push({ layer: 'WALE', x1: u, y1: -0.1, x2: u, y2: v.height + 0.1 })
   for (const t of f.ties) v.circles.push({ layer: 'TIE', x: t.u, y: t.y, r: 0.015 })
   v.lines.push({ layer: 'POUR', x1: -0.15, y1: f.spec.reqHeight, x2: len + 0.15, y2: f.spec.reqHeight })
   v.texts.push({ layer: 'POUR', x: len + 0.2, y: f.spec.reqHeight, h: 0.05, s: `${f.spec.exactHeight ? 'กว้าง' : 'สูง'} ${f.spec.reqHeight.toFixed(2)}` })

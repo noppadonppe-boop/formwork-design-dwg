@@ -82,7 +82,7 @@ export function FaceElevation({
   onSelect: (s: Slot | undefined) => void
   onMove: (course: number, from: number, to: number) => void
 }) {
-  const { spec, placed, courses, ties, wales } = face
+  const { spec, placed, courses, ties, wales, waleU } = face
   const L = Math.max(spec.length, ...courses.map((c) => c.length), 0.5)
   const H = Math.max(spec.reqHeight, face.height, 0.5)
   const k = 100
@@ -168,6 +168,9 @@ export function FaceElevation({
       })}
       {wales.map((y, i) => (
         <line key={i} x1={X(0) - fs * 0.6} x2={X(Math.max(spec.length, ...courses.map((c) => c.length))) + fs * 0.6} y1={Y(y)} y2={Y(y)} className="stroke-teal-700" strokeWidth={fs * 0.35} opacity={0.75} pointerEvents="none" />
+      ))}
+      {waleU.map((u, i) => (
+        <line key={`v${i}`} x1={X(u)} x2={X(u)} y1={Y(0) + fs * 0.6} y2={Y(Math.max(spec.reqHeight, face.height)) - fs * 0.6} className="stroke-teal-700" strokeWidth={fs * 0.35} opacity={0.75} pointerEvents="none" />
       ))}
       {ties.map((t, i) => (
         <circle key={i} cx={X(t.u)} cy={Y(t.y)} r={fs * 0.4} className={t.clash ? 'fill-red-600' : 'fill-violet-700'} pointerEvents="none" />

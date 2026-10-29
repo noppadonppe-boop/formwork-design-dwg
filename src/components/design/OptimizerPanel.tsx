@@ -13,10 +13,10 @@ import type { OptMessage, OptRequest } from '@/optimizer/worker'
 
 const PRICE_KEY = 'formwork-studio:optimizer'
 
-type OptSettings = { prices: OptPrices; target: number; allowSteel: boolean }
+type OptSettings = { prices: OptPrices; target: number; allowSteel: boolean; bothSystems: boolean }
 
 function normalize(v: Partial<OptSettings> | undefined): OptSettings {
-  return { prices: { ...DEFAULT_PRICES, ...v?.prices, plywood: { ...DEFAULT_PRICES.plywood, ...v?.prices?.plywood } }, target: v?.target ?? 1, allowSteel: v?.allowSteel ?? false }
+  return { prices: { ...DEFAULT_PRICES, ...v?.prices, plywood: { ...DEFAULT_PRICES.plywood, ...v?.prices?.plywood } }, target: v?.target ?? 1, allowSteel: v?.allowSteel ?? false, bothSystems: v?.bothSystems ?? true }
 }
 
 function loadSettings(): OptSettings {
@@ -110,6 +110,7 @@ export function OptimizerPanel({ draft, criteria, onApply }: { draft: ElementDat
         </div>
         <div className="flex flex-wrap items-center gap-4">
           <Toggle label="ลองเคร่า/คานเหล็ก (C, □) ด้วย" checked={s.allowSteel} onChange={(v) => setS({ ...s, allowSteel: v })} />
+          {draft.type === 'wall' && <Toggle label="ลองทั้งเคร่าตั้งและเคร่านอน" checked={s.bothSystems} onChange={(v) => setS({ ...s, bothSystems: v })} />}
           <button type="button" onClick={run} disabled={!!progress} className="ml-auto inline-flex h-10 items-center gap-2 rounded-lg bg-brand px-4 text-sm font-medium text-white hover:bg-brand-hover disabled:opacity-60">
             {progress ? <Loader2 size={16} className="animate-spin" /> : <Play size={16} />} {progress ? 'กำลังค้นหา…' : 'เริ่มค้นหา'}
           </button>

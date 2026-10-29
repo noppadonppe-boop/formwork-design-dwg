@@ -33,6 +33,16 @@ describe('optimizer', () => {
     expect(variants(el, { allowSteel: true }).length).toBeGreaterThan(variants(el, { allowSteel: false }).length)
   })
 
+  it('walls: bothSystems also tries horizontal studs on vertical wales', () => {
+    const w = newElement('wall', DEFAULT_CRITERIA, [])
+    const one = variants(w, { allowSteel: false })
+    const two = variants(w, { allowSteel: false, bothSystems: true })
+    expect(two).toHaveLength(2 * one.length)
+    expect(new Set(two.map((v) => (v.input as { system?: string }).system))).toEqual(new Set(['vertical', 'horizontal']))
+    const { results } = optimize(w, DEFAULT_CRITERIA, { ...opts, bothSystems: true })
+    expect(results.length).toBeGreaterThan(0)
+  })
+
   it('cost grows with the plywood price', () => {
     const el = newElement('wall', DEFAULT_CRITERIA, [])
     const run = runDesign(el, DEFAULT_CRITERIA)

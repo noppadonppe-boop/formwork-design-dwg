@@ -67,6 +67,7 @@ export function faceSpecs(g: ElementGeom, a: Pick<AssemblyData, 'faces' | 'linke
     out[f.key] = {
       ...f,
       wales: f.wales.map((y) => r3(y + yOffset)),
+      ...(f.waleU ? { waleU: f.waleU.map((u) => r3(u + offset)) } : {}),
       ties: f.ties.map((p) => ({ u: r3(p.u + offset), y: r3(p.y + yOffset) })),
       through,
       offset,
@@ -207,6 +208,8 @@ export interface FaceResult {
   courses: { y: number; h: number; length: number; joints: number[] }[]
   height: number
   wales: number[]
+  /** vertical wales, m along the face */
+  waleU: number[]
   ties: { u: number; y: number; clash: boolean }[]
   checks: PanelCheck[]
   status: Status
@@ -260,6 +263,24 @@ export function analyzeFace(spec: FaceSpec, layout: FaceLayout, panels: Map<stri
     else checks.push({ status: 'ok', label: `สูง ${height.toFixed(2)} ม. ≥ ${spec.reqHeight.toFixed(2)} ม.${extra}` })
   }
 
+  // horizontal studs on vertical wales: the studs of a panel run to its ends, so every panel end must lie within the
+  // stud cantilever of the design from a wale
+  const waleU = spec.waleU ?? []
+  if (waleU.length && spec.studReach !== undefined) {
+    let worst = 0
+    let at = 0
+    placed.forEach((p) => {
+      if (p.panel?.stud.dir !== 'horizontal') return
+      for (const u of [p.x, p.x + p.w]) {
+        const d = Math.min(...waleU.map((w) => Math.abs(w - u)))
+        if (d > worst) [worst, at] = [d, u]
+      }
+    })
+    if (worst > spec.studReach + TOL)
+      checks.push({ status: 'warn', label: `ปลายแผงที่ ${at.toFixed(2)} ม. ห่างคานตั้ง ${(worst * 100).toFixed(0)} ซม. — เคร่านอนยื่นได้ไม่เกิน ${(spec.studReach * 100).toFixed(0)} ซม.`, detail: 'จัดรอยต่อแผงให้ใกล้คานตั้ง หรือเพิ่มคานตั้งที่รอยต่อ' })
+    else if (placed.some((p) => p.panel?.stud.dir === 'horizontal')) checks.push({ status: 'ok', label: `ปลายแผงทุกแผงอยู่ในช่วงยื่นของเคร่านอน (≤ ${(spec.studReach * 100).toFixed(0)} ซม. จากคานตั้ง)` })
+  }
+
   const ties = spec.ties.map((t) => {
     const c = courses.find((c) => t.y >= c.y - TOL && t.y <= c.y + c.h + TOL)
     const nearJoint = !!c && c.joints.some((j) => Math.abs(j - t.u) < TIE_CLEAR)
@@ -273,7 +294,7 @@ export function analyzeFace(spec: FaceSpec, layout: FaceLayout, panels: Map<stri
         ? { status: 'warn', label: `Form tie ${clash} ตำแหน่งตกใกล้รอยต่อแผง (< ${TIE_CLEAR * 100} ซม.)`, detail: 'สลับตำแหน่งแผง หรือย้ายแผงเสริม' }
         : { status: 'ok', label: `Form tie ${ties.length} ตำแหน่ง ไม่ตกที่รอยต่อแผง` },
     )
-  return { spec, placed, courses, height, wales: spec.wales, ties, checks, status: panelStatus(checks) }
+  return { spec, placed, courses, height, wales: spec.wales, waleU, ties, checks, status: panelStatus(checks) }
 }
 
 // ---------------------------------------------------------------- the whole assembly
@@ -329,8 +350,10 @@ export function analyzeAssembly(a: AssemblyData, el: ElementData, run: AnyDesign
       for (const p of elementModel(el, run).parts) {
         if ((p.group !== 'wale' && p.group !== 'yoke') || p.shape !== 'box') continue
         const b = p as BoxPart
-        const faces = along(b.size[0] >= b.size[2] ? 0 : 2)
-        const length = r3(Math.max(b.size[0], b.size[2]))
+        // a vertical wale (horizontal studs) stands on the faces along x (wall faces A/C)
+        const vertical = b.size[1] > Math.max(b.size[0], b.size[2])
+        const faces = along(vertical || b.size[0] >= b.size[2] ? 0 : 2)
+        const length = r3(vertical ? b.size[1] : Math.max(b.size[0], b.size[2]))
         const w = wales.find((w) => w.faces === faces && Math.abs(w.length - length) < 0.001)
         if (w) w.count++
         else wales.push({ faces, length, count: 1 })

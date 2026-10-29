@@ -86,9 +86,10 @@ export function assembly3d(r: AssemblyResult, el: ElementData): Asm3D {
     }
   }
 
-  // wales / yokes at the design levels, a pair stacked with the design gap
+  // wales / yokes at the design levels, a pair stacked with the design gap; vertical wales (horizontal studs) at their
+  // positions along the face, a pair side by side, the full height of the panels
   const ws = waleSectionOf(el)
-  const waleFaces = specs.filter((f) => f.wales.length)
+  const waleFaces = specs.filter((f) => f.wales.length || f.waleU?.length)
   if (ws && waleFaces.length) {
     const sec = getSection(ws.sectionId)
     const wb = sec.B / 100
@@ -102,6 +103,12 @@ export function assembly3d(r: AssemblyResult, el: ElementData): Asm3D {
         for (let j = 0; j < ws.count; j++) {
           const yc = ws.count === 2 ? y + (j ? 1 : -1) * (wb / 2 + WALE_PAIR_GAP / 2) : y
           parts.push({ id: `${f.key}-wale-${i}-${j}`, kind: 'wale', ...box(f, -ext, len + ext, yc - wb / 2, yc + wb / 2, depth, depth + wd), step, face: f.key, course: 0, n: f.n, v: ZERO })
+        }
+      const top = Math.max(f.reqHeight, r.faces[f.key]!.height)
+      for (const [i, u] of (f.waleU ?? []).entries())
+        for (let j = 0; j < ws.count; j++) {
+          const uc = ws.count === 2 ? u + (j ? 1 : -1) * (wb / 2 + WALE_PAIR_GAP / 2) : u
+          parts.push({ id: `${f.key}-wale-v${i}-${j}`, kind: 'wale', ...box(f, uc - wb / 2, uc + wb / 2, 0, top, depth, depth + wd), step, face: f.key, course: 0, n: f.n, v: ZERO })
         }
     }
   }
@@ -121,7 +128,9 @@ export function assembly3d(r: AssemblyResult, el: ElementData): Asm3D {
         const b = [0, 1, 2].map((k) => a[k] - f.n[k] * (across + 2 * reach)) as Vec3
         parts.push({ id: `${f.key}-tie-${i}`, kind: 'tie', center: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2], size: [0.014, 0.014, 0.014], from: a, to: b, step, course: 0, n: ZERO, v: ZERO })
         // the plate on the opposite face is the same box moved across the concrete and both form depths
-        const near = box(f, t.u - tp.along / 2, t.u + tp.along / 2, t.y - tp.across / 2, t.y + tp.across / 2, out, out + tp.t)
+        // the plate runs along the wale: across the face on horizontal wales, up it on vertical ones
+        const [du, dy] = f.waleU?.length ? [tp.across, tp.along] : [tp.along, tp.across]
+        const near = box(f, t.u - du / 2, t.u + du / 2, t.y - dy / 2, t.y + dy / 2, out, out + tp.t)
         const shift = across + 2 * out + tp.t
         const far = [0, 1, 2].map((k) => near.center[k] - f.n[k] * shift) as Vec3
         parts.push({ id: `${f.key}-tieplate-${i}-a`, kind: 'plate', ...near, step, course: 0, n: f.n, v: ZERO })
