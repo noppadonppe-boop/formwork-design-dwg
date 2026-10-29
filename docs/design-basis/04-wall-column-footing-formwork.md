@@ -367,7 +367,7 @@ Superscript 1 = governed by shear (ควบคุมโดยแรงตัด
 - **Wall with thickness change (กำแพงลดความหนา)** Fig 8.7: Plan A — scab (ไม้ประกับ) splice joining upper and lower panels (with filler) for low pressure/short panels; Plan B — extend lower studs to overlap upper part with filler (for tall/high-pressure). Components labelled: sheathing, stud, wale, wedge clamp, scab, washers, filler, form tie.
 - **Wall with pilaster/haunch/attached beam (กำแพงที่มีบ่าหรือคานแนบ)** Fig 8.8: extra studs in the projecting zone, long enough to develop and resist pressure; extra ties and wales there (labels: sheathing, stud, wale, scab, washers, filler, wedge clamp, form tie).
 - **Wall with attached column (pilaster form)** Fig 8.9: like a column form + wall form; column side panels perpendicular to wall erected first, then parallel face; clamp with timber/steel yokes; braces from wall wales to pilaster studs; ties balanced across wale spans.
-- **Curved wall (กำแพงโค้ง)** Fig 8.10: plywood bent to radius limits (Table 3.6 ข); else narrow vertical boards (1" vertical plank sheathing). Studs horizontal (templet rings 2"×8" cut to radius), wales vertical (2-2"×4"), more ties than normal; braces 2"×4" at 6'–8' centres.
+- **Curved wall (กำแพงโค้ง)** Fig 8.10: plywood bent to radius limits (Table 3.6 ข); else narrow vertical boards (1" vertical plank sheathing). Studs horizontal (templet rings 2"×8" cut to radius), wales vertical (2-2"×4"), more ties than normal; braces 2"×4" at 6'–8' centres. (Horizontal studs on vertical wales for any wall: A.8.)
 - **Wall corners (มุมกำแพง)** Fig 8.11: sheathing butt tightly at corner; edge studs to prevent bulging; wales continuous and locked at corner with 2"×4" scabs and 1"×6" ties ("A"), form ties strongest at corner.
 
 ### A.7 Worked examples — Chapter 8
@@ -472,6 +472,28 @@ Figure [p.316]: studs @0.20, ties @0.60, wales 0.90 apart, lowest wale 0.30 abov
 1) 4,400 kg/m². 2) 20 mm plywood, Table 8.2: `40 − (4,400−4,250)/(10,100−4,250)×10 ≈ 39` → use **20 cm** stud spacing.
 3) 1½"×3" @ 20 cm, Table 8.4: `55 − (4,400−4,000)/(5,000−4,000)×5 ≈ 53 cm`. Prefer bigger studs: 2"×4" @20: `90 − 0.4×5 = 88 cm` (as printed; table difference is 10 → 86) → use **80 cm**; c/c 80 + 10 = **90 cm**.
 4) Ties horizontally 60 cm; load on wale `0.9×4,400 = 3,960 kg/m`; Table 8.7 with "2-100×50×70×2.3" (printed; = 2-[100×50×20×2.3 lipped): `115 − (3,960−3,000)/(4,000−3,000)×15 = 100 cm` → wales **2-[100×50×20×2.3** OK.
+
+### A.8 Horizontal studs on vertical wales in the calculator (`WallInput.system`)
+The book's walls use vertical studs on horizontal wales (A.4); its curved wall (A.6, Fig 8.10) turns the system round — horizontal studs on vertical wales (strongbacks). The calculator offers that arrangement for any wall: `system: 'horizontal'` (absent = `'vertical'`, every result unchanged). The members and checks are those of A.4 with the axes swapped; pressure is still the constant Pmax over the height (A.4 convention).
+
+| Step | Vertical studs (book) | Horizontal studs (`system: 'horizontal'`) |
+|---|---|---|
+| Sheathing → stud spacing `a` | 1 m strip, continuous, `a` along the wall | same, `a` up the wall (stud rows) |
+| Studs → wale spacing | stud spans vertically between wales, `w = P·a` | stud spans **along the wall** between the vertical wales, `w = P·a`; c/c = net span + double-wale thickness (as A.4) |
+| Cantilever checks | stud above the top wale (pressure γz from the free surface) | stud **beyond the end wale**, uniform `w`: `M = w·c²/2`, `Δ = w·c⁴/8EI`; auto offset = longest passing cantilever, ≤ 15 cm (`endWaleOffsetM`). Wale **above the top tie**, load γz × wale c/c (same integration as the stud top) |
+| Wales → tie spacing | wale spans along the wall between ties | wale spans **up the wall** between tie rows, `w = P·s_wale`; tie spacing = min(wale strength, SWL ÷ (P × s_wale)), rounded to the tie modules |
+| Tie levels / positions | ties along the wale at the tie spacing | a tie at **every wale**, at tie levels from `bottomWaleOffsetM` up, re-spaced evenly so the wale cantilever above the top tie passes (`topWaleOffsetM` overrides) |
+| Tie force | `T = P·s_wale·s_tie` | `T = P·s_wale·max(gap between tie levels)` |
+| Sill nails | strip = max(lowest wale / 2, 10 cm) | strip = stud spacing `a` (the bottom stud row) |
+
+Layout (`WallLayout`): `system`, `studLevels` (horizontal studs, m above base), `waleX` (vertical wales, m along the wall), `tieLevels`, `tieX = waleX`; `studX` / `waleLevels` are empty. Quantities: stud length = 2 × rows × L, wale length = 2 × wales × count × H.
+
+Notes:
+- Lay the plywood with its long side (face grain) vertical so it spans across the horizontal studs at full strength; the material data have one plywood strength, not split by grain direction.
+- Timber horizontal studs on a wall longer than 4 m need splices: lap them on a strongback and stagger the joints row to row (warning).
+- Form Assembly: the vertical wales stand on faces A/C; every panel end must lie within the stud end cantilever of a wale (warning otherwise), and a panel whose studs run parallel to the wall's wales is flagged against the element.
+- Optimizer: for walls it may try both systems.
+- Check (unit tests, Ex 8.1 inputs with `system: 'horizontal'`): stud spacing 15 cm, wale c/c 80 cm and tie spacing 40 cm equal the vertical-stud design; the end-cantilever moment matches `w·c²/2`.
 
 ---
 

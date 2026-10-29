@@ -39,6 +39,7 @@ const toc = (L: Lfn): [string, string, [string, string][]?][] => [
       ['th-vertical', L('น้ำหนักแนวดิ่ง (พื้น/คาน)', 'Vertical loads (slab/beam)', '竖向荷载(楼板/梁)')],
       ['th-members', L('ระยะเคร่า ตง คาน', 'Stud, joist and beam spacing', '竖楞、次楞、主楞间距')],
       ['th-ties', L('Form tie', 'Form ties', '对拉螺栓')],
+      ['th-wall-system', L('กำแพง: เคร่านอน + คานตั้ง', 'Walls: horizontal studs', '墙:横楞 + 竖向背楞')],
       ['th-shores', L('เสาค้ำและการโก่งเดาะ', 'Shores and buckling', '立杆与屈曲')],
       ['th-braces', L('ค้ำยันแบบ', 'Form bracing', '模板斜撑')],
       ['th-column-shapes', L('เสากลม หลายเหลี่ยม และตัว L/T/U', 'Round, polygonal and L/T/U columns', '圆柱、多边形柱与 L/T/U 形柱')],
@@ -592,18 +593,21 @@ export function ManualPage() {
               [
                 'แท็บ Optimizer ในหน้าชิ้นส่วน — ใส่ราคาวัสดุของบริษัท (ไม้อัด/แผ่น ไม้/ลบ.ฟ. เหล็ก/กก. ไทร์ ค่าประกอบต่อชิ้น)',
                 'กด เริ่มค้นหา — ระบบลองความหนาไม้อัด ขนาดเคร่า/คาน/เสาค้ำ และวิธียึด หลายพันแบบ ภายในไม่กี่วินาที',
+                'กำแพง: เปิด ลองทั้งเคร่าตั้งและเคร่านอน (เปิดไว้เป็นค่าเริ่มต้น) เพื่อให้ลองทั้งสองระบบโครงแบบ — ผลลัพธ์บอกระบบที่ได้ เช่น เคร่านอน / คานตั้ง',
                 'ทุกแบบในตารางผ่านการตรวจสอบครบ เรียงจากถูกไปแพง เทียบกับแบบปัจจุบันและ % ที่ประหยัด',
                 'กด ใช้แบบนี้ แล้วตรวจผลในแท็บผลการคำนวณอีกครั้ง',
               ],
               [
                 'Optimizer tab on the element page — enter your company prices (plywood/sheet, timber/ft³, steel/kg, ties, assembly per piece)',
                 'Press Start search — thousands of combinations of plywood thickness, stud/beam/shore sizes and restraint methods are tried in a few seconds',
+                'Walls: Try both stud systems (on by default) tries vertical and horizontal studs — each result names its system, e.g. horizontal studs / strongbacks',
                 'Every design in the table passes all checks, sorted cheapest first and compared with the current design and the % saved',
                 'Press Use this design, then check the Results tab again',
               ],
               [
                 '构件页的“优化器”选项卡 —— 输入公司材料单价(胶合板/张、木材/ft³、钢材/kg、对拉螺栓、每件安装费)',
                 '点击“开始搜索” —— 系统在数秒内尝试数千种胶合板厚度、竖楞/梁/立杆尺寸及固定方式的组合',
+                '墙:开启“同时尝试竖楞与横楞”(默认开启)即同时尝试两种模板体系 —— 结果注明所用体系,如 横楞 / 竖向背楞',
                 '表中所有方案均通过全部验算,按造价由低到高排序,并与当前方案比较节省百分比',
                 '点击“采用此方案”,然后在计算结果选项卡中再次检查',
               ],
@@ -824,6 +828,77 @@ export function ManualPage() {
               </Formula>
             </div>
           </div>
+
+          <H3 id="th-wall-system">{L('กำแพง: เคร่านอน + คานตั้ง', 'Walls: horizontal studs on vertical wales', '墙:横楞 + 竖向背楞')}</H3>
+          <p>
+            {L(
+              <>
+                นอกจากระบบตามหนังสือ (เคร่าตั้งบนคานรับเคร่าแนวนอน) กำแพงเลือก <b>เคร่านอน + คานตั้ง</b> ได้ — ใน 3D Designer กลุ่ม <b>เคร่า</b> → <b>ระบบโครงแบบ</b> แรงไหลผ่าน แผ่นผิว → เคร่านอน
+                (พาดตามความยาวกำแพงระหว่างคานตั้ง) → คานตั้ง (พาดในแนวดิ่งระหว่างแถวไทร์) → ไทร์ที่คานตั้งทุกตัว ใช้สูตรตรวจชิ้นส่วนเดิมทั้งหมด เพียงสลับแนว และยังใช้แรงดัน Pmax คงที่ตลอดความสูงตามหนังสือ
+              </>,
+              <>
+                Besides the book's system (vertical studs on horizontal wales) a wall can use <b>horizontal studs on vertical wales</b> (strongbacks) — in the 3D Designer, <b>Studs</b> group →{' '}
+                <b>Form system</b> (ระบบโครงแบบ). The load runs sheathing → horizontal studs (spanning along the wall between the strongbacks) → strongbacks (spanning vertically between the tie
+                rows) → a tie at every strongback. The member checks are the same with the axes swapped, and the pressure is still the constant Pmax over the height, as in the book.
+              </>,
+              <>
+                除教材的体系(竖楞 + 水平围檩)外,墙还可选择 <b>横楞 + 竖向背楞</b> —— 在 3D 设计器 <b>竖楞</b> 组 → <b>模板体系</b>(ระบบโครงแบบ)中选择。传力路径:面板 → 横楞(沿墙长在竖向背楞之间跨越)→
+                竖向背楞(在各排对拉螺栓之间竖向跨越)→ 每根背楞处设对拉螺栓。构件验算公式不变,仅方向互换,侧压力仍按教材取全高恒定的 Pmax。
+              </>,
+            )}
+          </p>
+          <Table
+            head={L(['', 'เคร่าตั้ง + คานนอน', 'เคร่านอน + คานตั้ง'], ['', 'Vertical studs + horizontal wales', 'Horizontal studs + vertical wales'], ['', '竖楞 + 水平围檩', '横楞 + 竖向背楞'])}
+            rows={L(
+              [
+                [<b>ระยะเคร่า</b>, 'ตามความยาวกำแพง', 'ตามความสูง (แถวเคร่า)'],
+                [<b>ระยะคาน</b>, 'ระดับคานรับเคร่า (แนวดิ่ง)', 'ระยะคานตั้ง c/c (แนวนอน)'],
+                [<b>ระยะไทร์</b>, 'ตามแนวนอน บนคานรับเคร่า', 'ตามแนวดิ่ง ที่คานตั้งทุกตัว'],
+                [<b>ช่วงยื่นที่ตรวจ</b>, 'เคร่ายื่นเหนือคานบนสุด', 'เคร่ายื่นเลยคานตั้งริม · คานตั้งยื่นเหนือไทร์บนสุด'],
+                [<b>เหมาะกับ</b>, 'กำแพงทั่วไป ตามหนังสือ', 'กำแพงยาวหรือสูง แผงสำเร็จรูป คานตั้งเหล็ก ค้ำยันยึดที่คานตั้งได้ตรง'],
+              ],
+              [
+                [<b>Stud spacing</b>, 'Along the wall', 'Up the wall (stud rows)'],
+                [<b>Wale spacing</b>, 'Wale levels (vertical)', 'Strongback c/c (horizontal)'],
+                [<b>Tie spacing</b>, 'Horizontal, along the wales', 'Vertical, at every strongback'],
+                [<b>Cantilevers checked</b>, 'Studs above the top wale', 'Studs beyond the end strongback · strongbacks above the top tie'],
+                [<b>Suits</b>, 'Ordinary walls, as in the book', 'Long or tall walls, prefabricated panels, steel strongbacks; braces fix straight to the strongbacks'],
+              ],
+              [
+                [<b>竖楞间距</b>, '沿墙长', '沿墙高(各排横楞)'],
+                [<b>围檩间距</b>, '围檩标高(竖向)', '竖向背楞中距(水平)'],
+                [<b>螺栓间距</b>, '水平,沿围檩', '竖向,每根背楞处'],
+                [<b>悬臂验算</b>, '竖楞伸出最上道围檩', '横楞伸出端部背楞 · 背楞伸出最上排螺栓'],
+                [<b>适用</b>, '一般墙体,同教材', '长墙或高墙、定型模板、钢背楞;斜撑可直接固定于背楞'],
+              ],
+            )}
+          />
+          <Formula
+            note={L(
+              'c = ระยะจากคานตั้งริมถึงปลายกำแพง — เว้นว่างให้ระบบเลือกช่วงยื่นยาวสุดที่ผ่าน ไม่เกิน 15 ซม. · ช่วงยื่นของคานตั้งเหนือไทร์บนสุดคิดแรงดันเพิ่มจากผิวคอนกรีต (γz) เหมือนเคร่าตั้ง',
+              'c = end strongback to the end of the wall — left blank, the longest passing cantilever up to 15 cm · the strongback above the top tie takes the pressure growing from the concrete surface (γz), as the vertical studs do',
+              'c = 端部背楞至墙端的距离 —— 留空时取满足要求的最大悬臂且不超过 15 cm · 背楞伸出最上排螺栓部分按自混凝土表面递增的压力(γz)计算,与竖楞相同',
+            )}
+          >
+            {L('เคร่ายื่นปลาย: M = w·c²/2 · Δ = w·c⁴/8EI · ไทร์: T = P × s_คานตั้ง × s_ไทร์ ≤ SWL', 'Stud end: M = w·c²/2 · Δ = w·c⁴/8EI · tie: T = P × s_strongback × s_tie ≤ SWL', '横楞端部:M = w·c²/2 · Δ = w·c⁴/8EI · 螺栓:T = P × s_背楞 × s_螺栓 ≤ SWL')}
+          </Formula>
+          <Tip>
+            {L(
+              <>
+                วาง <b>ไม้อัดด้านยาวตามแนวตั้ง</b> ให้ลายไม้ผิวขวางเคร่านอน · กำแพงยาวเกิน 4 ม. เคร่านอนไม้ต้อง <b>ต่อทาบบนคานตั้ง และสลับแนวรอยต่อแต่ละแถว</b> · ใช้แผงสำเร็จรูปที่ <b>วางเคร่านอน</b>{' '}
+                และจัดรอยต่อแผงให้อยู่ใกล้คานตั้ง (ดู 7.4) · Optimizer เปิด <b>ลองทั้งเคร่าตั้งและเคร่านอน</b> เพื่อเทียบราคาสองระบบ
+              </>,
+              <>
+                Lay the <b>plywood with its long side vertical</b> so the face grain spans across the horizontal studs · on walls longer than 4 m, <b>lap timber studs on a strongback and stagger the
+                joints row to row</b> · use stock panels with <b>horizontal studs</b> and keep the panel joints close to the strongbacks (see 7.4) · turn on <b>Try both stud systems</b> in the
+                Optimizer to compare the cost of the two
+              </>,
+              <>
+                <b>胶合板长边竖向铺设</b>,使面层纹理横跨横楞 · 墙长超过 4 m 时,木横楞须 <b>在背楞上搭接并逐排错开接头</b> · 选用 <b>横向布楞</b> 的定型模板,并使模板拼缝靠近背楞(见 7.4)· 在优化器中开启 <b>同时尝试竖楞与横楞</b>{' '}
+                以比较两种体系的造价
+              </>,
+            )}
+          </Tip>
 
           <H3 id="th-shores">{L('เสาค้ำ นั่งร้าน และการโก่งเดาะ', 'Shores, scaffolding and buckling', '立杆、脚手架与屈曲')}</H3>
           <div className="grid items-center gap-4 md:grid-cols-[1.1fr_1fr]">
@@ -1334,6 +1409,7 @@ function AssemblySection() {
             </>,
             <>
               <b>เคร่า</b>: เลือกวัสดุ (ไม้ หรือ เหล็ก) หน้าตัด แนวเคร่า (ตั้ง / นอน) และ <b>ระยะเคร่าไม่เกิน</b> — ระบบวางเคร่าใต้รอยต่อไม้อัดทุกแนว แล้วแบ่งช่วงที่เหลือเท่า ๆ กันไม่เกินระยะที่กำหนด
+              · แนวเคร่าต้องตรงกับระบบของกำแพงที่จะใช้ (กำแพงเคร่านอนใช้แผงเคร่านอน)
             </>,
             <>
               <b>เคร่าปิดขอบ</b> ซ้าย / ขวา / บน / ล่าง — ด้านที่ไม่ปิดขอบ ไม้อัดจะยื่นเลยเคร่าตัวริมประมาณครึ่งช่วง เพื่อต่อชนกับแผงข้างเคียงที่มีเคร่าปิดขอบ
@@ -1358,7 +1434,7 @@ function AssemblySection() {
             </>,
             <>
               <b>Studs</b>: choose the material (timber or steel), the section, the direction (vertical / horizontal) and the <b>maximum stud spacing</b> — a stud goes under every plywood joint
-              and the rest are spaced equally, no further apart than the limit
+              and the rest are spaced equally, no further apart than the limit · the direction must match the wall it is used on (a horizontal-stud wall takes panels with horizontal studs)
             </>,
             <>
               <b>Edge studs</b> left / right / top / bottom — at a side without one the plywood runs about half a spacing past the last stud, to butt against a neighbouring panel that has one
@@ -1383,7 +1459,7 @@ function AssemblySection() {
               选择 <b>胶合板</b>、厚度及 <b>铺板方向</b> —— “自动”会选择用板最少、拼缝最少的方向
             </>,
             <>
-              <b>竖楞</b>:选择材料(木或钢)、截面、方向(竖向 / 横向)及 <b>竖楞最大间距</b> —— 每条胶合板拼缝下均设竖楞,其余等分布置,间距不超过限值
+              <b>竖楞</b>:选择材料(木或钢)、截面、方向(竖向 / 横向)及 <b>竖楞最大间距</b> —— 每条胶合板拼缝下均设竖楞,其余等分布置,间距不超过限值 · 方向须与所用墙体的体系一致(横楞墙使用横向布楞的模板)
             </>,
             <>
               <b>封边竖楞</b> 左 / 右 / 上 / 下 —— 不封边的一侧,胶合板伸出最外竖楞约半个间距,用于与相邻带封边的模板对接
@@ -1541,6 +1617,8 @@ function AssemblySection() {
             [<b>Form tie</b>, 'ไม่มี tie ตกห่างรอยต่อแผงน้อยกว่า 10 ซม.'],
             [<b>แผงที่ใช้ต่อ 1 ชุด</b>, 'จำนวนที่ใช้ไม่เกินสต็อก (ตัวเลขแดง = ไม่พอ) · จุดสีหน้ารหัส = ผลตรวจแผงนั้นกับชิ้นงาน'],
             [<b>คานรับเคร่า / คานรัด</b>, 'แสดงความยาวและจำนวนท่อนตามที่ออกแบบไว้ในชิ้นงาน'],
+            [<b>แนวเคร่าของแผง (กำแพง)</b>, 'เคร่าของแผงขวางคาน — แผงเคร่าตั้งบนกำแพงคานนอน หรือแผงเคร่านอนบนกำแพงคานตั้ง'],
+            [<b>ปลายแผง (กำแพงเคร่านอน)</b>, 'ปลายแผงทุกแผงห่างคานตั้งไม่เกินช่วงยื่นของเคร่านอนที่คำนวณได้ — รอยต่อแผงที่ตกกลางช่วงคานตั้งจะเตือน'],
           ],
           [
             [<b>Length</b>, 'The panels of each course add up to the face length exactly (short, long or past the corner = fail)'],
@@ -1548,6 +1626,8 @@ function AssemblySection() {
             [<b>Form ties</b>, 'No tie is closer than 10 cm to a panel joint'],
             [<b>Panels per set</b>, 'Quantity used ≤ stock (red number = short) · the dot before the code = that panel checked against the element'],
             [<b>Wales / yokes</b>, 'Lengths and number of pieces as designed for the element'],
+            [<b>Panel stud direction (walls)</b>, "The panel's studs cross the wales — vertical-stud panels on a wall with horizontal wales, horizontal-stud panels on a wall with strongbacks"],
+            [<b>Panel ends (horizontal-stud walls)</b>, 'Every panel end lies within the designed stud cantilever of a strongback — a joint falling midway between strongbacks warns'],
           ],
           [
             [<b>长度</b>, '每层模板拼接后正好等于该面长度(不足、超出或伸出转角 = 不满足)'],
@@ -1555,6 +1635,8 @@ function AssemblySection() {
             [<b>对拉螺栓</b>, '无螺栓距模板拼缝小于 10 cm'],
             [<b>每套所用模板</b>, '用量不超过库存(红色数字 = 不足)· 编号前的圆点 = 该模板按构件验算的结果'],
             [<b>围檩 / 柱箍</b>, '按构件设计给出长度及根数'],
+            [<b>模板布楞方向(墙)</b>, '模板的楞与围檩垂直 —— 水平围檩墙用竖向布楞模板,竖向背楞墙用横向布楞模板'],
+            [<b>模板端部(横楞墙)</b>, '每块模板端部距背楞不超过计算所得的横楞悬臂长度 —— 拼缝落在两背楞中间时给出警告'],
           ],
         )}
       />
