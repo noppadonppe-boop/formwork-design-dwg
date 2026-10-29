@@ -428,7 +428,9 @@ function AssemblyEditor({ assembly, elements, panels, criteria, canEdit, project
           </div>
           {r.wales.length > 0 && (
             <div className="card p-3">
-              <h3 className="mb-2 text-sm font-semibold">{g.waleLabel} (ตามที่ออกแบบ)</h3>
+              <h3 className="mb-2 text-sm font-semibold">
+                {g.waleLabel} ({r.relaid ? 'จัดตามรอยต่อแผง' : 'ตามที่ออกแบบ'})
+              </h3>
               <ul className="text-sm">
                 {r.wales.map((w, i) => (
                   <li key={i} className="flex justify-between py-0.5">
