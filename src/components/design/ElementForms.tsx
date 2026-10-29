@@ -196,7 +196,8 @@ function WallFields({ inp, set }: { inp: WallInput; set: (fn: (i: WallInput) => 
           onChange={(system) => set((i) => ({ ...i, system }))}
         />
         <MemberPicker label="เคร่า" sectionId={inp.stud.sectionId} materialId={inp.stud.materialId} onChange={(v) => set((i) => ({ ...i, stud: { ...i.stud, ...v } }))} />
-        <NumField label={horizontal ? 'ระยะเคร่าตามแนวดิ่ง' : 'ระยะเคร่า'} unit="ซม." optional placeholder="อัตโนมัติ" hint="เว้นว่าง = ให้ระบบเลือก" value={inp.stud.spacingCm} min={5} max={120} onChange={(v) => set((i) => ({ ...i, stud: { ...i.stud, spacingCm: v } }))} />
+        <NumField label={horizontal ? 'ระยะเคร่าตามแนวดิ่ง' : 'ระยะเคร่า'} unit="ซม." optional placeholder="อัตโนมัติ" hint={inp.graded && horizontal ? 'ระยะที่แถวล่างสุด — ด้านบนห่างขึ้นตามแรงดัน' : 'เว้นว่าง = ให้ระบบเลือก'} value={inp.stud.spacingCm} min={5} max={120} onChange={(v) => set((i) => ({ ...i, stud: { ...i.stud, spacingCm: v } }))} />
+        {horizontal && <Toggle label="ระยะเคร่าและไทร์แปรตามแรงดัน (ห่างขึ้นด้านบน)" checked={!!inp.graded} onChange={(v) => set((i) => ({ ...i, graded: v || undefined }))} />}
       </Group>
       <Group title={horizontal ? 'คานตั้ง (Strongbacks)' : 'คานรับเคร่า (Wales)'} part="wale">
         <MemberPicker label={horizontal ? 'คานตั้ง' : 'คานรับเคร่า'} sectionId={inp.wale.sectionId} materialId={inp.wale.materialId} onChange={(v) => set((i) => ({ ...i, wale: { ...i.wale, ...v } }))} />

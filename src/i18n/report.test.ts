@@ -16,6 +16,7 @@ const VARIANTS: [Types.ElementType, Patch][] = [
   ...(['ACI347', 'CIRA', 'HYDROSTATIC'] as const).map((m): [Types.ElementType, Patch] => ['wall', (i) => ({ ...i, pressure: { ...i.pressure, method: m } })]),
   ['wall', (i) => ({ ...i, thickness: 0.6, height: 6 })],
   ['wall', (i) => ({ ...i, system: 'horizontal', length: 6 })],
+  ['wall', (i) => ({ ...i, system: 'horizontal', graded: true })],
   ['column', (i) => i],
   ['column', (i) => ({ ...i, tie: { ...i.tie, enabled: false } })],
   ['column', (i) => ({ ...i, b: 0.9, h: 1.2, tie: { ...i.tie, enabled: true, spans: 3, shortSpans: 2 } })],

@@ -886,16 +886,18 @@ export function ManualPage() {
             {L(
               <>
                 วาง <b>ไม้อัดด้านยาวตามแนวตั้ง</b> ให้ลายไม้ผิวขวางเคร่านอน · กำแพงยาวเกิน 4 ม. เคร่านอนไม้ต้อง <b>ต่อทาบบนคานตั้ง และสลับแนวรอยต่อแต่ละแถว</b> · ใช้แผงสำเร็จรูปที่ <b>วางเคร่านอน</b>{' '}
-                และจัดรอยต่อแผงให้อยู่ใกล้คานตั้ง (ดู 7.4) · Optimizer เปิด <b>ลองทั้งเคร่าตั้งและเคร่านอน</b> เพื่อเทียบราคาสองระบบ
+                และจัดรอยต่อแผงให้อยู่ใกล้คานตั้ง (ดู 7.4) · Optimizer เปิด <b>ลองทั้งเคร่าตั้งและเคร่านอน</b> เพื่อเทียบราคาสองระบบ · เปิด <b>ระยะเคร่าและไทร์แปรตามแรงดัน</b>{' '}
+                ให้แถวเคร่าและแถวไทร์ห่างขึ้นในช่วงบนที่แรงดันยังไม่ถึง Pmax (แต่ละช่วงตรวจที่แรงดันของแถวล่าง) — ประหยัดเคร่าและไทร์ แต่ต้องวางตามระยะในแบบให้ตรง
               </>,
               <>
                 Lay the <b>plywood with its long side vertical</b> so the face grain spans across the horizontal studs · on walls longer than 4 m, <b>lap timber studs on a strongback and stagger the
                 joints row to row</b> · use stock panels with <b>horizontal studs</b> and keep the panel joints close to the strongbacks (see 7.4) · turn on <b>Try both stud systems</b> in the
-                Optimizer to compare the cost of the two
+                Optimizer to compare the cost of the two · turn on <b>Stud and tie spacing by pressure</b> to space the stud rows and tie rows wider near the top, where the pressure is still below
+                Pmax (each gap checked at the pressure of its lower row) — fewer studs and ties, but set them out exactly as drawn
               </>,
               <>
                 <b>胶合板长边竖向铺设</b>,使面层纹理横跨横楞 · 墙长超过 4 m 时,木横楞须 <b>在背楞上搭接并逐排错开接头</b> · 选用 <b>横向布楞</b> 的定型模板,并使模板拼缝靠近背楞(见 7.4)· 在优化器中开启 <b>同时尝试竖楞与横楞</b>{' '}
-                以比较两种体系的造价
+                以比较两种体系的造价 · 开启 <b>横楞与螺栓间距随侧压力变化</b>,在侧压力尚未达到 Pmax 的上部加大横楞及螺栓排距(每段按其下排处的侧压力验算)—— 可节省横楞与螺栓,但须严格按图放样
               </>,
             )}
           </Tip>

@@ -149,6 +149,8 @@ export const REPORT_DICT: [th: string, en: string, zh: string][] = [
   ['โมเมนต์ที่ไทร์บนสุด', 'Moment at the top tie', '最上排对拉螺栓处弯矩'],
   ['แรงเฉือนที่ไทร์บนสุด', 'Shear at the top tie', '最上排对拉螺栓处剪力'],
   ['จัดระยะไทร์ใหม่ให้เท่ากัน', 'Ties re-spaced evenly', '对拉螺栓重新等距布置'],
+  ['ระยะเคร่าแปรตามความลึก', 'Stud spacing by depth', '按深度的横楞间距'],
+  ['ระยะไทร์แปรตามความลึก', 'Tie spacing by depth', '按深度的对拉螺栓间距'],
   ['เคร่านอนยาวเกินท่อนไม้', 'Horizontal studs longer than a timber length', '横楞长度超过木料长度'],
   ['ต่อทาบบนคานตั้ง และสลับแนวรอยต่อแต่ละแถว', 'lap them on a strongback and stagger the joints row to row', '在竖向背楞上搭接，并逐排错开接头'],
   ['ไม้ยาง', 'Yang', '油楠木'],
