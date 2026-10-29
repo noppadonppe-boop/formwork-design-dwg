@@ -202,11 +202,17 @@ export const QUANTITY_LABEL: Record<string, [string, string]> = {
 export function layoutSummary(r: AnyDesign): { label: string; value: string }[] {
   switch (r.type) {
     case 'wall':
-      return [
-        { label: 'เคร่า @', value: `${r.design.layout.studSpacing}` },
-        { label: 'คานรับเคร่า @', value: `${r.design.layout.waleSpacing}` },
-        { label: 'ไทร์ @', value: `${r.design.layout.tieSpacing} ซม.` },
-      ]
+      return r.design.layout.system === 'horizontal'
+        ? [
+            { label: 'เคร่านอน @', value: `${r.design.layout.studSpacing}` },
+            { label: 'คานตั้ง @', value: `${r.design.layout.waleSpacing}` },
+            { label: 'ไทร์ตามแนวดิ่ง @', value: `${r.design.layout.tieSpacing} ซม.` },
+          ]
+        : [
+            { label: 'เคร่า @', value: `${r.design.layout.studSpacing}` },
+            { label: 'คานรับเคร่า @', value: `${r.design.layout.waleSpacing}` },
+            { label: 'ไทร์ @', value: `${r.design.layout.tieSpacing} ซม.` },
+          ]
     case 'column':
       return [
         ...(r.design.layout.studSpacing ? [{ label: 'เคร่า @', value: `${r.design.layout.studSpacing}` }] : []),

@@ -149,7 +149,11 @@ function partSpec(el: ElementData, p: Part): Spec | undefined {
         ? 'ท่อยึดแนวราบ'
         : el.type === 'beam' && g === 'stringer'
           ? 'คานแนวยาว'
-          : GROUP_LABEL[g]
+          : el.type === 'wall' && el.input.system === 'horizontal' && (g === 'stud' || g === 'wale')
+            ? g === 'stud'
+              ? 'เคร่านอน'
+              : 'คานตั้ง'
+            : GROUP_LABEL[g]
   return memberSpec(sm[0], sm[1], role)
 }
 

@@ -65,6 +65,7 @@ import {
   TIMBER,
   type VerticalLoads,
   type WallInput,
+  type WallSystem,
 } from '@/engine'
 import type { PartGroup } from '@/model/formModel'
 
@@ -163,6 +164,14 @@ function BraceGroup<B extends BraceParams>({ b, onChange, extra }: { b: B; onCha
 // ---------------------------------------------------------------- wall
 
 function WallFields({ inp, set }: { inp: WallInput; set: (fn: (i: WallInput) => WallInput) => void }) {
+  // horizontal studs: the lowest / top levels are the tie rows on the vertical wales
+  const horizontal = inp.system === 'horizontal'
+  const levelFields = (
+    <>
+      <NumField label={horizontal ? 'ไทร์ล่างสุดจากฐาน' : 'ตัวแรกจากฐาน'} unit="ม." value={inp.bottomWaleOffsetM} min={0.05} max={1} onChange={(v) => v && set((i) => ({ ...i, bottomWaleOffsetM: v }))} />
+      <NumField label={horizontal ? 'ไทร์บนจากขอบบน' : 'ตัวบนจากขอบบน'} unit="ม." optional placeholder="อัตโนมัติ" hint={horizontal ? 'เว้นว่าง = ช่วงยื่นของคานตั้งยาวสุดที่ผ่าน' : 'เว้นว่าง = ช่วงยื่นยาวสุดที่ผ่าน'} value={inp.topWaleOffsetM} min={0.05} max={1} onChange={(v) => set((i) => ({ ...i, topWaleOffsetM: v }))} />
+    </>
+  )
   return (
     <>
       <Group title="ขนาดกำแพง" part="concrete">
@@ -176,22 +185,35 @@ function WallFields({ inp, set }: { inp: WallInput; set: (fn: (i: WallInput) => 
       <Group title="แผ่นผิวแบบ" part="sheathing">
         <SheathingPly materialId={inp.sheathing.materialId} thicknessMm={inp.sheathing.thicknessMm} onChange={(v) => set((i) => ({ ...i, sheathing: v }))} />
       </Group>
-      <Group title="เคร่าตั้ง (Studs)" part="stud">
+      <Group title={horizontal ? 'เคร่านอน (Studs)' : 'เคร่าตั้ง (Studs)'} part="stud">
+        <Segmented<WallSystem>
+          label="ระบบโครงแบบ"
+          value={inp.system ?? 'vertical'}
+          options={[
+            { value: 'vertical', label: 'เคร่าตั้ง + คานนอน' },
+            { value: 'horizontal', label: 'เคร่านอน + คานตั้ง' },
+          ]}
+          onChange={(system) => set((i) => ({ ...i, system }))}
+        />
         <MemberPicker label="เคร่า" sectionId={inp.stud.sectionId} materialId={inp.stud.materialId} onChange={(v) => set((i) => ({ ...i, stud: { ...i.stud, ...v } }))} />
-        <NumField label="ระยะเคร่า" unit="ซม." optional placeholder="อัตโนมัติ" hint="เว้นว่าง = ให้ระบบเลือก" value={inp.stud.spacingCm} min={5} max={120} onChange={(v) => set((i) => ({ ...i, stud: { ...i.stud, spacingCm: v } }))} />
+        <NumField label={horizontal ? 'ระยะเคร่าตามแนวดิ่ง' : 'ระยะเคร่า'} unit="ซม." optional placeholder="อัตโนมัติ" hint="เว้นว่าง = ให้ระบบเลือก" value={inp.stud.spacingCm} min={5} max={120} onChange={(v) => set((i) => ({ ...i, stud: { ...i.stud, spacingCm: v } }))} />
       </Group>
-      <Group title="คานรับเคร่า (Wales)" part="wale">
-        <MemberPicker label="คานรับเคร่า" sectionId={inp.wale.sectionId} materialId={inp.wale.materialId} onChange={(v) => set((i) => ({ ...i, wale: { ...i.wale, ...v } }))} />
+      <Group title={horizontal ? 'คานตั้ง (Strongbacks)' : 'คานรับเคร่า (Wales)'} part="wale">
+        <MemberPicker label={horizontal ? 'คานตั้ง' : 'คานรับเคร่า'} sectionId={inp.wale.sectionId} materialId={inp.wale.materialId} onChange={(v) => set((i) => ({ ...i, wale: { ...i.wale, ...v } }))} />
         <Segmented label="จำนวนต่อชุด" value={String(inp.wale.count) as '1' | '2'} options={[{ value: '1', label: 'เดี่ยว' }, { value: '2', label: 'หน้าตัดคู่' }]} onChange={(v) => set((i) => ({ ...i, wale: { ...i.wale, count: Number(v) as 1 | 2 } }))} />
         <div className="grid grid-cols-2 gap-2">
-          <NumField label="ระยะ c/c" unit="ซม." optional placeholder="อัตโนมัติ" value={inp.wale.spacingCm} min={20} max={300} onChange={(v) => set((i) => ({ ...i, wale: { ...i.wale, spacingCm: v } }))} />
-          <NumField label="ตัวแรกจากฐาน" unit="ม." value={inp.bottomWaleOffsetM} min={0.05} max={1} onChange={(v) => v && set((i) => ({ ...i, bottomWaleOffsetM: v }))} />
-          <NumField label="ตัวบนจากขอบบน" unit="ม." optional placeholder="อัตโนมัติ" hint="เว้นว่าง = ช่วงยื่นยาวสุดที่ผ่าน" value={inp.topWaleOffsetM} min={0.05} max={1} onChange={(v) => set((i) => ({ ...i, topWaleOffsetM: v }))} />
+          <NumField label={horizontal ? 'ระยะ c/c ตามแนวนอน' : 'ระยะ c/c'} unit="ซม." optional placeholder="อัตโนมัติ" value={inp.wale.spacingCm} min={20} max={300} onChange={(v) => set((i) => ({ ...i, wale: { ...i.wale, spacingCm: v } }))} />
+          {horizontal ? (
+            <NumField label="ตัวริมจากปลายกำแพง" unit="ม." optional placeholder="อัตโนมัติ" hint="เว้นว่าง = ช่วงยื่นของเคร่าที่ผ่าน ≤ 15 ซม." value={inp.endWaleOffsetM} min={0} max={1} onChange={(v) => set((i) => ({ ...i, endWaleOffsetM: v }))} />
+          ) : (
+            levelFields
+          )}
         </div>
       </Group>
       <Group title="Form tie" part="tie">
         <TieSelect value={inp.tie.tieId} onChange={(v) => set((i) => ({ ...i, tie: { ...i.tie, tieId: v } }))} />
-        <NumField label="ระยะไทร์ตามแนวนอน" unit="ซม." optional placeholder="อัตโนมัติ" value={inp.tie.spacingCm} min={20} max={300} onChange={(v) => set((i) => ({ ...i, tie: { ...i.tie, spacingCm: v } }))} />
+        <NumField label={horizontal ? 'ระยะไทร์ตามแนวดิ่ง' : 'ระยะไทร์ตามแนวนอน'} unit="ซม." optional placeholder="อัตโนมัติ" hint={horizontal ? 'ตามแนวนอนไทร์อยู่ที่คานตั้งทุกตัว' : undefined} value={inp.tie.spacingCm} min={20} max={300} onChange={(v) => set((i) => ({ ...i, tie: { ...i.tie, spacingCm: v } }))} />
+        {horizontal && <div className="grid grid-cols-2 gap-2">{levelFields}</div>}
       </Group>
       <BraceGroup
         b={inp.brace}

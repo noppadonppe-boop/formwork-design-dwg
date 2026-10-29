@@ -148,7 +148,8 @@ export function elementGeom(el: ElementData, run?: AnyDesign): ElementGeom | und
       const d = run?.type === 'wall' ? run.design : undefined
       const wales = d?.layout.waleLevels ?? []
       const tieX = d?.layout.tieX ?? []
-      const tie = (us: number[]) => wales.flatMap((y) => us.map((u) => ({ u: r3(u), y })))
+      const tieLevels = d?.layout.tieLevels ?? wales
+      const tie = (us: number[]) => tieLevels.flatMap((y) => us.map((u) => ({ u: r3(u), y })))
       const side = (key: FaceKey, label: string, pair: Pair, len: number, o: Vec3, e: Vec3, n: Vec3, w: number[], ties: FaceDef['ties']): FaceDef => ({ key, label, pair, concreteL: len, height: H, extend: 'u-both', o, e, v: [0, 1, 0], n, wales: w, ties })
       return {
         type: 'wall',
